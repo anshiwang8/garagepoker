@@ -1,0 +1,9 @@
+{
+  "name": "garagepoker",
+  "private": true,
+  "packageManager": "pnpm@12.6.0",
+  "scripts": {
+    "test": "pnpm -r --if-present test",
+    "typecheck": "pnpm -r --if-present typecheck"
+  }
+}
