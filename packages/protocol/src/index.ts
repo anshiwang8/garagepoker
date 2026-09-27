@@ -13,6 +13,7 @@ import {
   type LedgerRow,
   type LegalActions,
   type LogType,
+  type Payment,
   type Street,
   type TableSettings,
   VARIANT_NAMES,
@@ -162,6 +163,8 @@ export interface TableView {
   /** Pending seat and rebuy requests. Owner only; null for everyone else. */
   requests: RequestView[] | null;
   ledger: LedgerRow[];
+  /** Once the game has ended: the fewest payments that settle the ledger (SPEC §6). */
+  settlement: Payment[] | null;
 }
 
 export interface YouView {

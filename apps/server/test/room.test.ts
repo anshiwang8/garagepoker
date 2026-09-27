@@ -136,6 +136,16 @@ describe("playing hands over WebSockets", () => {
 		expect(leaks(bob, aliceCards, ALICE)).toEqual([]);
 		// Sanity check that the scan would catch a leak: each sees its own cards.
 		expect(leaks(alice, aliceCards, BOB).length).toBeGreaterThan(0);
+
+		// Ending the game sends everyone the final ledger and settle-up.
+		expect(alice.view.settlement).toBeNull();
+		await step(all, alice, { type: "endGame" });
+		for (const c of all) {
+			expect(c.view.status).toBe("ended");
+			expect(c.view.settlement).toEqual([
+				{ from: bob.view.you.playerId, fromName: "Bob", to: alice.view.you.playerId, toName: "Alice", amount: 6_000 },
+			]);
+		}
 	});
 
 	it("shows hands only once a hand reaches showdown", async () => {

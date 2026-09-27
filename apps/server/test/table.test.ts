@@ -259,6 +259,21 @@ describe("owner menu", () => {
 		balanced(h);
 	});
 
+	it("sends the settle-up payments once the game has ended", () => {
+		const { h, owner, bob } = headsUp();
+		h.send(owner, { type: "startGame" });
+		h.act({ type: "fold" }); // owner (SB) folds: Bob wins the 1,000 small blind
+		expect(h.view(bob).settlement).toBeNull();
+		h.send(owner, { type: "endGame" });
+		const view = h.view(bob);
+		expect(view.ledger.map((r) => [r.nickname, r.net])).toEqual([
+			["owner", -1_000],
+			["bob", 1_000],
+		]);
+		expect(view.settlement).toEqual([{ from: owner, fromName: "owner", to: bob, toName: "bob", amount: 1_000 }]);
+		expect(h.view(owner).settlement).toEqual(view.settlement);
+	});
+
 	it("pauses automatically when everyone is away", () => {
 		const { h, owner, bob } = headsUp({ autoStart: true });
 		h.send(owner, { type: "startGame" });

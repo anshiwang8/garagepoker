@@ -1,6 +1,15 @@
+"use client";
+
+import type { Payment } from "@garagepoker/engine";
 import type { TableView } from "@garagepoker/protocol";
 import { formatChips } from "@/lib/chips";
-import { Modal } from "../ui";
+import { downloadText, ledgerCsv } from "@/lib/csv";
+import { Button, Modal } from "../ui";
+
+/** "Sam pays Alex $32" (or "$32.00" with display cents on). */
+export function paymentText(p: Payment, displayCents: boolean): string {
+  return `${p.fromName} pays ${p.toName} $${formatChips(p.amount, displayCents)}`;
+}
 
 export function LedgerDialog({ view, onClose }: { view: TableView; onClose?: () => void }) {
   const dc = view.settings.displayCents;
@@ -40,6 +49,30 @@ export function LedgerDialog({ view, onClose }: { view: TableView; onClose?: () 
         </div>
       )}
       <p className="mt-3 text-xs text-muted">Net = buy-out + stack − buy-in. This session only; nothing is stored.</p>
+
+      {view.settlement && (
+        <section className="mt-5 flex flex-col gap-2" aria-label="Settle up">
+          <h3 className="text-sm font-semibold">Settle up</h3>
+          {view.settlement.length === 0 ? (
+            <p className="text-sm text-muted">Everyone is square. No payments needed.</p>
+          ) : (
+            <ul className="flex flex-col gap-1.5">
+              {view.settlement.map((p, i) => (
+                <li key={i} className="rounded-lg border border-line bg-ink px-3 py-2 text-sm">
+                  {paymentText(p, dc)}
+                </li>
+              ))}
+            </ul>
+          )}
+          <p className="text-xs text-muted">The app never handles real money; it only does the arithmetic.</p>
+          <Button
+            className="self-start"
+            onClick={() => downloadText(`garagepoker-${view.tableId}-ledger.csv`, ledgerCsv(rows, view.settlement))}
+          >
+            Download CSV
+          </Button>
+        </section>
+      )}
     </Modal>
   );
 }

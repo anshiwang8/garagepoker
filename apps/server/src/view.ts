@@ -3,7 +3,7 @@
  * assembled field by field (never by spreading engine state), so the deck and
  * other players' hole cards can't leak by accident.
  */
-import { cardToString, handLabel, ledgerRows, legalActions, potTotal, splitEven } from "@garagepoker/engine";
+import { cardToString, handLabel, ledgerRows, legalActions, potTotal, settleUp, splitEven } from "@garagepoker/engine";
 import type { RequestView, SeatView, TableView } from "@garagepoker/protocol";
 import type { SeatRequest, TableData } from "./table.js";
 
@@ -62,6 +62,7 @@ export function buildView(
   const you = hand?.players.find((p) => p.seat === viewerSeat);
   const stacks: Record<string, number> = {};
   for (const s of data.seats) if (s) stacks[s.playerId] = s.stack;
+  const ledger = ledgerRows(data.ledger, stacks);
 
   return {
     tableId: data.id,
@@ -127,6 +128,7 @@ export function buildView(
         }
       : null,
     requests: isOwner ? data.requests.map(requestView) : null,
-    ledger: ledgerRows(data.ledger, stacks),
+    ledger,
+    settlement: data.status === "ended" ? settleUp(ledger) : null,
   };
 }
