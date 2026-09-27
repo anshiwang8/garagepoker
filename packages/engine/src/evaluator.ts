@@ -1,4 +1,4 @@
-import { type Card, rankOf, suitOf } from "./cards.js";
+import { type Card, rankOf, suitOf } from "./cards";
 
 export enum Category {
   HighCard = 0,

@@ -1,6 +1,6 @@
-import { type Card, rankOf } from "./cards.js";
-import { Category, CATEGORY_NAMES, type HandValue } from "./evaluator.js";
-import { handValue, type Variant } from "./hand.js";
+import { type Card, rankOf } from "./cards";
+import { Category, CATEGORY_NAMES, type HandValue } from "./evaluator";
+import { handValue, type Variant } from "./hand";
 
 export interface HandLabel {
   category: Category;

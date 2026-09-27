@@ -1,26 +1,71 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+/* Landscape layout once the screen is clearly wider than tall (SPEC §7). */
+@custom-variant wide (@media (min-aspect-ratio: 5/4));
+
+@theme {
+  --color-ink: #0b1210;
+  --color-panel: #141d1a;
+  --color-panel-2: #1c2824;
+  --color-line: #2a3934;
+  --color-text: #e8efe9;
+  --color-muted: #93a59c;
+  --color-felt: #155c3e;
+  --color-felt-dark: #0c3a27;
+  --color-rail: #3b2a1c;
+  --color-gold: #e9b949;
+  --color-gold-dark: #b8892a;
+  --color-danger: #e5484d;
+  --color-ok: #46a758;
+  /* Four-colour deck: easy to tell suits apart on a phone. */
+  --color-spade: #1b1f24;
+  --color-heart: #d8323c;
+  --color-diamond: #2466d1;
+  --color-club: #20874a;
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+html,
+body {
+  background: var(--color-ink);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  -webkit-tap-highlight-color: transparent;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+/* Numbers line up and don't jitter as they change. */
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+.safe-bottom {
+  padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
+}
+
+input[type="range"] {
+  accent-color: var(--color-gold);
+}
+
+/*
+ * Table page. Portrait (default): top bar, felt, your hand + actions, utility
+ * row. Landscape: hand + actions move to a right column; the utility row
+ * (Ledger bottom-left) stays under the felt.
+ */
+.table-layout {
+  display: grid;
+  height: 100dvh;
+  grid-template-areas: "top" "felt" "hand" "util";
+  grid-template-rows: auto minmax(0, 1fr) auto auto;
+}
+@media (min-aspect-ratio: 5/4) {
+  .table-layout {
+    grid-template-areas: "top hand" "felt hand" "util hand";
+    grid-template-columns: minmax(0, 1fr) 22rem;
+    grid-template-rows: auto minmax(0, 1fr) auto;
   }
 }
-
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
-}
+.area-top { grid-area: top; }
+.area-felt { grid-area: felt; }
+.area-hand { grid-area: hand; }
+.area-util { grid-area: util; }

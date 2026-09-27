@@ -1,4 +1,4 @@
-import { type Card, makeCard, type Suit } from "./cards.js";
+import { type Card, makeCard, type Suit } from "./cards";
 
 export type DeckSize = 52 | 36;
 

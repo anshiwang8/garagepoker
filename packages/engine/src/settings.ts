@@ -1,4 +1,4 @@
-import { type HandConfig, VARIANTS } from "./hand.js";
+import { type HandConfig, VARIANTS } from "./hand";
 
 export type VariantName = keyof typeof VARIANTS;
 export const VARIANT_NAMES = Object.keys(VARIANTS) as VariantName[];

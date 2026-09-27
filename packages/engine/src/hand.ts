@@ -1,7 +1,7 @@
-import { type Card, isCard } from "./cards.js";
-import { type DeckSize, makeDeck } from "./deck.js";
-import { bestHand, bestOmahaHand, type HandValue, type Ranking } from "./evaluator.js";
-import { computePots, type Pot, splitPot } from "./pots.js";
+import { type Card, isCard } from "./cards";
+import { type DeckSize, makeDeck } from "./deck";
+import { bestHand, bestOmahaHand, type HandValue, type Ranking } from "./evaluator";
+import { computePots, type Pot, splitPot } from "./pots";
 
 // ---------------------------------------------------------------------------
 // Configuration
