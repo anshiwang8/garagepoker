@@ -52,7 +52,7 @@ export function Modal({
         aria-modal="true"
         aria-label={title}
         onClick={(e) => e.stopPropagation()}
-        className={`w-full ${wide ? "sm:max-w-2xl" : "sm:max-w-md"} max-h-[90dvh] overflow-y-auto rounded-t-2xl sm:rounded-2xl bg-panel border border-line shadow-2xl safe-bottom`}
+        className={`w-full ${wide ? "sm:max-w-2xl" : "sm:max-w-md"} max-h-sheet overflow-y-auto rounded-t-2xl sm:rounded-2xl bg-panel border border-line shadow-2xl safe-bottom`}
       >
         <div className="sticky top-0 z-10 flex items-center justify-between gap-2 border-b border-line bg-panel px-4 py-3">
           <h2 className="text-base font-semibold">{title}</h2>

@@ -60,7 +60,8 @@ function pairText(value: HandValue, hole: readonly Card[], board: readonly Card[
   if (fromHole === 1) {
     if (pairRank === boardRanks[0]) return "Top pair";
     if (pairRank === boardRanks[1]) return "Second pair";
-    if (boardRanks.length >= 3 && pairRank === boardRanks.at(-1)) return "Bottom pair";
+    // (Not .at(-1): the engine also ships to browsers, and Array.prototype.at needs iOS 15.4+.)
+    if (boardRanks.length >= 3 && pairRank === boardRanks[boardRanks.length - 1]) return "Bottom pair";
   }
   return "Pair";
 }

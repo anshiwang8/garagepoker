@@ -42,7 +42,9 @@ export function CreateTable() {
 export function JoinTable() {
   const router = useRouter();
   const [text, setText] = useState("");
-  const id = text.trim().split("/").filter(Boolean).at(-1) ?? "";
+  // Last path segment. (Not .at(-1): Array.prototype.at needs iOS 15.4+.)
+  const parts = text.trim().split("/").filter(Boolean);
+  const id = parts[parts.length - 1] ?? "";
   const valid = TABLE_ID.test(id);
   return (
     <form

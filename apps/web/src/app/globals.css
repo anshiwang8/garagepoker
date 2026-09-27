@@ -54,7 +54,7 @@ input[type="range"] {
  */
 .table-layout {
   display: grid;
-  height: 100dvh;
+  height: 100vh;
   grid-template-areas: "top" "felt" "hand" "util";
   grid-template-rows: auto minmax(0, 1fr) auto auto;
 }
@@ -69,3 +69,21 @@ input[type="range"] {
 .area-felt { grid-area: felt; }
 .area-hand { grid-area: hand; }
 .area-util { grid-area: util; }
+
+.max-h-sheet {
+  max-height: 90vh;
+}
+
+/*
+ * dvh (iOS 15.4+) tracks the visible viewport as the browser toolbar moves.
+ * It's in @supports rather than a second declaration because the CSS
+ * minifier merges duplicate declarations and would drop the vh fallback.
+ */
+@supports (height: 100dvh) {
+  .table-layout {
+    height: 100dvh;
+  }
+  .max-h-sheet {
+    max-height: 90dvh;
+  }
+}
