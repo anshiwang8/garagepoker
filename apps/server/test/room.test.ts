@@ -1,0 +1,206 @@
+import type { ClientMessage } from "@garagepoker/protocol";
+import { env, evictDurableObject, runDurableObjectAlarm, runInDurableObject, SELF } from "cloudflare:test";
+import { describe, expect, it } from "vitest";
+import type { TableRoom } from "../src/index.js";
+import { Client, createTable, step, token } from "./helpers.js";
+
+type PlayerAction = Extract<ClientMessage, { type: "act" }>["action"];
+
+const ALICE = token("alice");
+const BOB = token("bob");
+
+/** Alice (owner, seat 1) and Bob (seat 2, stack edited by Alice) at a new table. */
+async function twoPlayerTable() {
+	const tableId = await createTable(ALICE, { autoStart: false });
+	const alice = await Client.connect(tableId, ALICE);
+	const bob = await Client.connect(tableId, BOB);
+	const all = [alice, bob];
+
+	// The owner's own seat request is approved automatically.
+	await step(all, alice, { type: "requestSeat", seat: 1, nickname: "Alice", buyIn: 100_000, postBlind: false });
+	await step(all, bob, { type: "requestSeat", seat: 2, nickname: "Bob", buyIn: 50_000, postBlind: false });
+	const [request] = alice.view.requests!;
+	expect(request).toMatchObject({ nickname: "Bob", seat: 2, amount: 50_000 });
+	expect(bob.view.requests).toBeNull();
+	// Owner edits the starting stack in the approval.
+	await step(all, alice, { type: "approveRequest", requestId: request!.id, stack: 60_000 });
+	expect(bob.view.you.seat).toBe(2);
+	expect(bob.view.seats[1]).toMatchObject({ nickname: "Bob", stack: 60_000 });
+	return { tableId, alice, bob, all };
+}
+
+/** Hole cards a client can see for itself in its latest view. */
+const ownCards = (c: Client) => c.view.seats[c.view.you.seat! - 1]!.cards as string[];
+
+describe("creating tables", () => {
+	it("validates the request with Zod and the settings with validateConfig", async () => {
+		const post = (body: unknown) =>
+			SELF.fetch("https://gp.test/api/tables", { method: "POST", body: JSON.stringify(body) });
+		expect((await post({ token: "short" })).status).toBe(400);
+		expect((await post({ token: ALICE, settings: { seats: 12 } })).status).toBe(400);
+		expect((await post({ token: ALICE, settings: { bigBlind: 2000, smallBlind: 5000 } })).status).toBe(400);
+		expect((await post({ token: ALICE, extra: 1 })).status).toBe(400);
+		const ok = await post({ token: ALICE, settings: { variant: "PLO" } });
+		expect(ok.status).toBe(201);
+		expect(((await ok.json()) as { tableId: string }).tableId).toMatch(/^[A-Za-z0-9]{10}$/);
+	});
+
+	it("404s for unknown tables and non-upgrade requests", async () => {
+		const res = await SELF.fetch("https://gp.test/api/tables/NoSuchTabl/ws", { headers: { Upgrade: "websocket" } });
+		expect(res.status).toBe(404);
+		expect((await SELF.fetch("https://gp.test/nope")).status).toBe(404);
+	});
+});
+
+describe("message validation", () => {
+	it("rejects anything that isn't a valid protocol message", async () => {
+		const tableId = await createTable(ALICE);
+		const res = await SELF.fetch(`https://gp.test/api/tables/${tableId}/ws`, { headers: { Upgrade: "websocket" } });
+		const ws = res.webSocket!;
+		ws.accept();
+		const c = new Client(ws);
+		const error = async (m: unknown) => {
+			const n = c.raw.length;
+			ws.send(typeof m === "string" ? m : JSON.stringify(m));
+			await c.waitForCount(n);
+			const reply = JSON.parse(c.raw[n]!);
+			expect(reply.type).toBe("error");
+			return reply.message as string;
+		};
+		expect(await error("{not json")).toMatch(/JSON/);
+		expect(await error({ type: "startGame" })).toMatch(/hello first/);
+		expect(await error({ type: "hello", token: "x" })).toMatch(/Invalid/);
+		expect(await error({ type: "teleport" })).toMatch(/Invalid/);
+		expect(await error({ type: "hello", token: BOB, admin: true })).toMatch(/Invalid/);
+		expect(await error("x".repeat(5000))).toMatch(/too large/);
+
+		expect((await c.request({ type: "hello", token: BOB })).type).toBe("view");
+		expect(await error({ type: "act", hand: 1, action: { type: "raise", to: 1.5 } })).toMatch(/Invalid/);
+		expect(await error({ type: "act", hand: 1, action: { type: "raise", to: -5 } })).toMatch(/Invalid/);
+		expect(await error({ type: "requestSeat", seat: 1, nickname: "<b>", buyIn: 1, postBlind: false })).toMatch(
+			/Invalid/,
+		);
+		// Well-formed, but Bob isn't the owner.
+		expect(await error({ type: "startGame" })).toMatch(/owner/);
+	});
+});
+
+describe("playing hands over WebSockets", () => {
+	it("two clients play a full hand; neither ever receives the other's hole cards", async () => {
+		const { alice, bob, all } = await twoPlayerTable();
+
+		await step(all, alice, { type: "startGame" });
+		expect(alice.view.hand).toMatchObject({ number: 1, street: "preflop", toAct: 1 });
+		const aliceCards = ownCards(alice);
+		const bobCards = ownCards(bob);
+		expect(aliceCards).toHaveLength(2);
+		expect(bobCards).toHaveLength(2);
+		expect(aliceCards.every((c) => /^[2-9TJQKA][cdhs]$/.test(c))).toBe(true);
+		// Each sees the other's cards face down.
+		expect(alice.view.seats[1]!.cards).toEqual([null, null]);
+		expect(bob.view.seats[0]!.cards).toEqual([null, null]);
+		expect(alice.view.you.label).toBeTruthy();
+
+		// Heads-up: Alice has the button, posts the SB and acts first preflop.
+		const act = (who: Client, action: PlayerAction) => step(all, who, { type: "act", hand: 1, action });
+		await act(alice, { type: "call" });
+		await act(bob, { type: "check" });
+		expect(alice.view.hand).toMatchObject({ street: "flop", toAct: 2 });
+		expect(alice.view.hand!.board).toHaveLength(3);
+		await act(bob, { type: "check" });
+		await act(alice, { type: "check" });
+		await act(bob, { type: "raise", to: 4000 });
+		expect(alice.view.you.legal).toMatchObject({ callAmount: 4000 });
+		await act(alice, { type: "call" });
+		expect(alice.view.hand).toMatchObject({ street: "river", pot: 12_000 });
+		await act(bob, { type: "check" });
+		await act(alice, { type: "raise", to: 10_000 });
+		await act(bob, { type: "fold" });
+
+		// Hand over: Alice wins 12,000 (6,000 from Bob); her uncalled 10,000 comes back.
+		expect(alice.view.hand).toBeNull();
+		expect(alice.view.lastHand).toMatchObject({ number: 1, shown: [] });
+		expect(alice.view.seats.slice(0, 2).map((s) => s!.stack)).toEqual([106_000, 54_000]);
+		const nets = alice.view.ledger.map((r) => [r.nickname, r.buyIn, r.stack, r.net]);
+		expect(nets).toEqual([
+			["Alice", 100_000, 106_000, 6_000],
+			["Bob", 60_000, 54_000, -6_000],
+		]);
+
+		// Redaction: across every message either client received, the other's
+		// hole cards never appear, and neither the deck nor any token is sent.
+		const leaks = (c: Client, cards: string[], otherToken: string) =>
+			c.raw.filter((r) => cards.some((card) => r.includes(`"${card}"`)) || r.includes(otherToken) || r.includes('"deck"'));
+		expect(alice.raw.length).toBeGreaterThan(10);
+		expect(leaks(alice, bobCards, BOB)).toEqual([]);
+		expect(leaks(bob, aliceCards, ALICE)).toEqual([]);
+		// Sanity check that the scan would catch a leak: each sees its own cards.
+		expect(leaks(alice, aliceCards, BOB).length).toBeGreaterThan(0);
+	});
+
+	it("shows hands only once a hand reaches showdown", async () => {
+		const { alice, bob, all } = await twoPlayerTable();
+		await step(all, alice, { type: "startGame" });
+		const bobCards = ownCards(bob);
+		// Check/call it down.
+		while (alice.view.hand) {
+			const toAct = alice.view.hand.toAct!;
+			const who = toAct === 1 ? alice : bob;
+			const action = who.view.you.legal!.canCheck ? { type: "check" as const } : { type: "call" as const };
+			await step(all, who, { type: "act", hand: 1, action });
+		}
+		const reveal = alice.raw.findIndex((r) => bobCards.some((c) => r.includes(`"${c}"`)));
+		expect(reveal).toBe(alice.raw.length - 1);
+		const shown = alice.view.lastHand!.shown;
+		expect(shown.map((s) => s.seat).sort()).toEqual([1, 2]);
+		expect(shown.find((s) => s.seat === 2)!.cards).toEqual(bobCards);
+		expect(shown.every((s) => s.label.length > 0)).toBe(true);
+		const total = alice.view.ledger.reduce((sum, r) => sum + r.net, 0);
+		expect(total).toBe(0);
+	});
+
+	it("keeps a seat across reconnects and after the object is evicted", async () => {
+		const { tableId, alice, bob, all } = await twoPlayerTable();
+		await step(all, alice, { type: "startGame" });
+		const cards = ownCards(bob);
+
+		// Alice sees Bob go offline, but his seat stays.
+		const before = alice.rev;
+		bob.close();
+		await alice.waitForRev(before + 1);
+		expect(alice.view.seats[1]).toMatchObject({ nickname: "Bob", connected: false });
+		const bob2 = await Client.connect(tableId, BOB);
+		expect(bob2.view.you.seat).toBe(2);
+		expect(ownCards(bob2)).toEqual(cards);
+
+		// Evict the Durable Object from memory: state reloads from storage and
+		// hibernated sockets keep working.
+		await evictDurableObject(env.TABLE.getByName(tableId));
+		await step([alice, bob2], alice, { type: "act", hand: 1, action: { type: "call" } });
+		expect(bob2.view.hand).toMatchObject({ toAct: 2 });
+		expect(ownCards(bob2)).toEqual(cards);
+	});
+
+	it("auto-acts when the decision timer and time bank run out", async () => {
+		const { tableId, alice, all } = await twoPlayerTable();
+		await step(all, alice, { type: "startGame" });
+		const stub = env.TABLE.getByName(tableId);
+		const { decisionDeadline, bankDeadline } = alice.view.hand!;
+		expect(bankDeadline! - decisionDeadline!).toBe(60_000);
+		// serverNow is stamped at broadcast, a moment after the turn started.
+		expect(decisionDeadline! - alice.view.serverNow).toBeGreaterThan(19_000);
+		expect(decisionDeadline! - alice.view.serverNow).toBeLessThanOrEqual(20_000);
+
+		// Jump the clock past decision time + the 60 s bank and fire the alarm.
+		await runInDurableObject(stub, (room: TableRoom) => {
+			const start = Date.now();
+			room.now = () => start + 81_000;
+		});
+		const rev = alice.rev;
+		expect(await runDurableObjectAlarm(stub)).toBe(true);
+		await alice.waitForRev(rev + 1);
+		// Alice (to act, facing the BB) was folded; Bob wins the blinds.
+		expect(alice.view.hand).toBeNull();
+		expect(alice.view.seats[0]).toMatchObject({ stack: 99_000, timeBankMs: 0 });
+	});
+});

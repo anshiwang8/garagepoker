@@ -11,3 +11,4 @@ allowBuilds:
 minimumReleaseAgeExclude:
   - miniflare@5.20260926.0-alpha
   - wrangler@4.142.0
+  - '@cloudflare/vitest-plugin@1.3.0'
