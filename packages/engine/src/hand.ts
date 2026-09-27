@@ -167,7 +167,7 @@ export function nextButton(previous: number | null, seats: readonly number[]): n
 /** Posts antes, blinds and straddle, deals hole cards, and sets the first player to act. */
 export function startHand(input: StartHandInput): HandState {
   const { config, button } = input;
-  validateConfig(config);
+  validateHandConfig(config);
 
   const seated = input.players.slice().sort((a, b) => a.seat - b.seat);
   const n = seated.length;
@@ -341,7 +341,7 @@ function isChips(x: unknown): x is number {
   return Number.isSafeInteger(x) && (x as number) >= 0;
 }
 
-function validateConfig(c: HandConfig): void {
+function validateHandConfig(c: HandConfig): void {
   const v = c.variant;
   if (![2, 4, 5].includes(v.holeCards)) throw new EngineError(`invalid hole cards ${v.holeCards}`);
   if (v.deckSize !== 52 && v.deckSize !== 36) throw new EngineError(`invalid deck ${v.deckSize}`);
