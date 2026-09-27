@@ -55,8 +55,8 @@ export function Seat({
   toAct: boolean;
   countdown: Countdown | null;
   displayCents: boolean;
-  /** Cards and label shown at the last showdown, while the result is up. */
-  shown?: { cards: string[]; label: string };
+  /** Cards and labels (one per board) shown at the last showdown, while the result is up. */
+  shown?: { cards: string[]; labels: string[] };
   won?: number;
   canSit: boolean;
   onSit: () => void;
@@ -104,7 +104,9 @@ export function Seat({
         </div>
         <div className="tabular text-sm font-bold text-gold">{formatChips(seat.stack, displayCents)}</div>
         {shown ? (
-          <div className="truncate text-[10px] text-text">{shown.label}</div>
+          <div className="truncate text-[10px] text-text" title={shown.labels.join(" | ")}>
+            {shown.labels.join(" | ")}
+          </div>
         ) : seat.lastAction && seat.inHand ? (
           <div className="truncate text-[10px] text-muted">{actionText(seat.lastAction, displayCents)}</div>
         ) : tags.length > 0 ? (

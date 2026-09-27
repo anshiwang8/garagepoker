@@ -1,7 +1,10 @@
 "use client";
 
 import {
+  BOMB_POT_MODES,
+  type BombPotMode,
   type ConfigIssue,
+  MAX_BOMB_POT_ANTE_BB,
   MAX_SEATS,
   MIN_SEATS,
   type TableSettings,
@@ -26,9 +29,15 @@ const TIME_BANKS = [0, 30, 60, 120, 180];
 type ChipField = "smallBlind" | "bigBlind" | "ante";
 
 /** Why a candidate value can't be chosen, from validateConfig; undefined if it can. */
+/**
+ * Why a candidate value can't be chosen, from validateConfig; undefined if it
+ * can. Deck-math issues name every setting involved, so the right option greys out.
+ */
 function reasonFor(candidate: TableSettings, field: keyof TableSettings): string | undefined {
-  return validateConfig(candidate).find((i) => i.field === field || (field === "variant" && i.field === "seats"))?.message;
+  return validateConfig(candidate).find((i) => i.related.includes(field))?.message;
 }
+
+const BOMB_POT_LABELS: Record<BombPotMode, string> = { off: "Off", everyHand: "Every hand", everyN: "Every N hands" };
 
 export function SettingsForm({
   initial,
@@ -138,6 +147,63 @@ export function SettingsForm({
         <SeatReasons settings={s} highestOccupiedSeat={highestOccupiedSeat} />
       </fieldset>
 
+      <fieldset>
+        <legend className="mb-2 text-xs font-medium uppercase tracking-wide text-muted">Boards</legend>
+        <Segmented
+          value={s.boards}
+          onChange={(v) => set("boards", v)}
+          options={([1, 2] as const).map((b) => ({
+            value: b,
+            label: b === 1 ? "1 board" : "2 boards",
+            reason: reasonFor({ ...s, boards: b }, "boards"),
+          }))}
+        />
+        <p className="mt-1.5 text-xs text-muted">
+          {reasonFor({ ...s, boards: 2 }, "boards") ?? "With 2 boards, each board takes half of every pot."}
+        </p>
+      </fieldset>
+
+      <fieldset className="flex flex-col gap-2">
+        <legend className="mb-2 text-xs font-medium uppercase tracking-wide text-muted">Bomb pots</legend>
+        <Segmented
+          value={s.bombPotMode}
+          onChange={(v) => set("bombPotMode", v)}
+          options={BOMB_POT_MODES.map((m) => ({ value: m, label: BOMB_POT_LABELS[m] }))}
+        />
+        {s.bombPotMode !== "off" && (
+          <div className="grid grid-cols-2 gap-3">
+            {s.bombPotMode === "everyN" ? (
+              <Field label="Every" error={issue("bombPotEvery")}>
+                <div className="flex items-center gap-2">
+                  <input
+                    className={inputClass}
+                    inputMode="numeric"
+                    aria-label="Bomb pot every N hands"
+                    value={Number.isNaN(s.bombPotEvery) ? "" : s.bombPotEvery}
+                    onChange={(e) => set("bombPotEvery", e.target.value === "" ? Number.NaN : Math.trunc(Number(e.target.value)))}
+                  />
+                  <span className="text-sm text-muted">hands</span>
+                </div>
+              </Field>
+            ) : (
+              <div />
+            )}
+            <Field label="Ante" hint="Everyone who isn't away">
+              <select className={inputClass} value={s.bombPotAnteBB} onChange={(e) => set("bombPotAnteBB", Number(e.target.value))}>
+                {Array.from({ length: MAX_BOMB_POT_ANTE_BB }, (_, i) => i + 1).map((n) => (
+                  <option key={n} value={n}>
+                    {n} BB
+                  </option>
+                ))}
+              </select>
+            </Field>
+          </div>
+        )}
+        {s.bombPotMode !== "off" && (
+          <p className="text-xs text-muted">No preflop betting: action starts on the flop. Straddle is off in bomb pots.</p>
+        )}
+      </fieldset>
+
       <div className="grid grid-cols-2 gap-3">
         <Field label="Decision time">
           <select className={inputClass} value={s.decisionTimeSec} onChange={(e) => set("decisionTimeSec", Number(e.target.value))}>
@@ -181,6 +247,38 @@ export function SettingsForm({
       </div>
       {footer}
     </form>
+  );
+}
+
+/** A row of options; greyed-out options show their reason in place of a label. */
+function Segmented<T extends string | number>({
+  value,
+  onChange,
+  options,
+}: {
+  value: T;
+  onChange: (v: T) => void;
+  options: { value: T; label: string; reason?: string }[];
+}) {
+  return (
+    <div className="grid gap-1.5" style={{ gridTemplateColumns: `repeat(${options.length}, minmax(0, 1fr))` }}>
+      {options.map((o) => (
+        <button
+          key={String(o.value)}
+          type="button"
+          disabled={!!o.reason}
+          title={o.reason}
+          aria-label={o.reason ? `${o.label}: ${o.reason}` : o.label}
+          aria-pressed={value === o.value}
+          onClick={() => onChange(o.value)}
+          className={`rounded-lg border px-2 py-2 text-sm disabled:opacity-35 disabled:line-through ${
+            value === o.value ? "border-gold bg-gold/15 font-semibold" : "border-line bg-ink"
+          }`}
+        >
+          {o.label}
+        </button>
+      ))}
+    </div>
   );
 }
 

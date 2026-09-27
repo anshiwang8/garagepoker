@@ -8,6 +8,7 @@ import { useServerNow, useTableSocket } from "@/lib/useTableSocket";
 import { VARIANT_LABELS } from "../SettingsForm";
 import { Button, ConfirmButton } from "../ui";
 import { ActionBar } from "./ActionBar";
+import { HandResult } from "./HandResult";
 import { LedgerDialog } from "./LedgerDialog";
 import { OwnerMenu } from "./OwnerMenu";
 import { PlayingCard } from "./PlayingCard";
@@ -60,6 +61,7 @@ export function TableClient({ tableId }: { tableId: string }) {
           {VARIANT_LABELS[view.settings.variant].name} · {formatChips(view.settings.smallBlind, view.settings.displayCents)}/
           {formatChips(view.settings.bigBlind, view.settings.displayCents)}
           {view.settings.ante > 0 && ` · ante ${formatChips(view.settings.ante, view.settings.displayCents)}`}
+          {view.settings.boards === 2 && " · 2 boards"}
           {view.handNumber > 0 && ` · hand ${view.handNumber}`}
         </div>
         {connection !== "open" && <span className="rounded bg-danger/20 px-2 py-0.5 text-xs text-danger">Reconnecting…</span>}
@@ -100,18 +102,25 @@ export function TableClient({ tableId }: { tableId: string }) {
           </Button>
         )}
         {mySeat?.inHand && mySeat.cards && (
-          <div className="flex items-center justify-center gap-3">
+          <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1">
             <div className="flex gap-1.5">
               {mySeat.cards.map((c, i) => (
-                <PlayingCard key={i} card={c} size="lg" dim={mySeat.folded} />
+                <PlayingCard key={i} card={c} size={mySeat.cards!.length > 2 ? "md" : "lg"} dim={mySeat.folded} />
               ))}
             </div>
-            <div className="flex flex-col">
+            <div className="flex min-w-0 flex-col">
               <span className="text-xs uppercase tracking-wide text-muted">{mySeat.folded ? "Folded" : "Your hand"}</span>
-              {view.you.label && !mySeat.folded && <span className="text-lg font-semibold">{view.you.label}</span>}
+              {!mySeat.folded &&
+                view.you.labels?.map((label, b) => (
+                  <span key={b} className="font-semibold leading-snug">
+                    {view.you.labels!.length > 1 && <span className="mr-1 text-xs font-normal text-muted">Board {b + 1}</span>}
+                    {label}
+                  </span>
+                ))}
             </div>
           </div>
         )}
+        {!view.hand && view.lastHand && view.lastHand.number === view.handNumber && <HandResult view={view} />}
         <ActionBar view={view} send={send} countdown={view.hand?.toAct === view.you.seat ? countdown : null} />
       </section>
 

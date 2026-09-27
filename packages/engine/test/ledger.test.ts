@@ -4,6 +4,8 @@ import {
   assertLedgerBalanced,
   cardsNeeded,
   DEFAULT_SETTINGS,
+  handConfigFor,
+  isBombPotHand,
   type LedgerEvent,
   ledgerEvent,
   ledgerRows,
@@ -108,6 +110,38 @@ describe("validateConfig", () => {
     expect(cardsNeeded(8, 5)).toBe(45);
     expect(validateConfig({ ...DEFAULT_SETTINGS, variant: "PLO5", seats: 9 })).toEqual([]);
     expect(cardsNeeded(9, 5, 2, 2)).toBe(65);
+  });
+
+  it("applies deck math with double board (SPEC §3 table)", () => {
+    const check = (patch: object) => validateConfig({ ...DEFAULT_SETTINGS, ...patch });
+    // PLO, 8 seats, double board: 8 × 4 + 2 × 5 = 42 ≤ 52.
+    expect(check({ variant: "PLO", seats: 8, boards: 2 })).toEqual([]);
+    // PLO5, 8 seats, double board: 8 × 5 + 2 × 5 = 50 ≤ 52.
+    expect(check({ variant: "PLO5HL", seats: 8, boards: 2 })).toEqual([]);
+    // PLO5, 9 seats, double board: 9 × 5 + 10 = 55 > 52, and every setting involved is named.
+    const [issue] = check({ variant: "PLO5", seats: 9, boards: 2 });
+    expect(issue).toEqual({
+      field: "seats",
+      message: "9 seats with 2 boards need 55 cards; the deck has 52",
+      related: ["seats", "variant", "boards"],
+    });
+  });
+
+  it("validates bomb pot settings and picks bomb-pot hands", () => {
+    const fields = (patch: object) => validateConfig({ ...DEFAULT_SETTINGS, ...patch }).map((i) => i.field);
+    expect(fields({ bombPotMode: "sometimes" })).toEqual(["bombPotMode"]);
+    expect(fields({ bombPotEvery: 1 })).toEqual(["bombPotEvery"]);
+    expect(fields({ bombPotAnteBB: 0 })).toEqual(["bombPotAnteBB"]);
+    expect(fields({ bombPotAnteBB: 11 })).toEqual(["bombPotAnteBB"]);
+    expect(fields({ boards: 3 })).toEqual(["boards"]);
+
+    const every3 = { ...DEFAULT_SETTINGS, bombPotMode: "everyN" as const, bombPotEvery: 3 };
+    expect([1, 2, 3, 4, 5, 6].map((h) => isBombPotHand(every3, h))).toEqual([false, false, true, false, false, true]);
+    expect(isBombPotHand({ ...DEFAULT_SETTINGS, bombPotMode: "everyHand" }, 7)).toBe(true);
+    expect(isBombPotHand(DEFAULT_SETTINGS, 5)).toBe(false);
+    // The ante is in big blinds: 2 BB at 10/20 = 4000 cents.
+    expect(handConfigFor({ ...DEFAULT_SETTINGS, boards: 2 }, true)).toMatchObject({ boards: 2, bombPot: { ante: 4000 } });
+    expect(handConfigFor(DEFAULT_SETTINGS).bombPot).toBeNull();
   });
 
   it("reports each bad field", () => {

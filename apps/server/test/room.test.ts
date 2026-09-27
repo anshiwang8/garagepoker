@@ -99,14 +99,14 @@ describe("playing hands over WebSockets", () => {
 		// Each sees the other's cards face down.
 		expect(alice.view.seats[1]!.cards).toEqual([null, null]);
 		expect(bob.view.seats[0]!.cards).toEqual([null, null]);
-		expect(alice.view.you.label).toBeTruthy();
+		expect(alice.view.you.labels).toBeTruthy();
 
 		// Heads-up: Alice has the button, posts the SB and acts first preflop.
 		const act = (who: Client, action: PlayerAction) => step(all, who, { type: "act", hand: 1, action });
 		await act(alice, { type: "call" });
 		await act(bob, { type: "check" });
 		expect(alice.view.hand).toMatchObject({ street: "flop", toAct: 2 });
-		expect(alice.view.hand!.board).toHaveLength(3);
+		expect(alice.view.hand!.boards[0]).toHaveLength(3);
 		await act(bob, { type: "check" });
 		await act(alice, { type: "check" });
 		await act(bob, { type: "raise", to: 4000 });
@@ -154,9 +154,115 @@ describe("playing hands over WebSockets", () => {
 		const shown = alice.view.lastHand!.shown;
 		expect(shown.map((s) => s.seat).sort()).toEqual([1, 2]);
 		expect(shown.find((s) => s.seat === 2)!.cards).toEqual(bobCards);
-		expect(shown.every((s) => s.label.length > 0)).toBe(true);
+		expect(shown.every((s) => s.labels.every((l) => l.length > 0))).toBe(true);
 		const total = alice.view.ledger.reduce((sum, r) => sum + r.net, 0);
 		expect(total).toBe(0);
+	});
+
+	it("plays a double-board Hi/Lo bomb pot with correct per-seat views and no leaks", async () => {
+		const tableId = await createTable(ALICE, {
+			autoStart: false,
+			variant: "PLOHL",
+			boards: 2,
+			bombPotMode: "everyHand",
+			bombPotAnteBB: 2,
+		});
+		const alice = await Client.connect(tableId, ALICE);
+		const bob = await Client.connect(tableId, BOB);
+		const carol = await Client.connect(tableId, token("carol")); // spectator
+		const all = [alice, bob, carol];
+		await step(all, alice, { type: "requestSeat", seat: 1, nickname: "Alice", buyIn: 100_000, postBlind: false });
+		await step(all, bob, { type: "requestSeat", seat: 2, nickname: "Bob", buyIn: 60_000, postBlind: false });
+		await step(all, alice, { type: "approveRequest", requestId: alice.view.requests![0]!.id, stack: 60_000 });
+
+		// Hand 1: a bomb pot. Everyone antes 2 BB (2 × 2000 = 4000); no blinds, no
+		// preflop betting: it starts on the flop of both boards.
+		await step(all, alice, { type: "startGame" });
+		for (const c of all) {
+			const hand = c.view.hand!;
+			expect(hand).toMatchObject({ number: 1, bombPot: true, street: "flop", pot: 8_000, boardShares: [4_000, 4_000] });
+			expect(hand.boards.map((b) => b.length)).toEqual([3, 3]);
+			expect(c.view.seats.slice(0, 2).map((s) => s!.stack)).toEqual([96_000, 56_000]);
+			expect(c.view.seats.slice(0, 2).map((s) => s!.bet)).toEqual([0, 0]);
+		}
+		// Per-seat views: your own 4 cards; everyone else's face down; spectators see none.
+		const aliceCards = ownCards(alice);
+		const bobCards = ownCards(bob);
+		expect(aliceCards).toHaveLength(4);
+		expect(alice.view.seats[1]!.cards).toEqual([null, null, null, null]);
+		expect(bob.view.seats[0]!.cards).toEqual([null, null, null, null]);
+		expect(carol.view.seats.slice(0, 2).map((s) => s!.cards)).toEqual([
+			[null, null, null, null],
+			[null, null, null, null],
+		]);
+		// Hand labels: one per board, each showing both halves in Hi/Lo.
+		for (const c of [alice, bob]) {
+			expect(c.view.you.labels).toHaveLength(2);
+			for (const label of c.view.you.labels!) expect(label).toMatch(/ \/ (no low|\d-\d low)$/);
+		}
+		expect(carol.view.you.labels).toBeNull();
+		// Heads-up, Alice has the button, so Bob acts first on the flop.
+		expect(bob.view.you.legal).toMatchObject({ canCheck: true });
+		expect(alice.view.you.legal).toBeNull();
+
+		const act = (who: Client, action: PlayerAction, hand = 1) => step(all, who, { type: "act", hand, action });
+		await act(bob, { type: "check" });
+		await act(alice, { type: "check" });
+		expect(alice.view.hand!.boards.map((b) => b.length)).toEqual([4, 4]);
+		await act(bob, { type: "raise", to: 8_000 }); // pot-sized bet
+		await act(alice, { type: "call" });
+		expect(alice.view.hand).toMatchObject({ street: "river", pot: 24_000, boardShares: [12_000, 12_000] });
+		await act(bob, { type: "check" });
+		await act(alice, { type: "raise", to: 10_000 });
+		await act(bob, { type: "fold" });
+
+		// Uncontested: one whole-pot slice. Alice wins 24,000 (12,000 of it Bob's).
+		expect(alice.view.lastHand).toMatchObject({
+			number: 1,
+			bombPot: true,
+			shown: [],
+			pots: [{ amount: 24_000, slices: [{ board: null, half: null, amount: 24_000, winners: [{ seat: 1, amount: 24_000 }] }] }],
+		});
+		expect(alice.view.lastHand!.boards.map((b) => b.length)).toEqual([5, 5]);
+		// Alice: 100,000 − 12,000 in + 24,000 pot = 112,000. Bob: 60,000 − 12,000 = 48,000.
+		expect(alice.view.seats.slice(0, 2).map((s) => s!.stack)).toEqual([112_000, 48_000]);
+
+		// No leaks: neither player's hole cards (nor the deck or tokens) ever
+		// reached anyone else, including the spectator.
+		const leaks = (c: Client, cards: string[], ...tokens: string[]) =>
+			c.raw.filter((r) => cards.some((card) => r.includes(`"${card}"`)) || tokens.some((t) => r.includes(t)) || r.includes('"deck"'));
+		expect(leaks(alice, bobCards, BOB)).toEqual([]);
+		expect(leaks(bob, aliceCards, ALICE)).toEqual([]);
+		expect(leaks(carol, [...aliceCards, ...bobCards], ALICE, BOB)).toEqual([]);
+
+		// Hand 2, checked down: the showdown splits each board's share, and
+		// cards are revealed only in the final view.
+		await step(all, alice, { type: "startGame" });
+		const bobCards2 = ownCards(bob);
+		const before = carol.raw.length;
+		while (alice.view.hand) {
+			const who = alice.view.hand.toAct === 1 ? alice : bob;
+			await act(who, { type: "check" }, 2);
+		}
+		// (Raw text can't be scanned here: hand 1's public boards may contain any
+		// card of hand 2's new deck. Check the structured views instead.)
+		const views = carol.messages.slice(before).flatMap((m) => (m.type === "view" ? [m.view] : []));
+		for (const v of views.slice(0, -1)) {
+			expect(v.seats[1]!.cards!.every((c) => c === null)).toBe(true);
+			expect(v.lastHand!.number).toBe(1);
+		}
+		const last = carol.view.lastHand!;
+		expect(last.number).toBe(2);
+		expect(last.shown.find((s) => s.seat === 2)!.cards).toEqual(bobCards2);
+		expect(last.shown.map((s) => s.labels.length)).toEqual([2, 2]);
+		const slices = last.pots.flatMap((p) => p.slices);
+		expect(new Set(slices.map((s) => s.board))).toEqual(new Set([0, 1]));
+		// Each board gets half of the 8,000 pot, split high/low or scooped by the high.
+		for (const board of [0, 1]) {
+			const share = slices.filter((s) => s.board === board).reduce((sum, s) => sum + s.amount, 0);
+			expect(share).toBe(4_000);
+		}
+		expect(carol.view.ledger.reduce((sum, r) => sum + r.net, 0)).toBe(0);
 	});
 
 	it("keeps a seat across reconnects and after the object is evicted", async () => {

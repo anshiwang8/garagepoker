@@ -1,6 +1,7 @@
 import type { TableView } from "@garagepoker/protocol";
 import { formatChips } from "@/lib/chips";
 import { CardSlot, PlayingCard } from "./PlayingCard";
+import { wonBySeat } from "./HandResult";
 import { type Countdown, Seat } from "./Seat";
 
 /** Point on an ellipse around the table centre, in % of the felt box. 0° = bottom, clockwise. */
@@ -31,45 +32,43 @@ export function TableFelt({
 
   const showResult = !hand && lastHand && lastHand.number === view.handNumber;
   const shownBySeat = new Map(showResult ? lastHand.shown.map((s) => [s.seat, s]) : []);
-  const wonBySeat = new Map<number, number>();
-  if (showResult) {
-    for (const pot of lastHand.pots) for (const w of pot.winners) wonBySeat.set(w.seat, (wonBySeat.get(w.seat) ?? 0) + w.amount);
-  }
-  const board = hand?.board ?? (showResult ? lastHand.board : []);
+  const won = showResult ? wonBySeat(lastHand) : new Map<number, number>();
+  const boards = hand?.boards ?? (showResult ? lastHand.boards : []);
+  const bombPot = hand?.bombPot ?? (showResult && lastHand.bombPot);
 
   return (
     <div className="relative min-h-0 flex-1 select-none">
       {/* Rail and felt */}
       <div className="absolute inset-[9%_7%] rounded-[50%] border-[10px] border-rail bg-[radial-gradient(ellipse_at_center,var(--color-felt)_0%,var(--color-felt-dark)_75%)] shadow-[inset_0_0_40px_rgba(0,0,0,.6)]" />
 
-      {/* Centre: pot above the board */}
-      <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 px-[22%] text-center">
+      {/* Centre: bomb-pot banner, pot above the board(s) */}
+      <div className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 px-[18%] text-center">
+        {bombPot && (
+          <div className="rounded-full bg-danger px-3 py-0.5 text-[11px] font-bold uppercase tracking-widest text-white shadow">
+            Bomb pot
+          </div>
+        )}
         {hand && (
           <div className="rounded-full bg-black/40 px-3 py-0.5 text-sm">
             Pot <span className="tabular font-bold text-gold">{formatChips(hand.pot, dc)}</span>
           </div>
         )}
-        {(hand || showResult) && (
-          <div className="flex gap-1" aria-label="Board">
-            {Array.from({ length: 5 }, (_, i) =>
-              board[i] ? <PlayingCard key={i} card={board[i]!} size="sm" /> : <CardSlot key={i} size="sm" />,
+        {boards.map((board, b) => (
+          <div key={b} className="flex items-center gap-1.5" aria-label={boards.length > 1 ? `Board ${b + 1}` : "Board"}>
+            {boards.length > 1 && (
+              <div className="flex w-11 shrink-0 flex-col items-end text-[10px] leading-tight">
+                <span className="text-muted">Board {b + 1}</span>
+                {/* Each board plays for its half of the pot (server-computed). */}
+                {hand && <span className="tabular font-semibold text-gold">{formatChips(hand.boardShares[b]!, dc)}</span>}
+              </div>
             )}
+            <div className="flex gap-1">
+              {Array.from({ length: 5 }, (_, i) =>
+                board[i] ? <PlayingCard key={i} card={board[i]!} size="sm" /> : <CardSlot key={i} size="sm" />,
+              )}
+            </div>
           </div>
-        )}
-        {showResult && (
-          <div className="text-xs text-text/90">
-            {[...wonBySeat].map(([seat, amount]) => {
-              const who = view.seats[seat - 1]?.nickname ?? `Seat ${seat}`;
-              const label = shownBySeat.get(seat)?.label;
-              return (
-                <div key={seat}>
-                  {who} wins <span className="tabular font-semibold text-gold">{formatChips(amount, dc)}</span>
-                  {label ? ` with ${label.toLowerCase()}` : ""}
-                </div>
-              );
-            })}
-          </div>
-        )}
+        ))}
         {statusText && <div className="max-w-[16rem] text-sm text-text/80">{statusText}</div>}
       </div>
 
@@ -111,7 +110,7 @@ export function TableFelt({
               countdown={hand?.toAct === number ? countdown : null}
               displayCents={dc}
               shown={shownBySeat.get(number)}
-              won={wonBySeat.get(number)}
+              won={won.get(number)}
               canSit={canSit}
               onSit={() => onSit(number)}
             />

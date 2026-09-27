@@ -8,6 +8,8 @@
  * All chip amounts are integer cents. Cards are strings like "As", "Td".
  */
 import {
+  BOMB_POT_MODES,
+  type BombPotMode,
   type LedgerRow,
   type LegalActions,
   type LogType,
@@ -46,6 +48,10 @@ export const settingsSchema = z
     bigBlind: positiveCents,
     ante: cents,
     seats: z.number().int(),
+    boards: z.union([z.literal(1), z.literal(2)]),
+    bombPotMode: z.enum(BOMB_POT_MODES as [BombPotMode, ...BombPotMode[]]),
+    bombPotEvery: z.number().int(),
+    bombPotAnteBB: z.number().int(),
     straddle: z.boolean(),
     decisionTimeSec: z.number().int(),
     timeBankSec: z.number().int(),
@@ -168,8 +174,11 @@ export interface YouView {
   notice: string | null;
   /** What you may do; set only when it's your turn. */
   legal: LegalActions | null;
-  /** Your current hand label, e.g. "Top pair". */
-  label: string | null;
+  /**
+   * Your current hand label, one per board: "Top pair", or in Hi/Lo both
+   * halves: "Flush / 8-6 low". Null if you're not in the hand.
+   */
+  labels: string[] | null;
 }
 
 export interface SeatView {
@@ -196,9 +205,13 @@ export interface SeatView {
 export interface HandView {
   number: number;
   street: Street;
-  board: string[];
+  /** One board, or two with double board. */
+  boards: string[][];
+  bombPot: boolean;
   /** All chips in the middle, including bets on this street. */
   pot: number;
+  /** Each board's share of the pot (board 1 gets any odd chip). */
+  boardShares: number[];
   currentBet: number;
   toAct: number | null;
   /** When the decision time runs out, then when the time bank does. */
@@ -206,12 +219,24 @@ export interface HandView {
   bankDeadline: number | null;
 }
 
+/** One share of a pot: a board (0-based) and a half; both null for an uncontested pot. */
+export interface SliceView {
+  board: number | null;
+  half: "high" | "low" | null;
+  amount: number;
+  winners: { seat: number; amount: number }[];
+}
+
 export interface LastHandView {
   number: number;
-  board: string[];
-  pots: { amount: number; winners: { seat: number; amount: number }[] }[];
-  /** Hands shown at showdown. Empty if everyone else folded. */
-  shown: { seat: number; nickname: string; cards: string[]; label: string }[];
+  bombPot: boolean;
+  /** The hand was Hi/Lo (so a board with only a high slice had no qualifying low). */
+  hiLo: boolean;
+  boards: string[][];
+  /** Main pot first, then side pots. */
+  pots: { amount: number; slices: SliceView[] }[];
+  /** Hands shown at showdown, with one label per board. Empty if everyone else folded. */
+  shown: { seat: number; nickname: string; cards: string[]; labels: string[] }[];
 }
 
 export interface RequestView {

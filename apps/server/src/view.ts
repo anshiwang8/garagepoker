@@ -3,7 +3,7 @@
  * assembled field by field (never by spreading engine state), so the deck and
  * other players' hole cards can't leak by accident.
  */
-import { cardToString, handLabel, ledgerRows, legalActions, potTotal } from "@garagepoker/engine";
+import { cardToString, handLabel, ledgerRows, legalActions, potTotal, splitEven } from "@garagepoker/engine";
 import type { RequestView, SeatView, TableView } from "@garagepoker/protocol";
 import type { SeatRequest, TableData } from "./table.js";
 
@@ -84,15 +84,19 @@ export function buildView(
       })(),
       notice: data.players.find((p) => p.playerId === viewerId)?.notice ?? null,
       legal: hand && viewerSeat !== null && hand.toAct === viewerSeat ? legalActions(hand) : null,
-      label: hand && you && !you.folded ? handLabel(hand.config.variant, you.hole, hand.boards[0]!).text : null,
+      // One label per board; in Hi/Lo each shows both halves.
+      labels:
+        hand && you && !you.folded ? hand.boards.map((b) => handLabel(hand.config.variant, you.hole, b).text) : null,
     },
     seats,
     hand: hand
       ? {
           number: data.handNumber,
           street: hand.street,
-          board: cards(hand.boards[0]!),
+          boards: hand.boards.map(cards),
+          bombPot: hand.bombPot,
           pot: potTotal(hand),
+          boardShares: splitEven(potTotal(hand), hand.boards.length),
           currentBet: hand.currentBet,
           toAct: hand.toAct,
           decisionDeadline: data.turn?.decisionDeadline ?? null,
@@ -102,13 +106,23 @@ export function buildView(
     lastHand: data.lastHand
       ? {
           number: data.lastHand.number,
-          board: cards(data.lastHand.board),
-          pots: data.lastHand.pots,
+          bombPot: data.lastHand.bombPot,
+          hiLo: data.lastHand.hiLo,
+          boards: data.lastHand.boards.map(cards),
+          pots: data.lastHand.pots.map((p) => ({
+            amount: p.amount,
+            slices: p.slices.map((s) => ({
+              board: s.board,
+              half: s.half,
+              amount: s.amount,
+              winners: s.winners.map((w) => ({ seat: w.seat, amount: w.amount })),
+            })),
+          })),
           shown: data.lastHand.shown.map((x) => ({
             seat: x.seat,
             nickname: x.nickname,
             cards: cards(x.cards),
-            label: x.label,
+            labels: x.labels,
           })),
         }
       : null,

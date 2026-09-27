@@ -123,7 +123,7 @@ describe("timers", () => {
 		expect(h.data.hand!.toAct).toBe(1);
 		h.advance(1);
 		expect(h.data.hand).toBeNull();
-		expect(h.data.lastHand!.pots[0]!.winners[0]!.seat).toBe(2);
+		expect(h.data.lastHand!.pots[0]!.slices[0]!.winners[0]!.seat).toBe(2);
 		expect(h.data.seats[0]!.timeBankMs).toBe(0);
 	});
 
@@ -311,6 +311,31 @@ describe("joining a game in progress", () => {
 		h.send(owner, { type: "startGame" });
 		expect(dealt()).toContain(4);
 		expect(h.data.hand!.log.some((e) => e.seat === 4 && (e.type === "post" || e.type.endsWith("Blind")))).toBe(true);
+	});
+
+	it("bomb pots deal in everyone who isn't away, even players waiting for the BB", () => {
+		const { h, owner } = headsUp({ bombPotMode: "everyN", bombPotEvery: 2, bombPotAnteBB: 2, straddle: true });
+		h.send(owner, { type: "startGame" });
+		expect(h.data.hand!.bombPot).toBe(false); // hand 1
+		h.act({ type: "fold" });
+		h.seat("carol", 3, 50_000);
+		const dave = h.seat("dave", 4, 50_000);
+		h.send(dave, { type: "setAway", away: true });
+		expect(h.data.seats[2]).toMatchObject({ waitingForBB: true });
+
+		h.send(owner, { type: "startGame" }); // hand 2: every 2nd hand is a bomb pot
+		const hand = h.data.hand!;
+		expect(hand.bombPot).toBe(true);
+		expect(hand.players.map((p) => p.seat)).toEqual([1, 2, 3]); // Dave is away
+		// 2 BB ante each, nothing else: no blinds and no straddle.
+		expect(hand.log.map((e) => [e.type, e.amount])).toEqual([
+			["ante", 4_000],
+			["ante", 4_000],
+			["ante", 4_000],
+		]);
+		expect(hand.street).toBe("flop");
+		expect(h.data.seats[2]).toMatchObject({ waitingForBB: false });
+		expect(h.view(owner).hand).toMatchObject({ bombPot: true, pot: 12_000 });
 	});
 
 	it("a player can leave their seat; mid-hand it waits for the hand to end", () => {

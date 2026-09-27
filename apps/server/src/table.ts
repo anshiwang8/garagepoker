@@ -12,6 +12,7 @@ import {
   type HandState,
   handConfigFor,
   handLabel,
+  isBombPotHand,
   LedgerError,
   type LedgerEvent,
   ledgerEvent,
@@ -20,6 +21,7 @@ import {
   legalActions,
   makeDeck,
   nextButton,
+  type PotSlice,
   randomInt,
   type RandomSource,
   shuffle,
@@ -87,9 +89,13 @@ export interface TurnTimer {
 
 export interface LastHand {
   number: number;
-  board: Card[];
-  pots: { amount: number; winners: { seat: number; amount: number }[] }[];
-  shown: { seat: number; nickname: string; cards: Card[]; label: string }[];
+  bombPot: boolean;
+  hiLo: boolean;
+  boards: Card[][];
+  /** Each pot split into slices (board × high/low); see the engine's PotSlice. */
+  pots: { amount: number; slices: PotSlice[] }[];
+  /** One label per board. */
+  shown: { seat: number; nickname: string; cards: Card[]; labels: string[] }[];
 }
 
 export interface TableData {
@@ -584,14 +590,17 @@ export class Table {
     if (active.length < 2) return;
 
     const button = nextButton(d.button, active.map((x) => x.seat));
+    const bombPot = isBombPotHand(d.settings, d.handNumber + 1);
     // Deal in the first waiting player who would be the big blind this hand.
     const waiting = eligible.filter((x) => x.s.waitingForBB);
     const admitted = waiting.find((w) => bigBlindSeat([...active, w].map((x) => x.seat), button) === w.seat);
-    const dealt = admitted ? [...active, admitted] : active;
+    // SPEC §1: in a bomb pot every player who isn't away antes, so nobody
+    // waits for the big blind (there isn't one).
+    const dealt = bombPot ? eligible : admitted ? [...active, admitted] : active;
 
     const variant = VARIANTS[d.settings.variant];
     d.hand = startHand({
-      config: handConfigFor(d.settings),
+      config: handConfigFor(d.settings, bombPot),
       players: dealt.map((x) => ({ seat: x.seat, stack: x.s.stack, postBlind: x.s.postBlind })),
       button,
       deck: shuffle(makeDeck(variant.deckSize), this.deps.random),
@@ -657,13 +666,15 @@ export class Table {
     for (const p of hand.players) this.seat(p.seat)!.stack = p.stack;
     d.lastHand = {
       number: d.handNumber,
-      board: hand.boards[0]!, // Phase 3.2 shows every board
-      pots: result.pots.map(({ amount, winners }) => ({ amount, winners })),
+      bombPot: hand.bombPot,
+      hiLo: hand.config.variant.split === "hilo",
+      boards: hand.boards,
+      pots: result.pots.map(({ amount, slices }) => ({ amount, slices })),
       shown: result.showdown.map(({ seat, hole }) => ({
         seat,
         nickname: this.seat(seat)!.nickname,
         cards: hole,
-        label: handLabel(hand.config.variant, hole, hand.boards[0]!).text,
+        labels: hand.boards.map((board) => handLabel(hand.config.variant, hole, board).text),
       })),
     };
     d.hand = null;
