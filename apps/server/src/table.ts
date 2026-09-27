@@ -657,13 +657,13 @@ export class Table {
     for (const p of hand.players) this.seat(p.seat)!.stack = p.stack;
     d.lastHand = {
       number: d.handNumber,
-      board: hand.board,
+      board: hand.boards[0]!, // Phase 3.2 shows every board
       pots: result.pots.map(({ amount, winners }) => ({ amount, winners })),
       shown: result.showdown.map(({ seat, hole }) => ({
         seat,
         nickname: this.seat(seat)!.nickname,
         cards: hole,
-        label: handLabel(hand.config.variant, hole, hand.board).text,
+        label: handLabel(hand.config.variant, hole, hand.boards[0]!).text,
       })),
     };
     d.hand = null;

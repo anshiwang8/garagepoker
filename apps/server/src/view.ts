@@ -84,14 +84,14 @@ export function buildView(
       })(),
       notice: data.players.find((p) => p.playerId === viewerId)?.notice ?? null,
       legal: hand && viewerSeat !== null && hand.toAct === viewerSeat ? legalActions(hand) : null,
-      label: hand && you && !you.folded ? handLabel(hand.config.variant, you.hole, hand.board).text : null,
+      label: hand && you && !you.folded ? handLabel(hand.config.variant, you.hole, hand.boards[0]!).text : null,
     },
     seats,
     hand: hand
       ? {
           number: data.handNumber,
           street: hand.street,
-          board: cards(hand.board),
+          board: cards(hand.boards[0]!),
           pot: potTotal(hand),
           currentBet: hand.currentBet,
           toAct: hand.toAct,

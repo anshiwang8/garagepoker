@@ -1,6 +1,14 @@
 import { type Card, isCard } from "./cards";
 import { type DeckSize, makeDeck } from "./deck";
-import { bestHand, bestOmahaHand, type HandValue, type Ranking } from "./evaluator";
+import {
+  bestHand,
+  bestLow,
+  bestOmahaHand,
+  bestOmahaLow,
+  type HandValue,
+  type LowValue,
+  type Ranking,
+} from "./evaluator";
 import { computePots, type Pot, splitPot } from "./pots";
 
 // ---------------------------------------------------------------------------
@@ -10,18 +18,24 @@ import { computePots, type Pot, splitPot } from "./pots";
 export type Betting = "NL" | "PL";
 /** "any": best 5 of hole + board. "omaha": exactly 2 hole + 3 board. */
 export type HandRule = "any" | "omaha";
+/** "high": best high hand wins. "hilo": high and 8-or-better low split each board. */
+export type Split = "high" | "hilo";
 
 export interface Variant {
   holeCards: 2 | 4 | 5;
   deckSize: DeckSize;
   betting: Betting;
   handRule: HandRule;
+  split: Split;
 }
 
+/** SPEC §1 presets. A new variant is a new row, not new code. */
 export const VARIANTS = {
-  NLH: { holeCards: 2, deckSize: 52, betting: "NL", handRule: "any" },
-  PLO: { holeCards: 4, deckSize: 52, betting: "PL", handRule: "omaha" },
-  PLO5: { holeCards: 5, deckSize: 52, betting: "PL", handRule: "omaha" },
+  NLH: { holeCards: 2, deckSize: 52, betting: "NL", handRule: "any", split: "high" },
+  PLO: { holeCards: 4, deckSize: 52, betting: "PL", handRule: "omaha", split: "high" },
+  PLO5: { holeCards: 5, deckSize: 52, betting: "PL", handRule: "omaha", split: "high" },
+  PLOHL: { holeCards: 4, deckSize: 52, betting: "PL", handRule: "omaha", split: "hilo" },
+  PLO5HL: { holeCards: 5, deckSize: 52, betting: "PL", handRule: "omaha", split: "hilo" },
 } as const satisfies Record<string, Variant>;
 
 export interface HandConfig {
@@ -31,8 +45,16 @@ export interface HandConfig {
   bigBlind: number;
   /** Per-player ante, dead money. 0 for none. */
   ante: number;
-  /** UTG posts a 2 BB straddle (never heads-up). */
+  /** UTG posts a 2 BB straddle (never heads-up, never in a bomb pot). */
   straddle: boolean;
+  /** 1 (default) or 2 boards. Each board takes half of each pot. */
+  boards?: 1 | 2;
+  /**
+   * Set when this hand is a bomb pot: every player dealt in antes this much,
+   * there are no blinds and no preflop betting, and action starts on the flop.
+   * The table decides which hands are bomb pots and who is dealt in.
+   */
+  bombPot?: { ante: number } | null;
 }
 
 export interface SeatedPlayer {
@@ -98,8 +120,29 @@ export interface LogEntry {
   allIn?: boolean;
 }
 
-export interface PotResult extends Pot {
+/**
+ * One share of a pot: a board and a half. `board` and `half` are null when
+ * the pot had a single eligible player and wasn't split at all.
+ */
+export interface PotSlice {
+  /** 0-based board index. */
+  board: number | null;
+  half: "high" | "low" | null;
+  amount: number;
   winners: { seat: number; amount: number }[];
+}
+
+export interface PotResult extends Pot {
+  /** Total won from this pot per seat, across all its slices. */
+  winners: { seat: number; amount: number }[];
+  slices: PotSlice[];
+}
+
+export interface ShowdownHand {
+  seat: number;
+  hole: Card[];
+  /** Per board: the best high hand, and the qualifying low (hi/lo only). */
+  boards: { high: HandValue; low: LowValue | null }[];
 }
 
 export interface HandResult {
@@ -107,7 +150,7 @@ export interface HandResult {
   /** Total won per seat (only seats that won something). */
   payouts: { seat: number; amount: number }[];
   /** Live hands at showdown; empty when everyone else folded. */
-  showdown: { seat: number; hole: Card[]; value: HandValue }[];
+  showdown: ShowdownHand[];
 }
 
 export interface HandState {
@@ -118,7 +161,10 @@ export interface HandState {
   /** Server-only. Never send this to a client. */
   deck: Card[];
   deckIndex: number;
-  board: Card[];
+  /** One board, or two with double board. */
+  boards: Card[][];
+  /** This hand is a bomb pot. */
+  bombPot: boolean;
   street: Street;
   /** The bet to match on this street. */
   currentBet: number;
@@ -183,7 +229,9 @@ export function startHand(input: StartHandInput): HandState {
   if (btn < 0) throw new EngineError(`button seat ${button} is not in the hand`);
 
   const holeCards = config.variant.holeCards;
-  validateDeck(input.deck, config.variant.deckSize, n * holeCards + 5);
+  const boardCount = config.boards ?? 1;
+  // SPEC §3 deck math for one run: seats × hole cards + boards × 5, no burns.
+  validateDeck(input.deck, config.variant.deckSize, n * holeCards + boardCount * 5);
 
   /** Index k seats to the left of the button. */
   const at = (k: number) => (btn + k) % n;
@@ -210,23 +258,25 @@ export function startHand(input: StartHandInput): HandState {
     players,
     deck: input.deck.slice(),
     deckIndex,
-    board: [],
+    boards: Array.from({ length: boardCount }, () => []),
+    bombPot: !!config.bombPot,
     street: "preflop",
-    currentBet: config.bigBlind,
+    currentBet: config.bombPot ? 0 : config.bigBlind,
     lastRaiseSize: config.bigBlind,
     toAct: null,
     log: [],
     result: null,
   };
 
+  if (config.bombPot) {
+    // SPEC §1: everyone antes; no blinds, straddle or preflop betting.
+    for (let k = 1; k <= n; k++) postAnte(s, at(k), config.bombPot.ante);
+    dealNextStreet(s);
+    return advance(s, btn);
+  }
+
   if (config.ante > 0) {
-    for (let k = 1; k <= n; k++) {
-      const p = players[at(k)]!;
-      const amount = Math.min(config.ante, p.stack);
-      p.stack -= amount;
-      p.committed += amount;
-      s.log.push({ street: "preflop", seat: p.seat, type: "ante", amount, allIn: p.stack === 0 });
-    }
+    for (let k = 1; k <= n; k++) postAnte(s, at(k), config.ante);
   }
 
   // Heads-up, the button posts the small blind.
@@ -333,6 +383,20 @@ export function handValue(variant: Variant, hole: readonly Card[], board: readon
     : bestHand([...hole, ...board], ranking);
 }
 
+/**
+ * A player's best 8-or-better low on one board under the variant's hand rule
+ * (exactly 2 hole + 3 board in Omaha), or null if they have none.
+ */
+export function lowValue(variant: Variant, hole: readonly Card[], board: readonly Card[]): LowValue | null {
+  return variant.handRule === "omaha" ? bestOmahaLow(hole, board) : bestLow([...hole, ...board]);
+}
+
+/** Splits `amount` into `parts` near-equal shares; odd chips go to the first shares. */
+export function splitEven(amount: number, parts: number): number[] {
+  const base = Math.floor(amount / parts);
+  return Array.from({ length: parts }, (_, i) => base + (i < amount - base * parts ? 1 : 0));
+}
+
 // ---------------------------------------------------------------------------
 // Internals
 // ---------------------------------------------------------------------------
@@ -348,6 +412,13 @@ function validateHandConfig(c: HandConfig): void {
   if (v.betting !== "NL" && v.betting !== "PL") throw new EngineError(`invalid betting ${v.betting}`);
   if (v.handRule !== "any" && v.handRule !== "omaha") {
     throw new EngineError(`invalid hand rule ${v.handRule}`);
+  }
+  if (v.split !== "high" && v.split !== "hilo") throw new EngineError(`invalid split ${v.split}`);
+  if (c.boards !== undefined && c.boards !== 1 && c.boards !== 2) {
+    throw new EngineError(`boards must be 1 or 2, got ${c.boards}`);
+  }
+  if (c.bombPot && (!isChips(c.bombPot.ante) || c.bombPot.ante === 0)) {
+    throw new EngineError("bomb pot ante must be more than 0");
   }
   if (!isChips(c.bigBlind) || c.bigBlind === 0) throw new EngineError("big blind must be > 0");
   if (!isChips(c.smallBlind) || c.smallBlind > c.bigBlind) {
@@ -371,7 +442,7 @@ function cloneState(s: HandState): HandState {
   return {
     ...s,
     players: s.players.map((p) => ({ ...p })),
-    board: s.board.slice(),
+    boards: s.boards.map((b) => b.slice()),
     log: s.log.slice(),
   };
 }
@@ -386,6 +457,15 @@ function putIn(p: PlayerState, amount: number): void {
   p.stack -= amount;
   p.bet += amount;
   p.committed += amount;
+}
+
+/** Posts an ante (dead money, not a bet), all-in for less if the stack is short. */
+function postAnte(s: HandState, i: number, ante: number): void {
+  const p = s.players[i]!;
+  const amount = Math.min(ante, p.stack);
+  p.stack -= amount;
+  p.committed += amount;
+  s.log.push({ street: "preflop", seat: p.seat, type: "ante", amount, allIn: p.stack === 0 });
 }
 
 /** Posts a forced bet, all-in for less if the stack is short. */
@@ -485,8 +565,11 @@ function dealNextStreet(s: HandState): void {
   const next: Record<string, Street> = { preflop: "flop", flop: "turn", turn: "river" };
   s.street = next[s.street]!;
   const count = s.street === "flop" ? 3 : 1;
-  s.board.push(...s.deck.slice(s.deckIndex, s.deckIndex + count));
-  s.deckIndex += count;
+  // Board 1 then board 2 on each street; no burn cards.
+  for (const board of s.boards) {
+    board.push(...s.deck.slice(s.deckIndex, s.deckIndex + count));
+    s.deckIndex += count;
+  }
   for (const p of s.players) {
     p.bet = 0;
     p.acted = false;
@@ -502,20 +585,57 @@ function finish(s: HandState): void {
   /** 0 = first seat left of the button. */
   const order = (seat: number) => (indexOfSeat(s, seat) - btn - 1 + n) % n;
 
+  const variant = s.config.variant;
+  const hilo = variant.split === "hilo";
   const live = s.players.filter((p) => !p.folded);
-  const values = new Map<number, HandValue>();
-  if (live.length > 1) {
-    for (const p of live) values.set(p.seat, handValue(s.config.variant, p.hole, s.board));
-  }
+  const showdown: ShowdownHand[] =
+    live.length > 1
+      ? live.map((p) => ({
+          seat: p.seat,
+          hole: p.hole,
+          boards: s.boards.map((board) => ({
+            high: handValue(variant, p.hole, board),
+            low: hilo ? lowValue(variant, p.hole, board) : null,
+          })),
+        }))
+      : [];
+  const hands = new Map(showdown.map((h) => [h.seat, h.boards]));
+  const inOrder = (seats: number[]) => seats.slice().sort((a, b) => order(a) - order(b));
 
+  // SPEC §2.5: each board takes half of each pot; within a board the high and
+  // the qualifying low each take half; ties split; odd chips go to board 1,
+  // then to the high half, then to the first winner left of the button.
   const pots: PotResult[] = computePots(s.players).map((pot) => {
-    let contenders = pot.eligible;
-    if (contenders.length > 1) {
-      const best = Math.max(...contenders.map((seat) => values.get(seat)!.score));
-      contenders = contenders.filter((seat) => values.get(seat)!.score === best);
+    const slices: PotSlice[] = [];
+    if (pot.eligible.length === 1) {
+      const seat = pot.eligible[0]!;
+      slices.push({ board: null, half: null, amount: pot.amount, winners: [{ seat, amount: pot.amount }] });
+    } else {
+      splitEven(pot.amount, s.boards.length).forEach((share, b) => {
+        if (share === 0) return;
+        const at = (seat: number) => hands.get(seat)![b]!;
+        const lowSeats = hilo ? pot.eligible.filter((seat) => at(seat).low) : [];
+        const lowAmount = lowSeats.length > 0 ? Math.floor(share / 2) : 0;
+        const highAmount = share - lowAmount;
+
+        const bestHigh = Math.max(...pot.eligible.map((seat) => at(seat).high.score));
+        const highWinners = pot.eligible.filter((seat) => at(seat).high.score === bestHigh);
+        slices.push({ board: b, half: "high", amount: highAmount, winners: splitPot(highAmount, inOrder(highWinners)) });
+
+        if (lowAmount > 0) {
+          // Lower low score is the better low.
+          const bestLowScore = Math.min(...lowSeats.map((seat) => at(seat).low!.score));
+          const lowWinners = lowSeats.filter((seat) => at(seat).low!.score === bestLowScore);
+          slices.push({ board: b, half: "low", amount: lowAmount, winners: splitPot(lowAmount, inOrder(lowWinners)) });
+        }
+      });
     }
-    const ordered = contenders.slice().sort((a, b) => order(a) - order(b));
-    return { ...pot, winners: splitPot(pot.amount, ordered) };
+    const perSeat = new Map<number, number>();
+    for (const slice of slices) {
+      for (const w of slice.winners) perSeat.set(w.seat, (perSeat.get(w.seat) ?? 0) + w.amount);
+    }
+    const winners = [...perSeat].map(([seat, amount]) => ({ seat, amount })).sort((a, b) => a.seat - b.seat);
+    return { ...pot, winners, slices };
   });
 
   const won = new Map<number, number>();
@@ -532,8 +652,6 @@ function finish(s: HandState): void {
   s.result = {
     pots,
     payouts: [...won].map(([seat, amount]) => ({ seat, amount })).sort((a, b) => a.seat - b.seat),
-    showdown: live.length > 1
-      ? live.map((p) => ({ seat: p.seat, hole: p.hole, value: values.get(p.seat)! }))
-      : [],
+    showdown,
   };
 }

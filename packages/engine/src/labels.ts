@@ -1,13 +1,15 @@
 import { type Card, rankOf } from "./cards";
-import { Category, CATEGORY_NAMES, type HandValue } from "./evaluator";
-import { handValue, type Variant } from "./hand";
+import { Category, CATEGORY_NAMES, describeLow, type HandValue, type LowValue } from "./evaluator";
+import { handValue, lowValue, type Variant } from "./hand";
 
 export interface HandLabel {
   category: Category;
-  /** "Top pair", "Flush", "Ace high", ... */
+  /** "Top pair", "Flush", "Ace high"; in Hi/Lo both halves: "Flush / 8-6 low". */
   text: string;
-  /** The hand the label describes; in Omaha always exactly 2 hole + 3 board once there's a flop. */
+  /** The high hand; in Omaha always exactly 2 hole + 3 board once there's a flop. */
   value: HandValue;
+  /** Hi/Lo only: the qualifying low (also 2 + 3 in Omaha), or null. */
+  low: LowValue | null;
 }
 
 const RANK_NAMES = [
@@ -16,11 +18,17 @@ const RANK_NAMES = [
 
 /**
  * The label for a player's current best hand, obeying the variant's hand rule.
- * Works on every street, including preflop with no board.
+ * Works on every street, including preflop with no board. With double board,
+ * call it once per board.
  */
 export function handLabel(variant: Variant, hole: readonly Card[], board: readonly Card[]): HandLabel {
   const value = handValue(variant, hole, board);
-  return { category: value.category, text: labelText(value, hole, board), value };
+  const high = labelText(value, hole, board);
+  if (variant.split !== "hilo" || board.length < 3) {
+    return { category: value.category, text: high, value, low: null };
+  }
+  const low = lowValue(variant, hole, board);
+  return { category: value.category, text: `${high} / ${low ? describeLow(low) : "no low"}`, value, low };
 }
 
 function labelText(value: HandValue, hole: readonly Card[], board: readonly Card[]): string {

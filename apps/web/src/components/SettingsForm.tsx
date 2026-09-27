@@ -17,6 +17,8 @@ export const VARIANT_LABELS: Record<VariantName, { name: string; detail: string 
   NLH: { name: "No-limit Hold'em", detail: "2 cards, no limit" },
   PLO: { name: "Pot-limit Omaha", detail: "4 cards, use exactly 2" },
   PLO5: { name: "5-card PLO", detail: "5 cards, use exactly 2" },
+  PLOHL: { name: "PLO Hi/Lo", detail: "4 cards, split 8-or-better" },
+  PLO5HL: { name: "PLO5 Hi/Lo", detail: "5 cards, split 8-or-better" },
 };
 
 const DECISION_TIMES = [10, 15, 20, 30, 45, 60, 90];

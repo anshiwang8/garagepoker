@@ -34,7 +34,7 @@ describe("button and blinds", () => {
     expect(legalActions(s)).toMatchObject({ canCheck: true, canRaise: true });
     s = play(s, "2 check");
     expect(s.street).toBe("flop");
-    expect(s.board).toHaveLength(3);
+    expect(s.boards[0]).toHaveLength(3);
     expect(s.toAct).toBe(2);
   });
 
@@ -223,9 +223,9 @@ describe("pots and showdown", () => {
     let s = start({ 1: 500, 2: 100, 3: 300 }, 1, NL, deck);
     s = play(s, "1 raise 500", "2 call", "3 call");
     expect(s.street).toBe("complete");
-    expect(s.board).toHaveLength(5);
+    expect(s.boards[0]).toHaveLength(5);
     expect(s.log.find((e) => e.type === "uncalled")).toMatchObject({ seat: 1, amount: 200 });
-    expect(s.result!.pots).toEqual([
+    expect(s.result!.pots).toMatchObject([
       { amount: 300, eligible: [1, 2, 3], winners: [{ seat: 2, amount: 300 }] },
       { amount: 400, eligible: [1, 3], winners: [{ seat: 3, amount: 400 }] },
     ]);
@@ -237,13 +237,21 @@ describe("pots and showdown", () => {
     const deck = stackDeck(["2c 3d", "2d 3c", "4c 5d"], "Ts Js Qs Ks As");
     let s = start(three, 2, { ...NL, ante: 1 }, deck);
     s = checkDown(play(s, "2 fold", "3 call", "1 check"));
-    expect(s.result!.pots).toEqual([
+    expect(s.result!.pots).toMatchObject([
       {
         amount: 43,
         eligible: [1, 3],
-        winners: [
-          { seat: 3, amount: 22 },
-          { seat: 1, amount: 21 },
+        slices: [
+          {
+            board: 0,
+            half: "high",
+            amount: 43,
+            // Winners in left-of-button order: seat 3 gets the odd chip.
+            winners: [
+              { seat: 3, amount: 22 },
+              { seat: 1, amount: 21 },
+            ],
+          },
         ],
       },
     ]);
@@ -267,7 +275,7 @@ describe("pots and showdown", () => {
   it("runs out the board when everyone is all-in", () => {
     const s = play(start({ 1: 500, 2: 800 }, 1), "1 raise 500", "2 call");
     expect(s.street).toBe("complete");
-    expect(s.board).toHaveLength(5);
+    expect(s.boards[0]).toHaveLength(5);
     expect(s.result!.showdown).toHaveLength(2);
     expect(stack(s, 1) + stack(s, 2)).toBe(1300);
   });
@@ -280,7 +288,7 @@ describe("pots and showdown", () => {
     s = play(s, "2 check", "1 raise 200", "2 fold");
     // Seat 1 vs the all-in seat 3: no more betting, run it out.
     expect(s.street).toBe("complete");
-    expect(s.board).toHaveLength(5);
+    expect(s.boards[0]).toHaveLength(5);
   });
 
   it("Omaha showdown uses exactly 2 hole cards + 3 board cards", () => {
@@ -289,11 +297,12 @@ describe("pots and showdown", () => {
     const deck = stackDeck(["Ah Kc Qd Js", "9h 9d 4c 4d"], "2h 5h 8h Th 3c");
     const s = checkDown(play(start(two, 1, PL, deck), "1 call"));
     const shown = s.result!.showdown;
-    const byseat = (seat: number) => shown.find((x) => x.seat === seat)!.value;
+    const byseat = (seat: number) => shown.find((x) => x.seat === seat)!.boards[0]!.high;
     expect(byseat(2).category).toBe(Category.HighCard);
     expect(byseat(1).category).toBe(Category.Pair);
-    for (const { hole, value } of shown) {
-      expect(value.cards.filter((c) => hole.includes(c))).toHaveLength(2);
+    for (const { hole, boards } of shown) {
+      expect(boards[0]!.high.cards.filter((c) => hole.includes(c))).toHaveLength(2);
+      expect(boards[0]!.low).toBeNull();
     }
     expect(s.result!.payouts).toEqual([{ seat: 1, amount: 40 }]);
   });
