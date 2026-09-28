@@ -22,6 +22,12 @@
 				}
 			],
 			"tag": "v2"
+		},
+		{
+			"new_sqlite_classes": [
+				"RateLimiter"
+			],
+			"tag": "v3"
 		}
 	],
 	"durable_objects": {
@@ -29,6 +35,10 @@
 			{
 				"class_name": "TableRoom",
 				"name": "TABLE"
+			},
+			{
+				"class_name": "RateLimiter",
+				"name": "RATE_LIMITER"
 			}
 		]
 	},

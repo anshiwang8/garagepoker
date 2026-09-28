@@ -8,8 +8,11 @@ import {
   type ServerMessage,
 } from "@garagepoker/protocol";
 import { DurableObject } from "cloudflare:workers";
+import { clientKey } from "./rateLimit.js";
 import { newTableData, randomId, Table, type TableData, TableError } from "./table.js";
 import { buildView } from "./view.js";
+
+export { RateLimiter } from "./rateLimit.js";
 
 const cryptoRandom: RandomSource = (buf) => {
 	crypto.getRandomValues(buf);
@@ -194,14 +197,41 @@ function send(ws: WebSocket, message: ServerMessage): void {
 // Worker: routes HTTP and WebSocket requests to the right TableRoom.
 // ---------------------------------------------------------------------------
 
-const CORS = {
-	"Access-Control-Allow-Origin": "*",
-	"Access-Control-Allow-Methods": "POST, OPTIONS",
-	"Access-Control-Allow-Headers": "Content-Type",
-};
+/** The only sites allowed to create tables or open table sockets. */
+export const ALLOWED_ORIGINS: readonly string[] = ["https://garagepoker-flax.vercel.app", "http://localhost:3000"];
 
-function json(body: unknown, status = 200): Response {
-	return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json", ...CORS } });
+/** POST /api/tables: at most this many per client IP per window. */
+export const CREATE_TABLE_LIMIT = 5;
+export const CREATE_TABLE_WINDOW_MS = 60_000;
+
+/**
+ * The request's Origin if it's allowed, else null. Browsers always send
+ * Origin on cross-origin POSTs and WebSocket upgrades, so a missing Origin
+ * (curl, scripts) is rejected too. This stops other websites from using a
+ * visitor's browser against the API; it can't stop non-browser clients,
+ * which can send any Origin — that's what the rate limit is for.
+ */
+function allowedOrigin(request: Request): string | null {
+	const origin = request.headers.get("Origin");
+	return origin !== null && ALLOWED_ORIGINS.includes(origin) ? origin : null;
+}
+
+function corsHeaders(origin: string | null): Record<string, string> {
+	const headers: Record<string, string> = { Vary: "Origin" };
+	if (origin) {
+		headers["Access-Control-Allow-Origin"] = origin;
+		headers["Access-Control-Allow-Methods"] = "POST, OPTIONS";
+		headers["Access-Control-Allow-Headers"] = "Content-Type";
+		headers["Access-Control-Max-Age"] = "600";
+	}
+	return headers;
+}
+
+function json(body: unknown, status: number, origin: string | null, extra: Record<string, string> = {}): Response {
+	return new Response(JSON.stringify(body), {
+		status,
+		headers: { "Content-Type": "application/json", ...corsHeaders(origin), ...extra },
+	});
 }
 
 const WS_PATH = /^\/api\/tables\/([A-Za-z0-9]{10})\/ws$/;
@@ -209,35 +239,60 @@ const WS_PATH = /^\/api\/tables\/([A-Za-z0-9]{10})\/ws$/;
 export default {
 	async fetch(request, env): Promise<Response> {
 		const url = new URL(request.url);
-		if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
+		const origin = allowedOrigin(request);
+
+		if (request.method === "OPTIONS") {
+			return new Response(null, { status: origin ? 204 : 403, headers: corsHeaders(origin) });
+		}
 
 		if (url.pathname === "/api/tables" && request.method === "POST") {
+			if (!origin) return json({ error: "Origin not allowed" }, 403, null);
+
+			// Counted before the body is read, so malformed requests count too.
+			const key = clientKey(request.headers.get("CF-Connecting-IP"));
+			const limit = await env.RATE_LIMITER.getByName(`create-table:${key}`).take(
+				CREATE_TABLE_LIMIT,
+				CREATE_TABLE_WINDOW_MS,
+			);
+			if (!limit.allowed) {
+				return json(
+					{ error: `Too many new tables. Try again in ${limit.retryAfterSec} s.` },
+					429,
+					origin,
+					{ "Retry-After": String(limit.retryAfterSec) },
+				);
+			}
+
 			const text = await request.text();
-			if (text.length > MAX_CLIENT_MESSAGE_BYTES) return json({ error: "Request too large" }, 413);
+			if (text.length > MAX_CLIENT_MESSAGE_BYTES) return json({ error: "Request too large" }, 413, origin);
 			let body: unknown;
 			try {
 				body = JSON.parse(text);
 			} catch {
-				return json({ error: "Body must be JSON" }, 400);
+				return json({ error: "Body must be JSON" }, 400, origin);
 			}
 			const parsed = createTableSchema.safeParse(body);
-			if (!parsed.success) return json({ error: "Invalid request", issues: parsed.error.issues }, 400);
+			if (!parsed.success) return json({ error: "Invalid request", issues: parsed.error.issues }, 400, origin);
 			const settings: TableSettings = { ...DEFAULT_SETTINGS, ...parsed.data.settings };
 			const issues = validateConfig(settings);
-			if (issues.length) return json({ error: "Invalid settings", issues }, 400);
+			if (issues.length) return json({ error: "Invalid settings", issues }, 400, origin);
 			// 62^10 ids: collisions are vanishingly rare, but retry anyway.
 			for (let attempt = 0; attempt < 3; attempt++) {
 				const tableId = randomId(10, cryptoRandom);
 				if (await env.TABLE.getByName(tableId).create(tableId, parsed.data.token, settings)) {
-					return json({ tableId }, 201);
+					return json({ tableId }, 201, origin);
 				}
 			}
-			return json({ error: "Could not create a table" }, 500);
+			return json({ error: "Could not create a table" }, 500, origin);
 		}
 
 		const ws = WS_PATH.exec(url.pathname);
-		if (ws && request.method === "GET") return env.TABLE.getByName(ws[1]!).fetch(request);
+		if (ws && request.method === "GET") {
+			// Blocks cross-site WebSocket hijacking from other websites.
+			if (!origin) return new Response("Origin not allowed", { status: 403 });
+			return env.TABLE.getByName(ws[1]!).fetch(request);
+		}
 
-		return json({ error: "Not found" }, 404);
+		return json({ error: "Not found" }, 404, origin);
 	},
 } satisfies ExportedHandler<Env>;

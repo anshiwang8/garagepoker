@@ -2,7 +2,7 @@ import type { ClientMessage } from "@garagepoker/protocol";
 import { env, evictDurableObject, runDurableObjectAlarm, runInDurableObject, SELF } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import type { TableRoom } from "../src/index.js";
-import { Client, createTable, step, token } from "./helpers.js";
+import { Client, createTable, freshIp, ORIGIN, step, token } from "./helpers.js";
 
 type PlayerAction = Extract<ClientMessage, { type: "act" }>["action"];
 
@@ -35,7 +35,11 @@ const ownCards = (c: Client) => c.view.seats[c.view.you.seat! - 1]!.cards as str
 describe("creating tables", () => {
 	it("validates the request with Zod and the settings with validateConfig", async () => {
 		const post = (body: unknown) =>
-			SELF.fetch("https://gp.test/api/tables", { method: "POST", body: JSON.stringify(body) });
+			SELF.fetch("https://gp.test/api/tables", {
+				method: "POST",
+				headers: { Origin: ORIGIN, "CF-Connecting-IP": freshIp() },
+				body: JSON.stringify(body),
+			});
 		expect((await post({ token: "short" })).status).toBe(400);
 		expect((await post({ token: ALICE, settings: { seats: 12 } })).status).toBe(400);
 		expect((await post({ token: ALICE, settings: { bigBlind: 2000, smallBlind: 5000 } })).status).toBe(400);
@@ -46,7 +50,7 @@ describe("creating tables", () => {
 	});
 
 	it("404s for unknown tables and non-upgrade requests", async () => {
-		const res = await SELF.fetch("https://gp.test/api/tables/NoSuchTabl/ws", { headers: { Upgrade: "websocket" } });
+		const res = await SELF.fetch("https://gp.test/api/tables/NoSuchTabl/ws", { headers: { Upgrade: "websocket", Origin: ORIGIN } });
 		expect(res.status).toBe(404);
 		expect((await SELF.fetch("https://gp.test/nope")).status).toBe(404);
 	});
@@ -55,7 +59,7 @@ describe("creating tables", () => {
 describe("message validation", () => {
 	it("rejects anything that isn't a valid protocol message", async () => {
 		const tableId = await createTable(ALICE);
-		const res = await SELF.fetch(`https://gp.test/api/tables/${tableId}/ws`, { headers: { Upgrade: "websocket" } });
+		const res = await SELF.fetch(`https://gp.test/api/tables/${tableId}/ws`, { headers: { Upgrade: "websocket", Origin: ORIGIN } });
 		const ws = res.webSocket!;
 		ws.accept();
 		const c = new Client(ws);

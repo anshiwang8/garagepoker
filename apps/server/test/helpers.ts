@@ -93,10 +93,17 @@ export function harness(settings: Partial<TableSettings> = {}) {
 // WebSocket clients against the real Worker + Durable Object
 // ---------------------------------------------------------------------------
 
+/** An allowed browser origin (see ALLOWED_ORIGINS). */
+export const ORIGIN = "http://localhost:3000";
+
+let nextIp = 1;
+/** A fresh client IP, so tests that create many tables stay under the rate limit. */
+export const freshIp = () => `10.0.${Math.floor(nextIp / 250)}.${nextIp++ % 250}`;
+
 export async function createTable(ownerToken: string, settings: Partial<TableSettings> = {}): Promise<string> {
 	const res = await SELF.fetch("https://gp.test/api/tables", {
 		method: "POST",
-		headers: { "Content-Type": "application/json" },
+		headers: { "Content-Type": "application/json", Origin: ORIGIN, "CF-Connecting-IP": freshIp() },
 		body: JSON.stringify({ token: ownerToken, settings }),
 	});
 	expect(res.status).toBe(201);
@@ -117,7 +124,7 @@ export class Client {
 
 	static async connect(tableId: string, playerToken: string): Promise<Client> {
 		const res = await SELF.fetch(`https://gp.test/api/tables/${tableId}/ws`, {
-			headers: { Upgrade: "websocket" },
+			headers: { Upgrade: "websocket", Origin: ORIGIN },
 		});
 		expect(res.status).toBe(101);
 		const ws = res.webSocket!;

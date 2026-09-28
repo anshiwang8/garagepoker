@@ -1,8 +1,13 @@
 import type { CreateTableResponse } from "@garagepoker/protocol";
 import type { TableSettings } from "@garagepoker/engine";
 
-/** Base URL of the Worker, inlined at build time. */
-export const SERVER_URL = (process.env.NEXT_PUBLIC_SERVER_URL ?? "http://localhost:8787").replace(/\/+$/, "");
+/**
+ * Base URL of the Worker, inlined at build time. Production builds fail
+ * without it (next.config.ts); only `next dev` falls back to `wrangler dev`.
+ */
+export const SERVER_URL = (
+  process.env.NEXT_PUBLIC_SERVER_URL ?? (process.env.NODE_ENV === "production" ? "" : "http://localhost:8787")
+).replace(/\/+$/, "");
 
 export function tableSocketUrl(tableId: string): string {
   return `${SERVER_URL.replace(/^http/, "ws")}/api/tables/${encodeURIComponent(tableId)}/ws`;
