@@ -106,12 +106,12 @@ seats × hole cards + boards × 5 × runs ≤ deck size
   - Each browser gets a random player token, stored in localStorage and a cookie. The token, not the nickname, owns the seat, so a page refresh keeps your seat.
   - Players pick a nickname when they sit.
 - **Creating a table:** anyone can open a table and pick settings. The table URL uses an unguessable 10-character ID. Anyone with the link can request a seat or spectate.
-- **Owner:** the creator's token is the owner. The owner can hand off ownership from the Players menu. If the owner is offline for 5 minutes, ownership passes to the longest-seated active player.
+- **Owner:** the creator's token is the owner. The owner can hand off ownership from the Players menu. If the owner has been offline for 5 minutes and an eligible player (seated, not away, connected) is present, ownership passes to the longest-seated eligible player. This is checked when someone connects or disconnects, when someone taps "I'm back" and when a hand ends, never on a timer.
 - **Seats:** 2–9 seats (default 8). A player taps an empty seat and enters their name and buy-in amount.
 - **Seat approval:** the owner gets a popup to approve or decline each seat request. In that popup they can edit the player's starting stack before they sit. Rebuy requests use the same popup.
-- **Disconnects:** a disconnected player keeps their seat. Their timer runs and they auto-fold. After 2 missed hands they are marked away.
+- **Disconnects:** a disconnected player keeps their seat. Mid-hand, their timer runs and they auto-check or fold. If they're still disconnected when the hand ends, they're marked away for the next hand. Reconnecting doesn't clear away: the player taps "I'm back".
 - **Away:** a player can toggle Away to sit out from the next hand. Away players are skipped: they're dealt no cards and post no blinds or bomb-pot antes.
-- **Pause / end:** the owner has Pause and End buttons, which take effect after the current hand. If every player is away, the game pauses automatically. A new table also starts paused. The owner presses Start Game to begin or resume.
+- **Pause / end:** the owner has Pause and End buttons, which take effect after the current hand. Between hands, if fewer than 2 seated players are active (not away, with chips), the game pauses automatically and shows "Paused: waiting for players"; only the owner can press Start to resume. A new table also starts paused. The owner presses Start Game to begin or resume.
 - **Kicking:** the owner can kick a player. Kicking takes effect after the current hand, and the player's stack is cashed out to the ledger.
 - **Spectators:** anyone with the link can watch without a seat. They never see hole cards before showdown.
 - **Lifetime:** tables live in memory only. A table with no connected players for 12 hours is deleted. When the owner ends a game, the final ledger and settle-up are shown and can be downloaded as CSV.

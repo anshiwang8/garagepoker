@@ -164,6 +164,11 @@ export interface TableView {
   status: TableStatus;
   /** Owner pressed Pause / End; takes effect after this hand. */
   pauseRequested: boolean;
+  /**
+   * "waitingForPlayers": paused automatically because fewer than 2 seated
+   * players are active between hands. Only the owner can press Start.
+   */
+  pausedReason: "waitingForPlayers" | null;
   endRequested: boolean;
   settings: TableSettings;
   /** Settings saved during a hand, applied from the next one. */

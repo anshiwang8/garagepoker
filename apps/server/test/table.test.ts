@@ -145,26 +145,53 @@ describe("timers", () => {
 		expect(h.view(owner).hand).toMatchObject({ toAct: 2 });
 	});
 
-	it("a disconnected player times out without the bank and goes away after 2 missed hands", () => {
-		const { h, owner, bob } = headsUp();
-		h.disconnect(bob);
-		for (let hand = 1; hand <= 2; hand++) {
-			h.send(owner, { type: "startGame" });
-			while (h.data.hand) {
-				if (h.data.hand.toAct === 2) h.advance(20_000);
-				else h.act(h.table().data.hand!.currentBet > h.data.hand.players[0]!.bet ? { type: "call" } : { type: "check" });
-			}
-			expect(h.data.seats[1]).toMatchObject({ missedHands: hand, away: hand === 2, timeBankMs: 60_000 });
-		}
-		expect(h.view(owner).seats[1]).toMatchObject({ away: true, connected: false });
-		// Only one player left who isn't away: no hand starts.
+	it("a disconnect mid-hand isn't away until the hand ends; then the 2-player table pauses", () => {
+		const { h, owner, bob } = headsUp({ autoStart: true });
 		h.send(owner, { type: "startGame" });
-		expect(h.data.hand).toBeNull();
-		// Coming back clears away and the count.
+		h.act({ type: "call" }); // owner completes the small blind; Bob's option
+		h.disconnect(bob);
+		// Mid-hand Bob keeps his seat and his turns time out (check when free),
+		// without his time bank; he isn't away yet.
+		while (h.data.hand) {
+			expect(h.data.seats[1]!.away).toBe(false);
+			if (h.data.hand.toAct === 2) h.advance(DEFAULT_SETTINGS.decisionTimeSec * 1000);
+			else h.act({ type: "check" });
+		}
+		// Still disconnected as the hand ends: away for the next one.
+		expect(h.data.seats[1]).toMatchObject({ away: true, timeBankMs: 60_000 });
+		// One active player left: paused, not waiting for the 3 s auto-start.
+		expect(h.data).toMatchObject({ status: "paused", pausedReason: "waitingForPlayers", nextHandAt: null });
+		expect(h.view(owner)).toMatchObject({ status: "paused", pausedReason: "waitingForPlayers" });
+
+		// Reconnecting doesn't clear away; Bob taps "I'm back".
 		h.join("bob");
+		expect(h.data.seats[1]!.away).toBe(true);
+		expect(() => h.send(owner, { type: "startGame" })).toThrow(/Waiting for players/);
 		h.send(bob, { type: "setAway", away: false });
-		expect(h.data.seats[1]).toMatchObject({ away: false, missedHands: 0 });
-		expect(h.data.hand).not.toBeNull();
+		// Back to 2 active players, but it stays paused until the owner presses Start.
+		expect(h.data.status).toBe("paused");
+		expect(() => h.send(bob, { type: "startGame" })).toThrow(/owner/);
+		h.send(owner, { type: "startGame" });
+		expect(h.data).toMatchObject({ status: "running", pausedReason: null });
+		expect(h.data.handNumber).toBe(2);
+	});
+
+	it("everyone disconnects: all away at hand end, paused, and only idle delete is scheduled", () => {
+		const { h, owner, bob } = headsUp({ autoStart: true });
+		h.send(owner, { type: "startGame" });
+		h.disconnect(owner);
+		h.disconnect(bob);
+		// Each turn times out at the decision deadline until the hand ends.
+		while (h.data.hand) h.advance(DEFAULT_SETTINGS.decisionTimeSec * 1000);
+		expect(h.data.seats.slice(0, 2).map((s) => s!.away)).toEqual([true, true]);
+		expect(h.data).toMatchObject({ status: "paused", pausedReason: "waitingForPlayers", nextHandAt: null });
+		const idle = { at: h.data.emptySince! + IDLE_DELETE_MS, timer: "idleDelete" };
+		expect(h.table().nextAlarm()).toEqual(idle);
+		// Nothing else ever wakes the table: an hour later it's the same, and
+		// the offline owner is still the owner (nobody here to take over).
+		h.advance(60 * 60_000);
+		expect(h.table().nextAlarm()).toEqual(idle);
+		expect(h.data.ownerId).toBe(owner);
 	});
 
 	it("refills time banks by 10 s every 10 hands", () => {
@@ -296,10 +323,22 @@ describe("owner menu", () => {
 		// so Bob is the longest-seated connected, active player.
 		h.disconnect(owner);
 		h.disconnect(carol);
-		h.advance(OWNER_OFFLINE_MS - 1);
+		// Time passing alone never hands off: there's no timer (SPEC §4).
+		h.advance(OWNER_OFFLINE_MS);
 		expect(h.data.ownerId).toBe(carol);
-		h.advance(1);
+		expect(h.table().nextAlarm()).toBeNull();
+		// The next presence change after 5 minutes does: Dave connects to watch.
+		h.join("dave");
 		expect(h.data.ownerId).toBe(bob);
+	});
+
+	it("doesn't hand off on a presence change before 5 minutes", () => {
+		const { h, owner, bob } = headsUp();
+		h.disconnect(owner);
+		h.advance(OWNER_OFFLINE_MS - 1);
+		h.join("dave");
+		expect(h.data.ownerId).toBe(owner);
+		expect(bob).toBeTruthy();
 	});
 });
 
@@ -538,7 +577,8 @@ describe("alarms", () => {
 		h.join("carol"); // a spectator keeps the table from being empty
 		h.disconnect(bob);
 		h.disconnect(owner);
-		expect(h.table().nextAlarm()).toEqual({ at: h.clock.now + OWNER_OFFLINE_MS, timer: "ownerHandOff" });
+		// The owner hand-off never has a timer (SPEC §4): nothing is scheduled.
+		expect(h.table().nextAlarm()).toBeNull();
 
 		// Five minutes pass: Carol isn't seated and Bob is offline, so nobody qualifies.
 		h.advance(OWNER_OFFLINE_MS);
@@ -569,13 +609,30 @@ describe("alarms", () => {
 		expect(h.data.ownerId).toBe(bob);
 	});
 
-	it("still schedules the hand-off while it's in the future", () => {
-		const { h, owner } = headsUp();
+	it("with the game going on, hands off at a hand end once the owner has been offline 5 minutes", () => {
+		const { h, owner, bob } = headsUp({ autoStart: true });
+		const carol = h.seat("carol", 3, 50_000);
+		h.send(owner, { type: "startGame" });
+		const left = h.clock.now;
 		h.disconnect(owner);
-		h.advance(OWNER_OFFLINE_MS - 1);
-		expect(h.table().nextAlarm()).toEqual({ at: h.clock.now + 1, timer: "ownerHandOff" });
-		h.advance(1); // Bob is seated and connected: he takes over on time
-		expect(h.data.ownerId).not.toBe(owner);
+		// Bob and Carol keep playing (check or fold after 5 s); the owner times
+		// out, then sits out as away. No timer is ever set for the hand-off.
+		for (let steps = 0; h.data.ownerId === owner; steps++) {
+			expect(steps).toBeLessThan(2_000);
+			expect(h.data.ownerId === owner || h.data.hand === null).toBe(true);
+			h.advance(5_000);
+			const hand = h.data.hand;
+			const toAct = hand?.toAct ? h.data.seats[hand.toAct - 1]!.playerId : null;
+			if (toAct === bob || toAct === carol) {
+				h.act(h.view(toAct).you.legal!.canCheck ? { type: "check" } : { type: "fold" });
+			}
+		}
+		// It moved when a hand ended, 5+ minutes after the owner left, to Bob,
+		// the longest-seated connected player who isn't away.
+		expect(h.data.ownerId).toBe(bob);
+		expect(h.data.hand).toBeNull();
+		expect(h.clock.now - left).toBeGreaterThanOrEqual(OWNER_OFFLINE_MS);
+		expect(h.data.handNumber).toBeGreaterThan(3);
 	});
 
 	it("never schedules the next hand during a hand", () => {
@@ -608,7 +665,7 @@ describe("lifetime", () => {
 		const { h, owner, bob } = headsUp();
 		h.disconnect(owner);
 		h.disconnect(bob);
-		expect(h.table().nextAlarm()).toEqual({ at: h.clock.now + OWNER_OFFLINE_MS, timer: "ownerHandOff" });
+		expect(h.table().nextAlarm()).toEqual({ at: h.clock.now + IDLE_DELETE_MS, timer: "idleDelete" });
 		h.advance(IDLE_DELETE_MS - 1);
 		expect(h.table().shouldDelete()).toBe(false);
 		h.advance(1);

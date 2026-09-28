@@ -355,21 +355,22 @@ describe("playing hands over WebSockets", () => {
 		alice.close();
 		await carol.waitForRev(rev + 1);
 
-		// Six minutes later the hand-off alarm fires, but there's no candidate.
+		// No alarm at all: the owner hand-off never has a timer (SPEC §4), there's
+		// no hand, and Carol keeps the table from counting as empty. (The old bug
+		// rescheduled a hand-off alarm in the past, re-firing forever.)
+		const alarm = await runInDurableObject(stub, (_room: TableRoom, state) => state.storage.getAlarm());
+		expect(alarm).toBeNull();
+		expect(await runDurableObjectAlarm(stub)).toBe(false);
+
+		// Six minutes pass with nothing happening: still Alice's table.
 		const later = Date.now() + 6 * 60_000;
 		await runInDurableObject(stub, (room: TableRoom) => {
 			room.now = () => later;
 		});
-		expect(await runDurableObjectAlarm(stub)).toBe(true);
-		const alarm = await runInDurableObject(stub, (_room: TableRoom, state) => state.storage.getAlarm());
-		// Nothing is scheduled at all: no hand, not empty, and the hand-off has no
-		// candidate. (The old bug rescheduled it in the past, re-firing forever;
-		// asserting null also checks the fix itself, not just persist()'s clamp.)
-		expect(alarm).toBeNull();
-		expect(await runDurableObjectAlarm(stub)).toBe(false);
 		expect(carol.view.seats[0]).toMatchObject({ nickname: "Alice", isOwner: true });
 
-		// Bob reconnects: he's seated and active, so he takes over right away.
+		// Bob reconnects (a presence change): he's seated and not away, so he
+		// takes over right away.
 		rev = carol.rev;
 		const bob2 = await Client.connect(tableId, BOB);
 		await carol.waitForRev(rev + 1);

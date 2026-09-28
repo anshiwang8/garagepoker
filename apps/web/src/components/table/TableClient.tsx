@@ -217,6 +217,11 @@ function statusText(view: TableView, canSit: boolean): string | null {
   if (view.status === "ended") return "The game has ended.";
   const lastShown = view.lastHand && view.lastHand.number === view.handNumber;
   if (view.you.request) return "Waiting for the owner to approve you.";
+  if (view.status === "paused" && view.pausedReason === "waitingForPlayers") {
+    return view.you.isOwner
+      ? "Paused: waiting for players. Press Start when 2 players are back."
+      : "Paused: waiting for players.";
+  }
   if (view.status === "paused") {
     if (view.handNumber === 0) {
       if (view.you.isOwner) return canSit ? "Take a seat, share the link, then press Start." : "Share the link, then press Start.";

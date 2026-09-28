@@ -42,7 +42,6 @@ import { type FairnessSecret, newSalts } from "./fairness.js";
 export const AUTO_START_DELAY_MS = 3_000;
 export const OWNER_OFFLINE_MS = 5 * 60_000;
 export const IDLE_DELETE_MS = 12 * 60 * 60_000;
-export const MISSED_HANDS_BEFORE_AWAY = 2;
 export const TIME_BANK_REFILL_EVERY_HANDS = 10;
 export const TIME_BANK_REFILL_MS = 10_000;
 export const MAX_SEATS = 9;
@@ -72,7 +71,6 @@ export interface SeatData {
   away: boolean;
   waitingForBB: boolean;
   postBlind: boolean;
-  missedHands: number;
   timeBankMs: number;
   /** Set when leaving or kicked mid-hand; applied when the hand ends. */
   leaving: "leave" | "kick" | null;
@@ -97,8 +95,11 @@ export interface TableHandRecord {
   players: { seat: number; playerId: string; nickname: string }[];
 }
 
+/** "waitingForPlayers": fewer than 2 active players between hands (SPEC §4). */
+export type PausedReason = "waitingForPlayers" | null;
+
 /** The timers that can wake a TableRoom. */
-export type AlarmTimer = "turn" | "nextHand" | "runItTwice" | "discard" | "ownerHandOff" | "idleDelete";
+export type AlarmTimer = "turn" | "nextHand" | "runItTwice" | "discard" | "idleDelete";
 
 export interface TurnTimer {
   seat: number;
@@ -136,13 +137,13 @@ export interface TableData {
   requests: SeatRequest[];
   status: TableStatus;
   pauseRequested: boolean;
+  /** Why the table is paused, when it wasn't the owner's choice. */
+  pausedReason: PausedReason;
   endRequested: boolean;
   handNumber: number;
   button: number | null;
   hand: HandState | null;
   turn: TurnTimer | null;
-  /** Seats that timed out while disconnected in the current hand. */
-  handTimeouts: number[];
   nextHandAt: number | null;
   /** While run it twice is offered: when an unanswered offer runs once. */
   ritDeadline: number | null;
@@ -163,6 +164,8 @@ export interface TableData {
   ledger: LedgerEvent[];
   ownerOfflineSince: number | null;
   emptySince: number | null;
+  /** Who was connected at the last syncPresence(), to spot presence changes. */
+  presence: string[];
 }
 
 export interface TableDeps {
@@ -203,12 +206,12 @@ export function newTableData(
     requests: [],
     status: "paused",
     pauseRequested: false,
+    pausedReason: null,
     endRequested: false,
     handNumber: 0,
     button: null,
     hand: null,
     turn: null,
-    handTimeouts: [],
     nextHandAt: null,
     ritDeadline: null,
     discardDeadline: null,
@@ -220,6 +223,7 @@ export function newTableData(
     ledger: [],
     ownerOfflineSince: null,
     emptySince: deps.now,
+    presence: [],
   };
 }
 
@@ -265,7 +269,7 @@ export class Table {
       case "setAway": {
         const seat = this.requireSeated(playerId);
         seat.away = m.away;
-        if (!m.away) seat.missedHands = 0;
+        if (!m.away) this.maybeHandOffOwnership();
         this.afterChange();
         return;
       }
@@ -305,7 +309,11 @@ export class Table {
         this.data.ownerOfflineSince = null;
         return;
       case "startGame":
+        if (this.activeCount() < 2) {
+          throw new TableError("Waiting for players: 2 seated players who aren't away are needed to start");
+        }
         this.data.status = "running";
+        this.data.pausedReason = null;
         this.data.pauseRequested = false;
         this.afterChange();
         return;
@@ -340,15 +348,12 @@ export class Table {
     if (d.hand?.discard && d.discardDeadline !== null && this.now >= d.discardDeadline) {
       // SPEC §1: on timeout, discard the lowest card.
       for (const seat of d.hand.discard.pending) {
-        const s = this.seat(seat)!;
-        if (!this.deps.connected.has(s.playerId) && !d.handTimeouts.includes(seat)) d.handTimeouts.push(seat);
         const hole = d.hand.players.find((p) => p.seat === seat)!.hole;
         this.applyEngine({ type: "discard", seat, card: lowestCard(hole) });
       }
       this.afterAction();
     }
     if (!d.hand && d.nextHandAt !== null && this.now >= d.nextHandAt) this.startNextHand();
-    this.maybeHandOffOwnership();
   }
 
   /** Call after connections change. */
@@ -359,8 +364,12 @@ export class Table {
     else d.ownerOfflineSince ??= this.now;
     if (connected.size > 0) d.emptySince = null;
     else d.emptySince ??= this.now;
-    // Someone who can take over may have just connected to an ownerless table.
-    this.maybeHandOffOwnership();
+    // SPEC §4: re-check the owner hand-off when someone connects or disconnects
+    // (TableRoom calls this on every change, so compare with the last snapshot).
+    const now = [...connected].sort();
+    const changed = now.join(",") !== (d.presence ?? []).join(",");
+    d.presence = now;
+    if (changed) this.maybeHandOffOwnership();
   }
 
   /**
@@ -383,12 +392,8 @@ export class Table {
     if (!d.hand && d.nextHandAt !== null) due.push({ at: d.nextHandAt, timer: "nextHand" });
     if (d.hand?.ritOffer && d.ritDeadline !== null) due.push({ at: d.ritDeadline, timer: "runItTwice" });
     if (d.hand?.discard && d.discardDeadline !== null) due.push({ at: d.discardDeadline, timer: "discard" });
-    if (d.ownerOfflineSince !== null) {
-      const at = d.ownerOfflineSince + OWNER_OFFLINE_MS;
-      // Once it's due, only wake if someone can take over. Otherwise the
-      // hand-off happens when a candidate connects or comes back from away.
-      if (at > this.now || this.handOffCandidate()) due.push({ at, timer: "ownerHandOff" });
-    }
+    // (Owner hand-off has no timer: it's checked on presence changes, "I'm
+    // back" and hand end. SPEC §4.)
     if (d.emptySince !== null) due.push({ at: d.emptySince + IDLE_DELETE_MS, timer: "idleDelete" });
     return due.reduce<{ at: number; timer: AlarmTimer } | null>((min, x) => (!min || x.at < min.at ? x : min), null);
   }
@@ -516,7 +521,6 @@ export class Table {
       away: false,
       waitingForBB: started && !req.postBlind,
       postBlind: started && req.postBlind,
-      missedHands: 0,
       timeBankMs: d.settings.timeBankSec * 1000,
       leaving: null,
       pendingOps: [],
@@ -612,10 +616,16 @@ export class Table {
     for (const s of d.seats) if (s) s.timeBankMs = Math.min(s.timeBankMs, settings.timeBankSec * 1000);
   }
 
-  private pause() {
+  private pause(reason: PausedReason = null) {
     this.data.status = "paused";
+    this.data.pausedReason = reason;
     this.data.pauseRequested = false;
     this.data.nextHandAt = null;
+  }
+
+  /** Seated players who could be dealt in: not away, with chips (SPEC §4). */
+  private activeCount(): number {
+    return this.data.seats.filter((s) => s && !s.away && s.stack > 0).length;
   }
 
   private end() {
@@ -627,13 +637,15 @@ export class Table {
     d.requests = [];
   }
 
-  /** Between hands: auto-pause if everyone is away, else deal when ready. */
+  /**
+   * Between hands: with fewer than 2 active players, pause until the owner
+   * presses Start again (SPEC §4); otherwise deal when ready.
+   */
   private afterChange() {
     const d = this.data;
     if (d.status !== "running" || d.hand) return;
-    const seated = d.seats.filter((s): s is SeatData => s !== null);
-    if (seated.length > 0 && seated.every((s) => s.away)) {
-      this.pause();
+    if (this.activeCount() < 2) {
+      this.pause("waitingForPlayers");
       return;
     }
     d.nextHandAt ??= this.now;
@@ -648,7 +660,11 @@ export class Table {
       .sort((a, b) => a.seatedAt - b.seatedAt)[0];
   }
 
-  /** Hands ownership over once the owner has been offline 5 minutes and someone can take it. */
+  /**
+   * Hands ownership over once the owner has been offline 5 minutes and an
+   * eligible player is here. Event-driven only: called on presence changes,
+   * "I'm back" and at hand end, never from a timer.
+   */
   private maybeHandOffOwnership() {
     const d = this.data;
     if (d.ownerOfflineSince === null || this.now - d.ownerOfflineSince < OWNER_OFFLINE_MS) return;
@@ -678,7 +694,10 @@ export class Table {
       for (const x of eligible) x.s.waitingForBB = false;
       active = eligible;
     }
-    if (active.length < 2) return;
+    if (active.length < 2) {
+      this.pause("waitingForPlayers");
+      return;
+    }
 
     const button = nextButton(d.button, active.map((x) => x.seat));
     const bombPot = isBombPotHand(d.settings, d.handNumber + 1);
@@ -717,7 +736,6 @@ export class Table {
     }
     d.handNumber++;
     d.button = button;
-    d.handTimeouts = [];
     this.afterAction();
   }
 
@@ -750,7 +768,6 @@ export class Table {
     const card = parseCard(cardText);
     if (!d.hand.players.find((p) => p.seat === n)!.hole.includes(card)) throw new TableError("You don't hold that card");
     this.applyEngine({ type: "discard", seat: n, card });
-    this.seat(n)!.missedHands = 0;
     this.afterAction();
   }
 
@@ -779,7 +796,6 @@ export class Table {
       const used = Math.max(0, this.now - d.turn.decisionDeadline);
       seat.timeBankMs = Math.max(0, seat.timeBankMs - used);
     }
-    seat.missedHands = 0;
     this.afterAction();
   }
 
@@ -788,7 +804,6 @@ export class Table {
     const d = this.data;
     const seat = this.seat(turn.seat)!;
     if (connected) seat.timeBankMs = 0;
-    else if (!d.handTimeouts.includes(turn.seat)) d.handTimeouts.push(turn.seat);
     const legal = legalActions(d.hand!)!;
     this.applyEngine({ type: legal.canCheck ? "check" : "fold", seat: turn.seat });
     this.afterAction();
@@ -849,10 +864,10 @@ export class Table {
     d.ritDeadline = null;
     d.discardDeadline = null;
 
-    for (const n of d.handTimeouts) {
-      const s = this.seat(n)!;
-      if (++s.missedHands >= MISSED_HANDS_BEFORE_AWAY) s.away = true;
-    }
+    // SPEC §4: anyone seated who is disconnected as the hand ends sits out
+    // from the next one. (Mid-hand they just time out.) Reconnecting doesn't
+    // clear this; they tap "I'm back".
+    for (const s of d.seats) if (s && !this.deps.connected.has(s.playerId)) s.away = true;
     if (d.handNumber % TIME_BANK_REFILL_EVERY_HANDS === 0) {
       const max = d.settings.timeBankSec * 1000;
       for (const s of d.seats) if (s) s.timeBankMs = Math.min(max, s.timeBankMs + TIME_BANK_REFILL_MS);
@@ -869,7 +884,11 @@ export class Table {
     // SPEC §6: between hands the nets must sum to 0.
     assertLedgerBalanced(ledgerRows(d.ledger, this.stacksByPlayer()));
 
+    // SPEC §4: an offline owner hands over to someone still here.
+    this.maybeHandOffOwnership();
+
     if (d.endRequested) this.end();
+    else if (this.activeCount() < 2) this.pause("waitingForPlayers");
     else if (d.pauseRequested || !d.settings.autoStart) this.pause();
     else {
       d.nextHandAt = this.now + AUTO_START_DELAY_MS;

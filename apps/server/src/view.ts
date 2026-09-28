@@ -77,6 +77,7 @@ export function buildView(
     serverNow: now,
     status: data.status,
     pauseRequested: data.pauseRequested,
+    pausedReason: data.pausedReason ?? null,
     endRequested: data.endRequested,
     settings: data.settings,
     pendingSettings: data.pendingSettings,
