@@ -184,7 +184,7 @@ export function Seat({
         className={`relative flex gap-1.5 rounded-xl border px-1 pb-1.5 pt-0.5 shadow-lg ${
           isYou ? "flex-row items-start" : "flex-col items-center wide:flex-row wide:items-start"
         } ${
-          toAct ? "border-gold bg-panel-2 ring-2 ring-gold/60" : isYou ? "border-gold/50 bg-panel/95" : "border-line bg-panel/95"
+          toAct && isYou ? "turn-glow border-gold bg-panel-2" : toAct ? "border-gold bg-panel-2 ring-2 ring-gold/60" : isYou ? "border-gold/50 bg-panel/95" : "border-line bg-panel/95"
         }`}
       >
         {cards && (

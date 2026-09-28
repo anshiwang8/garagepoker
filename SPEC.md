@@ -180,17 +180,21 @@ Store one entry per event, so the ledger is an audit log, not just running total
 ## 7. UI
 
 - Works in mobile and desktop browsers. The table lays out horizontally or vertically depending on the screen's aspect ratio; design mobile portrait first.
+- **Layout:** top bar, the table, and a bottom toolbar (Ledger, Pause, Last hand, Rebuy, Leave, Away). There is no side panel: the table uses the full width, and your cards and hand label are at your seat. Seats are spread round the table so the bottom corners stay clear for your seat and the action float.
 - There are no chip graphics, only numbers. The total pot is shown in the middle of the table, above the board.
 - A dealer button marker rotates around the table.
 - **Seats:** every seat shows its cards as two large overlapping cards (Omaha variants fan 4–5), face down for opponents, with name and stack in a panel next to them and the current bet toward the centre. Your own seat is bigger. On a phone, tableside cards are about twice their old size so they're readable.
 - **Hand-strength tag:** a small coloured tag under the cards names the hand ("PAIR", "TWO PAIR", "FLUSH"; Hi/Lo shows both halves, e.g. "FLUSH" + "8-6 LOW"). Only the card's owner sees it, until showdown.
 - **Dealer button:** shown above the seat that has it.
-- **Phones:** there is no separate hand panel at the bottom of the screen; your cards are at your seat. Nothing may cover the action bar (the owner's approval popup waits until you've acted).
-- **Action bar:** Fold, Check/Call (shows the amount), Raise.
-  - Raise opens a small popup with a slider and an editable amount to its right.
-  - Presets above them. Preflop when nobody has raised yet: Min, 2 BB, 3 BB, All in. Preflop after a raise: Min, ⅓ pot, ½ pot, ¾ pot, Pot, All in. Postflop: ½ pot, ¾ pot, Pot, All in. A pot fraction raises to the current bet plus that share of the pot after calling.
+- **Action float:** floats over the bottom-right corner of the table, above the toolbar, and never covers your seat or the board.
+  - Your turn: Fold (red), Check or "Call 20" (neutral), Raise/Bet (gold), as large bold buttons (at least 56 px tall on desktop, 48 px on phones, 16–18 px text), with your decision timer as a bar above them. Your seat pulses. No sound.
+  - Otherwise a compact status pill: "Waiting for Bob…", "Your turn in 2" (players still to act before you), or "Hand over" with a Details link that opens the hand result (winners, Verify, Rabbit hunt). Nothing else takes space.
+  - Run it twice, Pineapple discards and "waiting for approval" appear in the same spot.
+  - Raise opens a panel directly above the buttons: presets, then a slider with the editable amount, then Confirm (and Cancel).
+  - Presets: Preflop when nobody has raised yet: Min, 2 BB, 3 BB, All in. Preflop after a raise: Min, ⅓ pot, ½ pot, ¾ pot, Pot, All in. Postflop: ½ pot, ¾ pot, Pot, All in. A pot fraction raises to the current bet plus that share of the pot after calling.
   - In pot-limit games every preset is capped at the maximum pot-sized raise, and a capped All in is labelled "Pot (max)".
   - Presets below the min raise or above the player's stack are hidden; presets that land on the same amount are shown once.
+- **Phones (portrait):** the action float spans the full width at the bottom, above the toolbar, clear of the safe areas; the table shrinks to fit above it, so nothing overlaps the buttons or your seat. The raise panel opens as a bottom sheet over the table, just above the buttons. The owner's approval popup waits until you've acted.
 - **Run it twice:** a prompt appears when it's eligible and disappears after 5 s; no answer means it runs once.
 - **Pineapple:** a discard picker appears on each discard street.
 - Double board shows two stacked boards, each labeled with its share of the pot.

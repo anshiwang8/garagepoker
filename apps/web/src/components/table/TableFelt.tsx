@@ -5,27 +5,42 @@ import { CardSlot, PlayingCard } from "./PlayingCard";
 import { wonBySeat } from "./HandResult";
 import { type Countdown, Seat } from "./Seat";
 
-/** Point on an ellipse around the table centre, in % of the felt box. 0° = bottom, clockwise. */
-function around(index: number, count: number, rx: number, ry: number, offsetDeg = 0) {
-  const a = ((90 + (index * 360) / count + offsetDeg) * Math.PI) / 180;
-  return { left: `${50 + rx * Math.cos(a)}%`, top: `${50 + ry * Math.sin(a)}%` };
+/**
+ * Angle of a seat round the table, 0° = bottom (you), clockwise. The other
+ * seats spread evenly over an arc that leaves the bottom corners free: on
+ * phones for your own (bigger) seat, in landscape for the action float and its
+ * raise panel too, so the arc starts further up there.
+ */
+function seatAngle(index: number, count: number, wide: boolean): number {
+  if (index === 0) return 0;
+  const others = count - 1;
+  if (others === 1) return 180;
+  const start = Math.max(360 / count, wide ? 84 : 55);
+  return start + ((360 - 2 * start) * (index - 1)) / (others - 1);
+}
+
+/** Point on an ellipse around the table centre, in % of the felt box. */
+function ellipse(deg: number, rx: number, ry: number, cy: number) {
+  const a = ((90 + deg) * Math.PI) / 180;
+  return { x: 50 + rx * Math.cos(a), y: cy + ry * Math.sin(a) };
 }
 
 /**
  * Where a seat sits. Yours is pinned to the bottom edge; the others go round
- * the ellipse, clamped so a seat near the edge never runs off the screen.
+ * the ellipse (.seat-pos in globals.css picks the phone or landscape point and
+ * clamps it so a seat near the edge never runs off the screen).
  */
 function seatPosition(index: number, count: number): React.CSSProperties {
   if (index === 0) return { left: "50%", bottom: 2, transform: "translateX(-50%)" };
-  const a = ((90 + (index * 360) / count) * Math.PI) / 180;
-  const x = 50 + 42 * Math.cos(a);
-  const y = 46 + 44 * Math.sin(a);
-  return {
-    // --seat-edge: how close to the side a seat's centre may get (set per layout below).
-    left: `clamp(var(--seat-edge), ${x}%, calc(100% - var(--seat-edge)))`,
-    top: `clamp(4.5rem, ${y}%, calc(100% - 4.5rem))`,
-    transform: "translate(-50%, -50%)",
-  };
+  const p = ellipse(seatAngle(index, count, false), 42, 44, 46);
+  const w = ellipse(seatAngle(index, count, true), 42, 44, 46);
+  return { "--xp": `${p.x}%`, "--yp": `${p.y}%`, "--xw": `${w.x}%`, "--yw": `${w.y}%` } as React.CSSProperties;
+}
+
+/** A seat's bet, pulled toward the centre (landscape only). */
+function betPosition(index: number, count: number): React.CSSProperties {
+  const b = ellipse(seatAngle(index, count, true), 26, 24, 50);
+  return { left: `${b.x}%`, top: `${b.y}%` };
 }
 
 export function TableFelt({
@@ -126,7 +141,7 @@ export function TableFelt({
             <div
               key={`bet-${s.seat}`}
               className="absolute hidden -translate-x-1/2 -translate-y-1/2 rounded-full bg-black/55 px-2 py-0.5 text-xs font-semibold tabular text-gold wide:block"
-              style={around(indexOf(s.seat), n, 26, 24)}
+              style={betPosition(indexOf(s.seat), n)}
             >
               {formatChips(s.bet, dc)}
             </div>
@@ -137,7 +152,7 @@ export function TableFelt({
       {view.seats.map((s, i) => {
         const number = i + 1;
         return (
-          <div key={number} className="absolute z-10" style={seatPosition(indexOf(number), n)}>
+          <div key={number} className={`absolute z-10 ${indexOf(number) === 0 ? "" : "seat-pos"}`} style={seatPosition(indexOf(number), n)}>
             <Seat
               seat={s}
               number={number}

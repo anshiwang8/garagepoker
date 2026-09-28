@@ -11,10 +11,8 @@ import { ActionBar } from "./ActionBar";
 import { ReplayDialog } from "./ReplayDialog";
 import { DiscardPicker } from "./DiscardPicker";
 import { RunItTwicePrompt } from "./RunItTwicePrompt";
-import { HandResult } from "./HandResult";
 import { LedgerDialog } from "./LedgerDialog";
 import { OwnerMenu } from "./OwnerMenu";
-import { PlayingCard } from "./PlayingCard";
 import { ApprovalPopup, RebuyDialog, SeatRequestDialog } from "./SeatDialogs";
 import type { Countdown } from "./Seat";
 import { TableFelt } from "./TableFelt";
@@ -99,46 +97,30 @@ export function TableClient({ tableId }: { tableId: string }) {
         />
       </div>
 
-      {/* Your hand and actions */}
-      <section className="area-hand flex flex-col justify-end gap-3 border-t border-line bg-panel/70 p-3 wide:border-l wide:border-t-0">
+      {/* Action float (SPEC §7): full width above the toolbar on phones; over the
+          table's bottom-right corner in landscape. Collapses when there's nothing to show. */}
+      <section className="area-hand action-float relative flex flex-col gap-2 empty:hidden" aria-label="Actions">
         {view.you.request && (
-          <div className="flex items-center justify-between gap-2 rounded-xl border border-gold/40 bg-gold/10 px-3 py-2 text-sm">
+          <div className="flex items-center justify-between gap-2 rounded-xl border border-gold/40 bg-panel px-3 py-2 text-sm shadow-lg">
             <span>Waiting for the owner to approve your {view.you.request.kind === "seat" ? "seat" : "rebuy"}…</span>
             <Button variant="ghost" onClick={() => send({ type: "cancelRequest" })}>
               Cancel
             </Button>
           </div>
         )}
-        {view.you.isOwner && view.status === "paused" && (
-          <Button variant="primary" className="py-3 text-base" onClick={() => send({ type: "startGame" })}>
-            {view.handNumber === 0 ? "Start game" : "Resume game"}
-          </Button>
-        )}
-        <DiscardPicker view={view} send={send} now={now} />
-        {/* Phones show your cards at your seat on the table; this larger view is
-            only for the landscape side column, where it covers nothing. */}
-        {mySeat?.inHand && mySeat.cards && !(view.hand?.discard?.seats.includes(mySeat.seat)) && (
-          <div className="hidden flex-wrap items-center justify-center gap-x-3 gap-y-1 wide:flex">
-            <div className="flex gap-1.5">
-              {mySeat.cards.map((c, i) => (
-                <PlayingCard key={i} card={c} size={mySeat.cards!.length > 2 ? "md" : "lg"} dim={mySeat.folded} />
-              ))}
-            </div>
-            <div className="flex min-w-0 flex-col">
-              <span className="text-xs uppercase tracking-wide text-muted">{mySeat.folded ? "Folded" : "Your hand"}</span>
-              {!mySeat.folded &&
-                view.you.labels?.map((label, b) => (
-                  <span key={b} className="font-semibold leading-snug">
-                    {view.you.labels!.length > 1 && <span className="mr-1 text-xs font-normal text-muted">Board {b + 1}</span>}
-                    {label}
-                  </span>
-                ))}
-            </div>
-          </div>
-        )}
-        {!view.hand && view.lastHand && view.lastHand.number === view.handNumber && <HandResult view={view} send={send} seenCommitment={commitments[view.lastHand.number]} />}
-        <RunItTwicePrompt view={view} send={send} now={now} />
-        <ActionBar view={view} send={send} countdown={view.hand?.toAct === view.you.seat ? countdown : null} />
+        <div className="empty:hidden wide:rounded-2xl wide:border wide:border-line wide:bg-panel/95 wide:p-3 wide:shadow-2xl">
+          <DiscardPicker view={view} send={send} now={now} />
+        </div>
+        <div className="empty:hidden wide:rounded-xl wide:bg-panel/95 wide:shadow-2xl">
+          <RunItTwicePrompt view={view} send={send} now={now} />
+        </div>
+        <ActionBar
+          key={view.handNumber}
+          view={view}
+          send={send}
+          countdown={view.hand?.toAct === view.you.seat ? countdown : null}
+          seenCommitment={view.lastHand ? commitments[view.lastHand.number] : undefined}
+        />
       </section>
 
       {/* Utility row: Ledger bottom-left, Away always visible */}

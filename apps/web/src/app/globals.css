@@ -48,9 +48,10 @@ input[type="range"] {
 }
 
 /*
- * Table page. Portrait (default): top bar, felt, your hand + actions, utility
- * row. Landscape: hand + actions move to a right column; the utility row
- * (Ledger bottom-left) stays under the felt.
+ * Table page (SPEC §7). Portrait (default): top bar, table, action float,
+ * toolbar, stacked, so the table shrinks to fit above the actions. Landscape:
+ * the table takes the full width and the action float sits over its
+ * bottom-right corner, clear of your seat (bottom centre) and the board.
  */
 .table-layout {
   display: grid;
@@ -60,6 +61,22 @@ input[type="range"] {
   /* Never wider than the screen, whatever the rows contain. */
   grid-template-columns: minmax(0, 1fr);
 }
+.area-top { grid-area: top; }
+.area-felt { grid-area: felt; }
+.area-hand { grid-area: hand; }
+.area-util { grid-area: util; }
+
+.action-float {
+  z-index: 30;
+  padding: 0.5rem max(0.75rem, env(safe-area-inset-right)) 0.5rem max(0.75rem, env(safe-area-inset-left));
+  border-top: 1px solid var(--color-line);
+  background: color-mix(in srgb, var(--color-panel) 92%, transparent);
+}
+/* Nothing to show (spectating, between games): take no space at all. */
+.action-float:not(:has(> :not(:empty))) {
+  display: none;
+}
+
 /* Portrait: compact buttons so the bottom row fits a 390 px phone. */
 @media not (min-aspect-ratio: 5/4) {
   .area-util button {
@@ -72,15 +89,49 @@ input[type="range"] {
 }
 @media (min-aspect-ratio: 5/4) {
   .table-layout {
-    grid-template-areas: "top hand" "felt hand" "util hand";
-    grid-template-columns: minmax(0, 1fr) 22rem;
+    grid-template-areas: "top" "felt" "util";
     grid-template-rows: auto minmax(0, 1fr) auto;
   }
+  .action-float {
+    grid-area: felt;
+    align-self: end;
+    justify-self: end;
+    /* Leaves room for your seat, pinned at the bottom centre. */
+    width: min(24rem, calc(50% - 10rem));
+    margin: 0.75rem;
+    padding: 0;
+    border: 0;
+    background: none;
+  }
 }
-.area-top { grid-area: top; }
-.area-felt { grid-area: felt; }
-.area-hand { grid-area: hand; }
-.area-util { grid-area: util; }
+
+/* Seats round the table (TableFelt seatPosition): the phone or landscape point, kept on screen. */
+.seat-pos {
+  left: clamp(var(--seat-edge), var(--xp), calc(100% - var(--seat-edge)));
+  top: clamp(4.5rem, var(--yp), calc(100% - 4.5rem));
+  transform: translate(-50%, -50%);
+}
+@media (min-aspect-ratio: 5/4) {
+  .seat-pos {
+    left: clamp(var(--seat-edge), var(--xw), calc(100% - var(--seat-edge)));
+    top: clamp(4.5rem, var(--yw), calc(100% - 4.5rem));
+  }
+}
+
+/* Your turn: your seat pulses (no sound). */
+@keyframes turn-glow {
+  0%, 100% { box-shadow: 0 0 0 2px rgb(233 185 73 / 0.9), 0 0 10px 2px rgb(233 185 73 / 0.3); }
+  50% { box-shadow: 0 0 0 3px rgb(233 185 73), 0 0 24px 8px rgb(233 185 73 / 0.55); }
+}
+.turn-glow {
+  animation: turn-glow 1.2s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .turn-glow {
+    animation: none;
+    box-shadow: 0 0 0 3px rgb(233 185 73), 0 0 16px 4px rgb(233 185 73 / 0.5);
+  }
+}
 
 .max-h-sheet {
   max-height: 90vh;
