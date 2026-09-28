@@ -122,6 +122,8 @@ export const clientMessageSchema = z.discriminatedUnion("type", [
   msg("rabbitHunt", { hand: z.number().int().min(1) }),
   /** Pineapple: discard one of your cards (face down, everyone at once). */
   msg("discard", { hand: z.number().int().min(1), card: z.string().regex(/^[2-9TJQKA][cdhs]$/) }),
+  /** Ask for the last finished hand's replay; answered to you only. */
+  msg("getReplay", {}),
 
   // Owner only
   msg("approveRequest", { requestId, stack: positiveCents }),
@@ -147,6 +149,8 @@ export const MAX_CLIENT_MESSAGE_BYTES = 4096;
 
 export type ServerMessage =
   | { type: "view"; view: TableView }
+  /** Answer to getReplay; null when there's no finished hand to replay. */
+  | { type: "replay"; replay: ReplayView | null }
   | { type: "error"; message: string; for?: ClientMessageType };
 
 export type TableStatus = "paused" | "running" | "ended";
@@ -393,4 +397,39 @@ export async function verifyFairness(
     ok: missing.length === 0,
   });
   return { ok: checks.every((c) => c.ok), checks };
+}
+
+// ---------------------------------------------------------------------------
+// Last-hand replay
+// ---------------------------------------------------------------------------
+
+/** What happened between two replay frames. Amounts are integer cents. */
+export type ReplayEvent =
+  | { kind: "action"; seat: number; type: LogType; amount: number; to?: number; allIn?: boolean }
+  | { kind: "deal"; street: Street; run: number; board: number; cards: string[] }
+  | { kind: "showdown"; seat: number; cards: string[]; labels: string[] }
+  | { kind: "win"; seat: number; amount: number };
+
+/** The table after one step. Only your own cards, and cards shown at showdown, are visible. */
+export interface ReplayFrame {
+  events: ReplayEvent[];
+  street: Street;
+  boards: string[][];
+  secondRun: string[][] | null;
+  pot: number;
+  seats: {
+    seat: number;
+    nickname: string;
+    stack: number;
+    bet: number;
+    folded: boolean;
+    cards: (string | null)[];
+  }[];
+}
+
+export interface ReplayView {
+  hand: number;
+  /** The deal first, then one frame per action. */
+  frames: ReplayFrame[];
+  pots: { amount: number; slices: SliceView[] }[];
 }

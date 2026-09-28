@@ -58,7 +58,7 @@ export function harness(settings: Partial<TableSettings> = {}) {
 			connected.delete(id);
 			settle();
 		},
-		send(playerId: string, m: Exclude<ClientMessage, { type: "hello" }>) {
+		send(playerId: string, m: Exclude<ClientMessage, { type: "hello" | "getReplay" }>) {
 			table().handle(playerId, m);
 			settle();
 		},
@@ -139,8 +139,15 @@ export class Client {
 	}
 
 	get view(): TableView {
-		const views = this.messages.filter((m) => m.type === "view");
-		return views.at(-1)!.view;
+		const views = this.messages.flatMap((m) => (m.type === "view" ? [m.view] : []));
+		return views.at(-1)!;
+	}
+
+	/** Asks for the last hand's replay and returns it. */
+	async replay() {
+		const reply = await this.request({ type: "getReplay" });
+		if (reply.type !== "replay") throw new Error(`expected a replay, got ${reply.type}`);
+		return reply.replay;
 	}
 
 	send(m: ClientMessage | Record<string, unknown>) {
@@ -181,7 +188,7 @@ export class Client {
 		this.send(m);
 		let reply: ServerMessage | undefined;
 		await this.until(() => {
-			reply = this.messages.slice(n).find((x) => x.type === "error" || x.view.rev > afterRev);
+			reply = this.messages.slice(n).find((x) => x.type !== "view" || x.view.rev > afterRev);
 			return !!reply;
 		}, `reply to ${String(m.type)}`);
 		return reply!;
@@ -196,5 +203,6 @@ export class Client {
 export async function step(clients: Client[], actor: Client, m: ClientMessage): Promise<void> {
 	const reply = await actor.request(m, Math.max(...clients.map((c) => c.rev)));
 	if (reply.type === "error") throw new Error(`${m.type} failed: ${reply.message}`);
+	if (reply.type !== "view") throw new Error(`${m.type} got a ${reply.type} reply, not a view`);
 	await Promise.all(clients.map((c) => c.waitForRev(reply.view.rev)));
 }

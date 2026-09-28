@@ -11,6 +11,7 @@ import { DurableObject } from "cloudflare:workers";
 import { clientKey } from "./rateLimit.js";
 import { newTableData, randomId, Table, type TableData, TableError } from "./table.js";
 import { seal } from "./fairness.js";
+import { buildReplay } from "./replay.js";
 import { buildView } from "./view.js";
 
 export { RateLimiter } from "./rateLimit.js";
@@ -90,6 +91,8 @@ export class TableRoom extends DurableObject<Env> {
 		}
 		const playerId = attachment(ws).playerId;
 		if (!playerId) return send(ws, { type: "error", message: "Send hello first", for: m.type });
+		// Read-only: answered to this socket alone, no state change or broadcast.
+		if (m.type === "getReplay") return send(ws, { type: "replay", replay: buildReplay(this.data, playerId) });
 		await this.mutate(ws, m.type, (table) => table.handle(playerId, m));
 	}
 

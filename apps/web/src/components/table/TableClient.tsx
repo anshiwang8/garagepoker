@@ -8,6 +8,7 @@ import { useServerNow, useTableSocket } from "@/lib/useTableSocket";
 import { VARIANT_LABELS } from "../SettingsForm";
 import { Button, ConfirmButton } from "../ui";
 import { ActionBar } from "./ActionBar";
+import { ReplayDialog } from "./ReplayDialog";
 import { DiscardPicker } from "./DiscardPicker";
 import { RunItTwicePrompt } from "./RunItTwicePrompt";
 import { HandResult } from "./HandResult";
@@ -25,7 +26,7 @@ type Dialog = { kind: "seat"; seat: number } | { kind: "rebuy" } | { kind: "ledg
  * sends a message and waits for the next view.
  */
 export function TableClient({ tableId }: { tableId: string }) {
-  const { view, connection, send, toasts, dismiss, clockOffset, commitments } = useTableSocket(tableId);
+  const { view, connection, send, toasts, dismiss, clockOffset, commitments, replay, closeReplay } = useTableSocket(tableId);
   const [dialog, setDialog] = useState<Dialog>(null);
   const now = useServerNow(clockOffset, !!view?.hand?.toAct || !!view?.hand?.ritOffer || !!view?.hand?.discard);
 
@@ -141,6 +142,11 @@ export function TableClient({ tableId }: { tableId: string }) {
       {/* Utility row: Ledger bottom-left, Away always visible */}
       <footer className="area-util flex items-center gap-2 border-t border-line bg-panel/70 px-3 pt-2 safe-bottom">
         <Button onClick={() => setDialog({ kind: "ledger" })}>Ledger</Button>
+        {view.handNumber > 0 && !view.you.watchBlocked && (
+          <Button variant="ghost" onClick={() => send({ type: "getReplay" })}>
+            Last hand
+          </Button>
+        )}
         <div className="flex-1" />
         {mySeat && view.settings.rebuys && view.status !== "ended" && (
           <Button variant="ghost" onClick={() => setDialog({ kind: "rebuy" })}>
@@ -167,7 +173,8 @@ export function TableClient({ tableId }: { tableId: string }) {
       {dialog?.kind === "ledger" && <LedgerDialog view={view} onClose={close} />}
       {dialog?.kind === "owner" && view.you.isOwner && <OwnerMenu view={view} send={send} onClose={close} />}
       {view.you.isOwner && dialog?.kind !== "owner" && <ApprovalPopup view={view} send={send} />}
-      {view.status === "ended" && !dialog && <LedgerDialog view={view} />}
+      {view.status === "ended" && !dialog && !replay && <LedgerDialog view={view} />}
+      {replay && <ReplayDialog key={replay.hand} replay={replay} displayCents={view.settings.displayCents} onClose={closeReplay} />}
 
       {/* Toasts: server errors and notices */}
       <div className="pointer-events-none fixed inset-x-0 top-12 z-50 flex flex-col items-center gap-2 px-3">

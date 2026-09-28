@@ -12,6 +12,9 @@ import {
   type HandState,
   handConfigFor,
   handLabel,
+  type HandRecord,
+  type PlayerAction,
+  type StartHandInput,
   lowestCard,
   parseCard,
   rabbitCards,
@@ -87,6 +90,13 @@ export interface SeatRequest {
   postBlind: boolean;
 }
 
+/** A hand as the engine saw it, plus who sat where (seats can change later). */
+export interface TableHandRecord {
+  hand: number;
+  record: HandRecord;
+  players: { seat: number; playerId: string; nickname: string }[];
+}
+
 export interface TurnTimer {
   seat: number;
   decisionDeadline: number;
@@ -141,6 +151,10 @@ export interface TableData {
    * rabbit hunt. Server-only: never put in a view. Overwritten each hand.
    */
   prevHand: HandState | null;
+  /** The current hand's start and every action, for the replay. Server-only (holds the deck). */
+  handRecord: TableHandRecord | null;
+  /** The last finished hand's record, overwritten each hand. Server-only. */
+  prevRecord: TableHandRecord | null;
   /** Salts and hashes for the current (or last) hand's fairness proof. Server-only. */
   fairness: FairnessSecret | null;
   ledger: LedgerEvent[];
@@ -197,6 +211,8 @@ export function newTableData(
     discardDeadline: null,
     lastHand: null,
     prevHand: null,
+    handRecord: null,
+    prevRecord: null,
     fairness: null,
     ledger: [],
     ownerOfflineSince: null,
@@ -228,7 +244,7 @@ export class Table {
     return p.playerId;
   }
 
-  handle(playerId: string, m: Exclude<ClientMessage, { type: "hello" }>): void {
+  handle(playerId: string, m: Exclude<ClientMessage, { type: "hello" | "getReplay" }>): void {
     const player = this.player(playerId);
     player.notice = null;
     if (this.data.status === "ended") throw new TableError("This game has ended");
@@ -315,7 +331,7 @@ export class Table {
       // No answer in time: it runs once (SPEC §2.7).
       const offer = d.hand.ritOffer;
       const seat = offer.seats.find((s) => !offer.accepted.includes(s))!;
-      d.hand = applyAction(d.hand, { type: "runItTwice", seat, accept: false });
+      this.applyEngine({ type: "runItTwice", seat, accept: false });
       this.afterAction();
     }
     if (d.hand?.discard && d.discardDeadline !== null && this.now >= d.discardDeadline) {
@@ -324,7 +340,7 @@ export class Table {
         const s = this.seat(seat)!;
         if (!this.deps.connected.has(s.playerId) && !d.handTimeouts.includes(seat)) d.handTimeouts.push(seat);
         const hole = d.hand.players.find((p) => p.seat === seat)!.hole;
-        d.hand = applyAction(d.hand, { type: "discard", seat, card: lowestCard(hole) });
+        this.applyEngine({ type: "discard", seat, card: lowestCard(hole) });
       }
       this.afterAction();
     }
@@ -650,12 +666,18 @@ export class Table {
 
     const variant = VARIANTS[d.settings.variant];
     const deck = shuffle(makeDeck(variant.deckSize), this.deps.random);
-    d.hand = startHand({
+    const input: StartHandInput = {
       config: handConfigFor(d.settings, bombPot),
       players: dealt.map((x) => ({ seat: x.seat, stack: x.s.stack, postBlind: x.s.postBlind })),
       button,
       deck,
-    });
+    };
+    d.hand = startHand(input);
+    d.handRecord = {
+      hand: d.handNumber + 1,
+      record: { input, actions: [] },
+      players: dealt.map((x) => ({ seat: x.seat, playerId: x.s.playerId, nickname: x.s.nickname })),
+    };
     // Committed (hashed by TableRoom) before any view of this hand goes out.
     d.fairness = {
       hand: d.handNumber + 1,
@@ -681,7 +703,7 @@ export class Table {
     const n = this.seatNumberOf(playerId);
     if (n === null || !d.hand.ritOffer.seats.includes(n)) throw new TableError("You're not in this pot");
     if (d.hand.ritOffer.accepted.includes(n)) throw new TableError("You already accepted");
-    d.hand = applyAction(d.hand, { type: "runItTwice", seat: n, accept });
+    this.applyEngine({ type: "runItTwice", seat: n, accept });
     this.afterAction();
   }
 
@@ -702,9 +724,16 @@ export class Table {
     if (n === null || !d.hand.discard.pending.includes(n)) throw new TableError("You have nothing to discard");
     const card = parseCard(cardText);
     if (!d.hand.players.find((p) => p.seat === n)!.hole.includes(card)) throw new TableError("You don't hold that card");
-    d.hand = applyAction(d.hand, { type: "discard", seat: n, card });
+    this.applyEngine({ type: "discard", seat: n, card });
     this.seat(n)!.missedHands = 0;
     this.afterAction();
+  }
+
+  /** Applies an engine action to the current hand and records it for the replay. */
+  private applyEngine(action: PlayerAction) {
+    const d = this.data;
+    d.hand = applyAction(d.hand!, action);
+    d.handRecord?.record.actions.push(action);
   }
 
   private act(playerId: string, hand: number, action: Extract<ClientMessage, { type: "act" }>["action"]) {
@@ -715,7 +744,7 @@ export class Table {
     const engineAction =
       action.type === "raise" ? { type: "raise" as const, seat: n, to: action.to } : { type: action.type, seat: n };
     try {
-      d.hand = applyAction(d.hand, engineAction);
+      this.applyEngine(engineAction);
     } catch (err) {
       if (err instanceof EngineError) throw new TableError(err.message);
       throw err;
@@ -736,7 +765,7 @@ export class Table {
     if (connected) seat.timeBankMs = 0;
     else if (!d.handTimeouts.includes(turn.seat)) d.handTimeouts.push(turn.seat);
     const legal = legalActions(d.hand!)!;
-    d.hand = applyAction(d.hand!, { type: legal.canCheck ? "check" : "fold", seat: turn.seat });
+    this.applyEngine({ type: legal.canCheck ? "check" : "fold", seat: turn.seat });
     this.afterAction();
   }
 
@@ -788,6 +817,8 @@ export class Table {
       rabbit: null,
     };
     d.prevHand = hand;
+    d.prevRecord = d.handRecord ?? null;
+    d.handRecord = null;
     d.hand = null;
     d.turn = null;
     d.ritDeadline = null;

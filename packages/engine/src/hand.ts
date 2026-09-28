@@ -873,3 +873,24 @@ function finish(s: HandState): void {
     showdown,
   };
 }
+
+// ---------------------------------------------------------------------------
+// Replay
+// ---------------------------------------------------------------------------
+
+/** Everything needed to replay a hand: how it started, and every action in order. */
+export interface HandRecord {
+  input: StartHandInput;
+  actions: PlayerAction[];
+}
+
+/**
+ * Re-runs a recorded hand through the reducer. Returns the state after the
+ * deal and after each action; the last one equals the live hand's end state,
+ * since the engine is deterministic.
+ */
+export function replayHand(record: HandRecord): HandState[] {
+  const states = [startHand(record.input)];
+  for (const action of record.actions) states.push(applyAction(states[states.length - 1]!, action));
+  return states;
+}

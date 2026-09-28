@@ -1,6 +1,6 @@
 "use client";
 
-import type { ClientMessage, ServerMessage, TableView } from "@garagepoker/protocol";
+import type { ClientMessage, ReplayView, ServerMessage, TableView } from "@garagepoker/protocol";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { tableSocketUrl } from "./server";
 import { getPlayerToken } from "./token";
@@ -29,6 +29,8 @@ export function useTableSocket(tableId: string) {
   const [clockOffset, setClockOffset] = useState(0);
   /** Commitments seen at the start of each hand, to verify against afterwards. */
   const [commitments, setCommitments] = useState<Record<number, string>>({});
+  /** The last replay the server sent: undefined before asking, null if there was no hand. */
+  const [replay, setReplay] = useState<{ value: ReplayView | null; at: number } | undefined>(undefined);
   const toastId = useRef(0);
 
   const toast = useCallback((message: string) => {
@@ -72,6 +74,9 @@ export function useTableSocket(tableId: string) {
             setCommitments((prev) => (prev[number] ? prev : { ...prev, [number]: commitment }));
           }
           setView((prev) => (prev && prev.rev > m.view.rev ? prev : m.view));
+        } else if (m.type === "replay") {
+          if (m.replay) setReplay({ value: m.replay, at: Date.now() });
+          else toast("There's no finished hand to replay yet.");
         } else {
           toast(m.message);
         }
@@ -105,7 +110,9 @@ export function useTableSocket(tableId: string) {
 
   const dismiss = useCallback((id: number) => setToasts((t) => t.filter((x) => x.id !== id)), []);
 
-  return { view, connection, send, toasts, dismiss, clockOffset, commitments };
+  const closeReplay = useCallback(() => setReplay(undefined), []);
+
+  return { view, connection, send, toasts, dismiss, clockOffset, commitments, replay: replay?.value ?? null, closeReplay };
 }
 
 /** Re-renders every `ms` while `active`, returning the server-adjusted time. */

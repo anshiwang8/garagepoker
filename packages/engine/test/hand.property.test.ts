@@ -7,6 +7,7 @@ import {
   legalActions,
   makeDeck,
   type PlayerAction,
+  replayHand,
   shuffle,
   startHand,
   VARIANTS,
@@ -91,6 +92,11 @@ function playHand(params: HandParams): void {
   const deck = shuffle(makeDeck(variant.deckSize), random);
 
   let s = startHand({ config, players, button, deck });
+  const actions: PlayerAction[] = [];
+  const act = (a: PlayerAction) => {
+    actions.push(a);
+    s = applyAction(s, a);
+  };
   let steps = 0;
   const conserved = (st: HandState) =>
     st.players.reduce((sum, p) => sum + p.stack + p.committed, 0) === total;
@@ -103,16 +109,22 @@ function playHand(params: HandParams): void {
       const pending = s.discard.pending;
       const seat = pending[Math.floor(r() * pending.length)]!;
       const hole = s.players.find((p) => p.seat === seat)!.hole;
-      s = applyAction(s, { type: "discard", seat, card: hole[Math.floor(r() * hole.length)]! });
+      act({ type: "discard", seat, card: hole[Math.floor(r() * hole.length)]! });
     } else if (s.ritOffer) {
       // Players answer in turn; most accept.
       const offer = s.ritOffer;
       const seat = offer.seats.find((x) => !offer.accepted.includes(x))!;
-      s = applyAction(s, { type: "runItTwice", seat, accept: r() < 0.8 });
+      act({ type: "runItTwice", seat, accept: r() < 0.8 });
     } else {
-      s = applyAction(s, randomAction(s, r));
+      act(randomAction(s, r));
     }
     if (++steps >= 500) throw new Error("hand did not terminate");
+  }
+
+  // Replay (1 in 10 hands): re-running the recorded actions reproduces the
+  // live hand exactly, final stacks included.
+  if (params.seed % 10 === 0) {
+    expect(replayHand({ input: { config, players, button, deck }, actions }).at(-1)).toEqual(s);
   }
 
   // Chips conserved: every chip that went in came back out to someone.
