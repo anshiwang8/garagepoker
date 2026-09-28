@@ -2,7 +2,7 @@
  * Builds a viewer's replay of the last finished hand by re-running its
  * recorded actions through the engine. Like views, frames are assembled
  * field by field: a viewer sees their own hole cards and cards shown at
- * showdown, never anyone else's cards, discards or the deck.
+ * showdown or after the hand, never anyone else's cards, discards or the deck.
  */
 import { cardToString, type HandState, handLabel, potTotal, replayHand, type Street } from "@garagepoker/engine";
 import type { ReplayEvent, ReplayFrame, ReplayView } from "@garagepoker/protocol";
@@ -40,6 +40,9 @@ export function buildReplay(data: TableData, viewerId: string): ReplayView | nul
 	const mySeat = rec.players.find((p) => p.playerId === viewerId)?.seat ?? null;
 	const names = new Map(rec.players.map((p) => [p.seat, p.nickname]));
 	const shownSeats = new Set(final.result?.showdown.map((h) => h.seat) ?? []);
+	// Cards players chose to show after the hand (only while it's still the last hand).
+	const showed = data.lastHand?.number === rec.hand ? (data.lastHand.showed ?? []) : [];
+	const showedCards = new Set(showed.flatMap((s) => s.cards));
 
 	const frames = states.map((st: HandState, i): ReplayFrame => {
 		const prev = i > 0 ? states[i - 1]! : null;
@@ -65,6 +68,7 @@ export function buildReplay(data: TableData, viewerId: string): ReplayView | nul
 				});
 			}
 			for (const p of st.result.payouts) events.push({ kind: "win", seat: p.seat, amount: p.amount });
+			for (const s of showed) events.push({ kind: "show", seat: s.seat, cards: cards(s.cards) });
 		}
 
 		return {
@@ -82,7 +86,7 @@ export function buildReplay(data: TableData, viewerId: string): ReplayView | nul
 					stack: p.stack,
 					bet: p.bet,
 					folded: p.folded,
-					cards: p.hole.map((c) => (visible ? cardToString(c) : null)),
+					cards: p.hole.map((c) => (visible || (complete && showedCards.has(c)) ? cardToString(c) : null)),
 				};
 			}),
 		};

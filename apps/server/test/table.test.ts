@@ -1,7 +1,9 @@
-import { assertLedgerBalanced, cardToString, DEFAULT_SETTINGS, ledgerRows, rabbitCards } from "@garagepoker/engine";
+import { assertLedgerBalanced, cardToString, DEFAULT_SETTINGS, ledgerRows, legalActions, rabbitCards } from "@garagepoker/engine";
+import { clientMessageSchema } from "@garagepoker/protocol";
 import { describe, expect, it } from "vitest";
 import { ALARM_CLAMP_MS, scheduleAlarm } from "../src/limits.js";
-import { IDLE_DELETE_MS, OWNER_OFFLINE_MS, RIT_DECISION_MS } from "../src/table.js";
+import { buildReplay } from "../src/replay.js";
+import { AUTO_START_DELAY_MS, IDLE_DELETE_MS, OWNER_OFFLINE_MS, RIT_DECISION_MS, SHOW_WINDOW_MS } from "../src/table.js";
 import { harness, token } from "./helpers.js";
 
 /** Owner in seat 1 and Bob in seat 2, game not started. */
@@ -11,6 +13,8 @@ function headsUp(settings = {}) {
 	const bob = h.seat("bob", 2, 50_000);
 	return { h, owner: h.ownerId, bob };
 }
+
+const legal = (h: ReturnType<typeof harness>) => legalActions(h.data.hand!)!;
 
 const balanced = (h: ReturnType<typeof harness>) =>
 	assertLedgerBalanced(ledgerRows(h.data.ledger, h.table().stacksByPlayer()));
@@ -100,13 +104,14 @@ describe("hands and views", () => {
 		);
 	});
 
-	it("auto-starts the next hand after 3 s and moves the button", () => {
+	it("auto-starts the next hand and moves the button", () => {
 		const { h, owner } = headsUp({ autoStart: true });
 		h.send(owner, { type: "startGame" });
 		expect(h.data.button).toBe(1);
 		h.act({ type: "fold" });
 		expect(h.data.hand).toBeNull();
-		h.advance(2_999);
+		// Both players could still show their cards, so the gap is 5 s, not 3 s.
+		h.advance(SHOW_WINDOW_MS - 1);
 		expect(h.data.hand).toBeNull();
 		h.advance(1);
 		expect(h.data.handNumber).toBe(2);
@@ -670,5 +675,134 @@ describe("lifetime", () => {
 		expect(h.table().shouldDelete()).toBe(false);
 		h.advance(1);
 		expect(h.table().shouldDelete()).toBe(true);
+	});
+});
+
+describe("showing cards after a hand", () => {
+	const holeOf = (h: ReturnType<typeof harness>, seat: number) =>
+		h.data.prevHand!.players.find((p) => p.seat === seat)!.hole.map(cardToString);
+
+	/** Owner raises, Bob folds: nothing is shown down; both may show. Carol watches. */
+	function uncontested(settings: object = {}) {
+		const { h, owner, bob } = headsUp(settings);
+		const carol = h.join("carol");
+		h.send(owner, { type: "startGame" });
+		h.act({ type: "raise", to: 6_000 });
+		h.act({ type: "fold" });
+		return { h, owner, bob, carol, ownerCards: holeOf(h, 1), bobCards: holeOf(h, 2) };
+	}
+
+	it("show all and single-card show broadcast only the chosen cards, to everyone", () => {
+		const { h, owner, bob, carol, ownerCards, bobCards } = uncontested();
+		expect(h.view(bob).you.showable).toEqual(bobCards);
+		expect(h.view(owner).you.showable).toEqual(ownerCards);
+		expect(h.view(carol).you.showable).toBeNull();
+		for (const card of bobCards) expect(JSON.stringify(h.view(carol))).not.toContain(`"${card}"`);
+
+		// Bob shows one card only.
+		h.send(bob, { type: "showCards", hand: 1, cards: [bobCards[0]!] });
+		for (const id of [owner, bob, carol]) {
+			const view = h.view(id);
+			expect(view.lastHand!.showed).toEqual([{ seat: 2, nickname: "bob", cards: [bobCards[0]] }]);
+			if (id !== bob) expect(JSON.stringify(view)).not.toContain(`"${bobCards[1]}"`);
+		}
+		expect(h.view(bob).you.showable).toEqual([bobCards[1]]);
+		// Showing is final: the same card can't be shown twice.
+		expect(() => h.send(bob, { type: "showCards", hand: 1, cards: [bobCards[0]!] })).toThrow(/only show cards you held/);
+
+		// The owner won uncontested and shows everything.
+		h.send(owner, { type: "showCards", hand: 1, cards: ownerCards });
+		expect(h.view(carol).lastHand!.showed).toEqual([
+			{ seat: 2, nickname: "bob", cards: [bobCards[0]] },
+			{ seat: 1, nickname: "owner", cards: ownerCards },
+		]);
+		expect(h.view(owner).you.showable).toBeNull();
+
+		// Recorded in the replay (the fairness proof is checked in fairness.test.ts).
+		const replay = buildReplay(h.data, carol)!;
+		const last = replay.frames[replay.frames.length - 1]!;
+		expect(last.events).toContainEqual({ kind: "show", seat: 2, cards: [bobCards[0]] });
+		expect(last.seats.find((s) => s.seat === 2)!.cards).toEqual([bobCards[0], null]);
+		expect(last.seats.find((s) => s.seat === 1)!.cards).toEqual(ownerCards);
+		expect(JSON.stringify(replay)).not.toContain(`"${bobCards[1]}"`);
+	});
+
+	it("never leaks a folded player's unshown cards", () => {
+		const h = harness();
+		h.seat("owner", 1, 100_000);
+		const bob = h.seat("bob", 2, 100_000);
+		const dave = h.seat("dave", 3, 100_000);
+		const carol = h.join("carol");
+		h.send(h.ownerId, { type: "startGame" });
+		// Bob folds; the others check it down to a showdown.
+		while (h.data.hand) {
+			if (h.data.hand.toAct === 2) h.act({ type: "fold" });
+			else h.act(legal(h).canCheck ? { type: "check" } : { type: "call" });
+		}
+		const bobCards = holeOf(h, 2);
+		expect(h.data.lastHand!.shown.map((s) => s.seat).sort()).toEqual([1, 3]);
+		for (const id of [h.ownerId, dave, carol]) {
+			const json = JSON.stringify([h.view(id), buildReplay(h.data, id)]);
+			for (const card of bobCards) expect(json).not.toContain(`"${card}"`);
+		}
+		// Hands shown down can't be "shown" again; Bob's still can.
+		expect(h.view(dave).you.showable).toBeNull();
+		expect(() => h.send(dave, { type: "showCards", hand: 1, cards: [holeOf(h, 3)[0]!] })).toThrow(/no cards to show/);
+		expect(h.view(bob).you.showable).toEqual(bobCards);
+	});
+
+	it("is rejected once the next deal starts", () => {
+		const { h, owner, bob, bobCards } = uncontested();
+		h.send(owner, { type: "startGame" });
+		expect(h.data.handNumber).toBe(2);
+		expect(h.view(bob).you.showable).toBeNull();
+		expect(() => h.send(bob, { type: "showCards", hand: 1, cards: [bobCards[0]!] })).toThrow(/hand is over/);
+		expect(() => h.send(bob, { type: "showCards", hand: 2, cards: [bobCards[0]!] })).toThrow(/hand is over/);
+	});
+
+	it("is rejected for cards the player didn't hold, and for spectators", () => {
+		const { h, bob, carol, ownerCards, bobCards } = uncontested();
+		expect(() => h.send(bob, { type: "showCards", hand: 1, cards: [ownerCards[0]!] })).toThrow(/only show cards you held/);
+		const notDealt = ["As", "Kd", "2c", "7h", "Qs", "3d"].find((c) => !ownerCards.includes(c) && !bobCards.includes(c))!;
+		expect(() => h.send(bob, { type: "showCards", hand: 1, cards: [bobCards[0]!, notDealt] })).toThrow(/only show cards you held/);
+		expect(() => h.send(carol, { type: "showCards", hand: 1, cards: [bobCards[0]!] })).toThrow(/no cards to show/);
+		// A rejected request shows nothing, not even the valid card in it.
+		expect(h.view(carol).lastHand!.showed).toEqual([]);
+	});
+
+	it("never shows a Pineapple discard", () => {
+		const { h, owner, bob } = headsUp({ variant: "PINEAPPLE" });
+		h.send(owner, { type: "startGame" });
+		const discarded = [1, 2].map((seat) => {
+			const card = cardToString(h.data.hand!.players.find((p) => p.seat === seat)!.hole[0]!);
+			h.send(seat === 1 ? owner : bob, { type: "discard", hand: 1, card });
+			return card;
+		});
+		h.act({ type: "raise", to: 6_000 });
+		h.act({ type: "fold" });
+		expect(h.view(bob).you.showable).toHaveLength(4);
+		expect(h.view(bob).you.showable).not.toContain(discarded[1]);
+		expect(() => h.send(bob, { type: "showCards", hand: 1, cards: [discarded[1]!] })).toThrow(/only show cards you held/);
+	});
+
+	it("waits 5 s between hands while someone can show, 3 s once nobody can", () => {
+		const { h, owner, bob, ownerCards, bobCards } = uncontested({ autoStart: true });
+		const ended = h.data.lastHand!.endedAt!;
+		expect(h.data.nextHandAt).toBe(ended + SHOW_WINDOW_MS);
+		h.send(bob, { type: "showCards", hand: 1, cards: bobCards });
+		expect(h.data.nextHandAt).toBe(ended + SHOW_WINDOW_MS);
+		h.send(owner, { type: "showCards", hand: 1, cards: ownerCards });
+		expect(h.data.nextHandAt).toBe(ended + AUTO_START_DELAY_MS);
+		h.advance(AUTO_START_DELAY_MS);
+		expect(h.data.handNumber).toBe(2);
+	});
+
+	it("validates the message shape", () => {
+		const parse = (m: object) => clientMessageSchema.safeParse({ type: "showCards", ...m }).success;
+		expect(parse({ hand: 1, cards: ["As"] })).toBe(true);
+		expect(parse({ hand: 1, cards: [] })).toBe(false);
+		expect(parse({ hand: 1, cards: ["As", "As"] })).toBe(false);
+		expect(parse({ hand: 1, cards: ["Ax"] })).toBe(false);
+		expect(parse({ hand: 0, cards: ["As"] })).toBe(false);
 	});
 });

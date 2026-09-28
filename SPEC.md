@@ -134,7 +134,7 @@ The owner can change settings at any time, including during a hand. Changes appl
 | Run it twice | No | No / ask players / always; disabled where deck math fails |
 | Rabbit hunt | No | |
 | Decision time | 20 s | Plus a 60 s time bank per player, refilled 10 s every 10 hands |
-| Auto-start next hand | Yes | 3 s pause to show results |
+| Auto-start next hand | Yes | 3 s pause to show results; 5 s while anyone can still show their cards (§7) |
 | Reveal hands when no more action is possible | Yes | |
 | Rebuys | Yes | Through the owner approval popup |
 | Chat | Yes | |
@@ -196,6 +196,7 @@ Store one entry per event, so the ledger is an audit log, not just running total
   - In pot-limit games every preset is capped at the maximum pot-sized raise, and a capped All in is labelled "Pot (max)".
   - Presets below the min raise or above the player's stack are hidden; presets that land on the same amount are shown once.
 - **Phones (portrait):** no background bars: the toolbar buttons and the action float's buttons or pill sit on the page background as separate rounded elements. The action float spans the full width at the bottom, above the toolbar, clear of the safe areas; the table shrinks to fit above it, so nothing overlaps the buttons or your seat. The raise panel opens as a bottom sheet over the table, just above the buttons. The owner's approval popup waits until you've acted.
+- **Show cards after a hand:** from the end of a hand until the next deal, anyone who was dealt in and whose hand wasn't shown down (they folded, or won uncontested) can show it. At their own seat they tap "Show all", or tap cards to pick some (tap again to unpick) and show those. Showing is final. Shown cards appear face up at that seat, with a small "Shown" tag, for everyone including spectators, until the next deal, and are recorded in the last-hand replay and the fairness proof. The server only accepts cards the player held at the end of the hand (never a Pineapple discard) and never sends unshown cards to anyone else.
 - **Run it twice:** a prompt appears when it's eligible and disappears after 5 s; no answer means it runs once.
 - **Pineapple:** a discard picker appears on each discard street.
 - Double board shows two stacked boards, each labeled with its share of the pot.

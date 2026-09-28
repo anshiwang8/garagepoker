@@ -59,12 +59,16 @@ function tagClass(label: string): string {
   return "bg-zinc-600 text-white";
 }
 
-/** Shorter names for opponents' tags on a phone, where a full table has little room. */
+/**
+ * Shorter names for opponents' tags on a phone, where a full table has little
+ * room: "Trips", "Quads", and a low as just "7-6" (its colour says it's a low).
+ */
 function shortLabel(label: string): string {
   return label
     .replace(/three of a kind/i, "Trips")
     .replace(/four of a kind/i, "Quads")
-    .replace(/straight flush/i, "Str. flush");
+    .replace(/straight flush/i, "Str. flush")
+    .replace(/^(\d[\d-]*) low$/i, "$1");
 }
 
 /**
@@ -75,7 +79,7 @@ function shortLabel(label: string): string {
  */
 function HandTags({ labels, compact }: { labels: string[]; compact: boolean }) {
   return (
-    <div className={`mt-1 flex flex-col items-center gap-0.5 ${compact ? "max-w-[5.25rem] wide:max-w-none" : ""}`}>
+    <div className={`mt-1 flex flex-col items-center gap-0.5 ${compact ? "max-w-[7rem] wide:max-w-none" : ""}`}>
       {labels.map((label, b) => (
         <div key={b} className="flex flex-wrap items-center justify-center gap-0.5">
           {labels.length > 1 && <span className="text-[8px] font-bold text-text/70">B{b + 1}</span>}
@@ -88,7 +92,16 @@ function HandTags({ labels, compact }: { labels: string[]; compact: boolean }) {
                 compact ? "text-[8px] wide:text-[9px]" : "text-[9px]"
               } ${tagClass(half)}`}
             >
-              {compact ? <><span className="wide:hidden">{shortLabel(half)}</span><span className="hidden wide:inline">{half}</span></> : half}
+              {compact ? (
+                <>
+                  <span className="wide:hidden" title={half}>
+                    {shortLabel(half)}
+                  </span>
+                  <span className="hidden wide:inline">{half}</span>
+                </>
+              ) : (
+                half
+              )}
             </span>
           ))}
         </div>
@@ -97,8 +110,21 @@ function HandTags({ labels, compact }: { labels: string[]; compact: boolean }) {
   );
 }
 
+const SUIT_SYMBOLS: Record<string, string> = { s: "♠", h: "♥", d: "♦", c: "♣" };
+/** "Kh" → "K♥", "Tc" → "10♣". */
+const prettyCard = (card: string) => `${card[0] === "T" ? "10" : card[0]}${SUIT_SYMBOLS[card[1]!]}`;
+
+export interface ShowPicker {
+  /** Your cards you may still show. */
+  showable: string[];
+  picked: string[];
+  toggle: (card: string) => void;
+  showAll: () => void;
+  showPicked: () => void;
+}
+
 /** Cards overlapping, like a hand held in real life; Omaha fans 4-5 cards. */
-function HeldCards({ cards, big, dim }: { cards: (string | null)[]; big: boolean; dim: boolean }) {
+function HeldCards({ cards, big, dim, picker }: { cards: (string | null)[]; big: boolean; dim: boolean; picker?: ShowPicker }) {
   const n = cards.length;
   const fan = n > 2;
   // How far each card slides under the previous one.
@@ -124,7 +150,20 @@ function HeldCards({ cards, big, dim }: { cards: (string | null)[]; big: boolean
           className={i === 0 ? "" : overlap}
           style={fan ? { transform: `rotate(calc(var(--fan-step) * ${i - (n - 1) / 2}))`, transformOrigin: "50% 120%" } : undefined}
         >
-          <PlayingCard card={c} size={size} corner dim={dim} />
+          {picker && c && picker.showable.includes(c) ? (
+            // Tap to pick (again to unpick). Picked cards lift.
+            <button
+              type="button"
+              aria-pressed={picker.picked.includes(c)}
+              aria-label={`Pick ${c} to show`}
+              onClick={() => picker.toggle(c)}
+              className={`block rounded-lg transition-transform ${picker.picked.includes(c) ? "-translate-y-2 ring-2 ring-gold" : ""}`}
+            >
+              <PlayingCard card={c} size={size} corner />
+            </button>
+          ) : (
+            <PlayingCard card={c} size={size} corner dim={dim} />
+          )}
         </div>
       ))}
     </div>
@@ -141,6 +180,8 @@ export function Seat({
   displayCents,
   labels,
   shown,
+  showed,
+  picker,
   won,
   canSit,
   onSit,
@@ -156,6 +197,10 @@ export function Seat({
   labels: string[] | null;
   /** Cards and labels shown at the last showdown, while the result is up. */
   shown?: { cards: string[]; labels: string[] };
+  /** Cards this player chose to show after the hand. */
+  showed?: string[];
+  /** Your seat, after a hand you may show cards from: pick cards, or show all. */
+  picker?: ShowPicker;
   won?: number;
   canSit: boolean;
   onSit: () => void;
@@ -183,7 +228,9 @@ export function Seat({
   if (seat.waitingForBB) tags.push("Waiting for BB");
   if (seat.leaving) tags.push("Leaving");
 
-  const cards = shown?.cards ?? (seat.inHand && (!seat.folded || isYou) ? seat.cards : null);
+  const cards = picker
+    ? [...(showed ?? []), ...picker.showable]
+    : (shown?.cards ?? showed ?? (seat.inHand && (!seat.folded || isYou) ? seat.cards : null));
   const tagLabels = shown?.labels ?? (isYou && seat.inHand && !seat.folded ? labels : null);
 
   return (
@@ -210,7 +257,7 @@ export function Seat({
         {/* Phones: other seats put the name under the cards so they stay narrow and
             clear of the board; your seat, and every seat in landscape, has it beside. */}
         <div className={`flex gap-1.5 ${isYou ? "flex-row items-center" : "flex-col items-center wide:flex-row wide:items-center"}`}>
-          {cards && <HeldCards cards={cards} big={isYou} dim={seat.folded && !shown} />}
+          {cards && <HeldCards cards={cards} big={isYou} dim={seat.folded && !shown && !picker} picker={picker} />}
           <div
             className={`text-legible flex min-w-[3.75rem] max-w-[6.5rem] flex-col ${cards ? "" : "px-1 text-center"} ${
               isYou ? "" : "items-center text-center wide:items-start wide:text-left"
@@ -234,6 +281,27 @@ export function Seat({
           </div>
         </div>
         {tagLabels && tagLabels.length > 0 && <HandTags labels={tagLabels} compact={!isYou} />}
+        {showed && !shown && (
+          <span className="mt-1 rounded bg-white/85 px-1 py-px text-[9px] font-bold leading-tight tracking-wide text-ink">
+            {/* On your seat, say which: the rest of your cards are there too, visible only to you. */}
+            SHOWN{picker ? ` ${showed.map(prettyCard).join(" ")}` : ""}
+          </span>
+        )}
+        {picker && (
+          <div className="mt-1.5 flex gap-1.5" role="group" aria-label="Show your cards">
+            <button type="button" onClick={picker.showAll} className="rounded-md bg-gold px-2.5 py-1 text-xs font-bold text-ink shadow">
+              Show all
+            </button>
+            <button
+              type="button"
+              disabled={picker.picked.length === 0}
+              onClick={picker.showPicked}
+              className="rounded-md border border-line bg-panel-2 px-2.5 py-1 text-xs font-semibold shadow disabled:text-muted"
+            >
+              {picker.picked.length === 0 ? "Tap cards to pick" : `Show ${picker.picked.length}`}
+            </button>
+          </div>
+        )}
         {toAct && countdown && (
           <div className="absolute inset-x-1 bottom-0 h-1 overflow-hidden rounded bg-black/50" aria-label={`${countdown.seconds} seconds left`}>
             <div

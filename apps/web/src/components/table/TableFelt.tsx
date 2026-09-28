@@ -49,12 +49,15 @@ export function TableFelt({
   countdown,
   canSit,
   onSit,
+  onShow,
   statusText,
 }: {
   view: TableView;
   countdown: Countdown | null;
   canSit: boolean;
   onSit: (seat: number) => void;
+  /** Show some or all of your cards from the last hand. */
+  onShow: (hand: number, cards: string[]) => void;
   statusText: string | null;
 }) {
   const { hand, lastHand, settings } = view;
@@ -66,6 +69,9 @@ export function TableFelt({
 
   const showResult = !hand && lastHand && lastHand.number === view.handNumber;
   const shownBySeat = new Map(showResult ? lastHand.shown.map((s) => [s.seat, s]) : []);
+  // Cards players chose to show after the hand, until the next deal.
+  const showedBySeat = new Map<number, string[]>();
+  if (showResult) for (const s of lastHand.showed) showedBySeat.set(s.seat, [...(showedBySeat.get(s.seat) ?? []), ...s.cards]);
   const won = showResult ? wonBySeat(lastHand) : new Map<number, number>();
   const boards = hand?.boards ?? (showResult ? lastHand.boards : []);
   const bombPot = hand?.bombPot ?? (showResult && lastHand.bombPot);
@@ -76,6 +82,17 @@ export function TableFelt({
     run.map((cards, b) => ({ run: r, board: b, cards })),
   );
   const cardSize = rows.length > 2 ? "xs" : "sm";
+
+  // After a hand: the cards you've picked to show (tap again to unpick), per hand.
+  const [picked, setPicked] = useState<{ hand: number; cards: string[] }>({ hand: 0, cards: [] });
+  const showable = view.you.showable && lastHand ? view.you.showable : null;
+  const pickedNow = showable && picked.hand === lastHand!.number ? picked.cards.filter((c) => showable.includes(c)) : [];
+  const togglePick = (card: string) =>
+    setPicked({ hand: lastHand!.number, cards: pickedNow.includes(card) ? pickedNow.filter((c) => c !== card) : [...pickedNow, card] });
+  const show = (cards: string[]) => {
+    onShow(lastHand!.number, cards);
+    setPicked({ hand: lastHand!.number, cards: [] });
+  };
 
   // Measure your seat, and the tallest other seat, so the others always stay
   // above yours (.seat-pos in globals.css).
@@ -101,7 +118,7 @@ export function TableFelt({
   return (
     // overflow-hidden: nothing on the felt ever spills over the action bar below it.
     <div
-      className="relative min-h-0 flex-1 select-none overflow-hidden [--seat-edge:3.45rem] wide:[--seat-edge:4.75rem]"
+      className="relative min-h-0 flex-1 select-none overflow-hidden [--seat-edge:3.55rem] wide:[--seat-edge:4.75rem]"
       ref={feltRef}
       style={
         {
@@ -201,6 +218,12 @@ export function TableFelt({
               countdown={hand?.toAct === number ? countdown : null}
               displayCents={dc}
               shown={shownBySeat.get(number)}
+              showed={showedBySeat.get(number)}
+              picker={
+                number === view.you.seat && showable
+                  ? { showable, picked: pickedNow, toggle: togglePick, showAll: () => show(showable), showPicked: () => show(pickedNow) }
+                  : undefined
+              }
               won={won.get(number)}
               canSit={canSit}
               onSit={() => onSit(number)}

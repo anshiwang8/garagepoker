@@ -120,6 +120,18 @@ export const clientMessageSchema = z.discriminatedUnion("type", [
   msg("runItTwice", { hand: z.number().int().min(1), accept: z.boolean() }),
   /** After a hand that ended before the river: show what would have come. */
   msg("rabbitHunt", { hand: z.number().int().min(1) }),
+  /**
+   * After a hand, until the next deal: show some or all of the cards you held
+   * (if they weren't already shown at showdown). Final once sent.
+   */
+  msg("showCards", {
+    hand: z.number().int().min(1),
+    cards: z
+      .array(z.string().regex(/^[2-9TJQKA][cdhs]$/))
+      .min(1)
+      .max(5)
+      .refine((cs) => new Set(cs).size === cs.length, "Each card once"),
+  }),
   /** Pineapple: discard one of your cards (face down, everyone at once). */
   msg("discard", { hand: z.number().int().min(1), card: z.string().regex(/^[2-9TJQKA][cdhs]$/) }),
   /** Ask for the last finished hand's replay; answered to you only. */
@@ -209,6 +221,11 @@ export interface YouView {
    * hidden until you sit down.
    */
   watchBlocked: boolean;
+  /**
+   * Between hands: your cards from the last hand that you may still show
+   * (you were dealt in, they weren't shown at showdown). Null otherwise.
+   */
+  showable: string[] | null;
 }
 
 export interface SeatView {
@@ -291,6 +308,8 @@ export interface LastHandView {
     /** Labels on the second run's boards, when run twice. */
     secondRunLabels: string[] | null;
   }[];
+  /** Cards players chose to show after the hand (folded or uncontested hands), in the order shown. */
+  showed: { seat: number; nickname: string; cards: string[] }[];
   /** The second run's boards, when run twice. */
   secondRun: string[][] | null;
   /** A seated player can ask to see the rest of the board (rabbit hunt is on and the hand ended early). */
@@ -350,6 +369,7 @@ export function lastHandPublicCards(last: LastHandView): string[] {
     ...last.boards.flat(),
     ...(last.secondRun?.flat() ?? []),
     ...last.shown.flatMap((s) => s.cards),
+    ...last.showed.flatMap((s) => s.cards),
     ...(last.rabbit?.boards.flat() ?? []),
   ];
 }
@@ -413,9 +433,11 @@ export type ReplayEvent =
   | { kind: "action"; seat: number; type: LogType; amount: number; to?: number; allIn?: boolean }
   | { kind: "deal"; street: Street; run: number; board: number; cards: string[] }
   | { kind: "showdown"; seat: number; cards: string[]; labels: string[] }
+  /** A player chose to show cards after the hand. */
+  | { kind: "show"; seat: number; cards: string[] }
   | { kind: "win"; seat: number; amount: number };
 
-/** The table after one step. Only your own cards, and cards shown at showdown, are visible. */
+/** The table after one step. Only your own cards, and cards shown at showdown or after the hand, are visible. */
 export interface ReplayFrame {
   events: ReplayEvent[];
   street: Street;

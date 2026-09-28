@@ -1,5 +1,5 @@
 import { cardToString, type HandState } from "@garagepoker/engine";
-import { type ClientMessage, type TableView, verifyFairness } from "@garagepoker/protocol";
+import { type ClientMessage, lastHandPublicCards, type TableView, verifyFairness } from "@garagepoker/protocol";
 import { env, runInDurableObject } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import { sha256Hex } from "../src/fairness.js";
@@ -90,6 +90,30 @@ describe("provable fairness", () => {
 		expect(proof.revealed.map((r) => r.card).sort()).toEqual([...carol.view.lastHand!.rabbit!.boards[0]!].sort());
 		expect((await verifyFairness(proof, publicCards(carol.view), sha256Hex, commitment)).ok).toBe(true);
 		for (const r of proof.revealed) expect(holes).not.toContain(r.card);
+	});
+});
+
+describe("cards shown after a hand", () => {
+	it("reach everyone, spectators included, only as chosen, and are covered by the proof", async () => {
+		const { tableId, alice, bob, carol, all } = await table();
+		await step(all, alice, { type: "startGame" });
+		const commitment = carol.view.hand!.commitment!;
+		const [first, second] = alice.view.hand!.toAct === 1 ? [alice, bob] : [bob, alice];
+		await step(all, first, { type: "act", hand: 1, action: { type: "raise", to: 6_000 } });
+		await step(all, second, { type: "act", hand: 1, action: { type: "fold" } });
+
+		const hand = await serverHand(tableId);
+		const folder = second === alice ? 1 : 2;
+		const [shownCard, hiddenCard] = hand.players.find((p) => p.seat === folder)!.hole.map(cardToString);
+		expect(second.view.you.showable).toEqual([shownCard, hiddenCard]);
+		await step(all, second, { type: "showCards", hand: 1, cards: [shownCard!] });
+
+		for (const c of all) expect(c.view.lastHand!.showed).toEqual([{ seat: folder, nickname: second === alice ? "Alice" : "Bob", cards: [shownCard] }]);
+		// Nothing about the card they kept ever went to anyone else.
+		for (const c of [first, carol]) for (const raw of c.raw) expect(raw).not.toContain(`"${hiddenCard}"`);
+		const proof = carol.view.lastHand!.fairness!;
+		expect(proof.revealed.map((r) => r.card)).toEqual([shownCard]);
+		expect((await verifyFairness(proof, lastHandPublicCards(carol.view.lastHand!), sha256Hex, commitment)).ok).toBe(true);
 	});
 });
 

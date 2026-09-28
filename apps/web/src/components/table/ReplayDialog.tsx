@@ -21,13 +21,15 @@ function eventText(e: ReplayEvent, name: (seat: number) => string, dc: boolean, 
       return `${name(e.seat)} shows ${e.cards.join(" ")} (${e.labels.join(" | ")})`;
     case "win":
       return `${name(e.seat)} wins ${formatChips(e.amount, dc)}`;
+    case "show":
+      return `${name(e.seat)} shows ${e.cards.join(" ")}`;
   }
 }
 
 /**
  * Steps through the last finished hand. Everything shown comes from the
  * server's replay, which only includes your own cards and cards shown at
- * showdown.
+ * showdown or after the hand.
  */
 export function ReplayDialog({ replay, displayCents, onClose }: { replay: ReplayView; displayCents: boolean; onClose: () => void }) {
   const [step, setStep] = useState(0);

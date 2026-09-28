@@ -6,7 +6,7 @@
 import { cardToString, handLabel, ledgerRows, legalActions, potTotal, settleUp, splitEven } from "@garagepoker/engine";
 import type { RequestView, SeatView, TableView } from "@garagepoker/protocol";
 import { proofFor } from "./fairness.js";
-import { rabbitAvailable, type SeatRequest, type TableData } from "./table.js";
+import { rabbitAvailable, type SeatRequest, showableCards, type TableData } from "./table.js";
 
 const cards = (cs: readonly number[]) => cs.map(cardToString);
 
@@ -97,6 +97,11 @@ export function buildView(
       labels:
         hand && you && !you.folded ? hand.boards.map((b) => handLabel(hand.config.variant, you.hole, b).text) : null,
       watchBlocked,
+      // Only ever your own cards.
+      showable: (() => {
+        const mine = watchBlocked ? [] : showableCards(data, viewerId);
+        return mine.length ? cards(mine) : null;
+      })(),
     },
     seats,
     hand: hand
@@ -146,6 +151,8 @@ export function buildView(
             labels: x.labels,
             secondRunLabels: x.secondRunLabels ?? null,
           })),
+          // Only the cards each player chose to show.
+          showed: (lastHand.showed ?? []).map((x) => ({ seat: x.seat, nickname: x.nickname, cards: cards(x.cards) })),
           secondRun: lastHand.secondRun?.map(cards) ?? null,
           rabbitAvailable: rabbitAvailable(data),
           // Rabbit cards appear only once a seated player asked for them.
@@ -162,8 +169,9 @@ export function buildView(
 
 /**
  * The last hand's fairness proof: every position hash, plus salt and card for
- * the cards that became public: boards (both runs), showdown hands, and the
- * rabbit cards once hunted. Folded hands and discards are never revealed.
+ * the cards that became public: boards (both runs), showdown hands, cards
+ * shown after the hand, and the rabbit cards once hunted. Folded hands (unless
+ * shown) and discards are never revealed.
  */
 function fairnessProof(data: TableData) {
   const { fairness, lastHand, prevHand } = data;
@@ -172,6 +180,7 @@ function fairnessProof(data: TableData) {
     ...prevHand.boards.flat(),
     ...(prevHand.secondRun?.flat() ?? []),
     ...lastHand.shown.flatMap((s) => s.cards),
+    ...(lastHand.showed ?? []).flatMap((s) => s.cards),
     ...(lastHand.rabbit?.boards.flat() ?? []),
   ];
   return proofFor(fairness, shown);

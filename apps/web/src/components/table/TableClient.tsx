@@ -96,6 +96,7 @@ export function TableClient({ tableId }: { tableId: string }) {
           countdown={countdown}
           canSit={canSit}
           onSit={(seat) => setDialog({ kind: "seat", seat })}
+          onShow={(hand, cards) => send({ type: "showCards", hand, cards })}
           statusText={statusText(view, canSit)}
         />
       </div>

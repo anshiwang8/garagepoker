@@ -40,6 +40,8 @@ import type { ClientMessage, TableStatus } from "@garagepoker/protocol";
 import { type FairnessSecret, newSalts } from "./fairness.js";
 
 export const AUTO_START_DELAY_MS = 3_000;
+/** The gap between hands while someone may still show their cards (SPEC §7). */
+export const SHOW_WINDOW_MS = 5_000;
 export const OWNER_OFFLINE_MS = 5 * 60_000;
 export const IDLE_DELETE_MS = 12 * 60 * 60_000;
 export const TIME_BANK_REFILL_EVERY_HANDS = 10;
@@ -120,6 +122,10 @@ export interface LastHand {
   secondRun: Card[][] | null;
   /** Rabbit-hunted cards per board, once a seated player asked (SPEC §2.8). */
   rabbit: { boards: Card[][]; by: string } | null;
+  /** Cards players chose to show after the hand, in order. (Absent on hands saved before this existed.) */
+  showed?: { seat: number; nickname: string; cards: Card[] }[];
+  /** When the hand ended. */
+  endedAt?: number;
 }
 
 export interface TableData {
@@ -279,6 +285,8 @@ export class Table {
         return this.answerRunItTwice(playerId, m.hand, m.accept);
       case "rabbitHunt":
         return this.rabbitHunt(playerId, m.hand);
+      case "showCards":
+        return this.showCards(playerId, m.hand, m.cards);
       case "discard":
         return this.discard(playerId, m.hand, m.card);
     }
@@ -759,6 +767,26 @@ export class Table {
     d.lastHand!.rabbit = { boards: rabbitCards(d.prevHand!), by: seat.nickname };
   }
 
+  /**
+   * After a hand, until the next deal: a player who was dealt in and wasn't
+   * shown down reveals some or all of the cards they held (SPEC §7). Only
+   * cards they actually held at the end (so never a Pineapple discard).
+   */
+  private showCards(playerId: string, hand: number, cardTexts: string[]) {
+    const d = this.data;
+    if (d.hand || !d.lastHand || d.lastHand.number !== hand || d.handNumber !== hand) throw new TableError("That hand is over");
+    const allowed = showableCards(d, playerId);
+    if (allowed.length === 0) throw new TableError("You have no cards to show");
+    const chosen = cardTexts.map(parseCard);
+    if (chosen.some((c) => !allowed.includes(c))) throw new TableError("You can only show cards you held and haven't shown");
+    const who = d.prevRecord!.players.find((p) => p.playerId === playerId)!;
+    d.lastHand.showed = [...(d.lastHand.showed ?? []), { seat: who.seat, nickname: who.nickname, cards: chosen }];
+    // Nobody left who could show: back to the normal gap between hands.
+    if (d.nextHandAt !== null && !anyoneCanShow(d) && d.lastHand.endedAt !== undefined) {
+      d.nextHandAt = Math.min(d.nextHandAt, Math.max(this.now, d.lastHand.endedAt + AUTO_START_DELAY_MS));
+    }
+  }
+
   private discard(playerId: string, hand: number, cardText: string) {
     const d = this.data;
     if (!d.hand || hand !== d.handNumber) throw new TableError("That hand is over");
@@ -855,6 +883,8 @@ export class Table {
       })),
       secondRun: hand.secondRun,
       rabbit: null,
+      showed: [],
+      endedAt: this.now,
     };
     d.prevHand = hand;
     d.prevRecord = d.handRecord ?? null;
@@ -891,7 +921,8 @@ export class Table {
     else if (this.activeCount() < 2) this.pause("waitingForPlayers");
     else if (d.pauseRequested || !d.settings.autoStart) this.pause();
     else {
-      d.nextHandAt = this.now + AUTO_START_DELAY_MS;
+      // A little longer while someone can still show their cards.
+      d.nextHandAt = this.now + (anyoneCanShow(d) ? SHOW_WINDOW_MS : AUTO_START_DELAY_MS);
       this.afterChange();
     }
   }
@@ -913,6 +944,26 @@ export function rabbitAvailable(d: TableData): boolean {
     !last.secondRun &&
     last.boards[0]!.length < 5
   );
+}
+
+/**
+ * The cards `playerId` may still show from the last hand: we're between hands,
+ * they were dealt in, their hand wasn't shown down, and they haven't shown
+ * these yet. Their cards as held at the end, so Pineapple discards never count.
+ */
+export function showableCards(d: TableData, playerId: string): Card[] {
+  const { lastHand: last, prevHand: prev, prevRecord: rec } = d;
+  if (d.hand || !last || !prev || !rec || rec.hand !== last.number || last.number !== d.handNumber) return [];
+  const seat = rec.players.find((p) => p.playerId === playerId)?.seat;
+  if (seat === undefined || last.shown.some((s) => s.seat === seat)) return [];
+  const held = prev.players.find((p) => p.seat === seat)?.hole ?? [];
+  const already = new Set((last.showed ?? []).filter((s) => s.seat === seat).flatMap((s) => s.cards));
+  return held.filter((c) => !already.has(c));
+}
+
+/** Whether anyone dealt into the last hand may still show cards. */
+export function anyoneCanShow(d: TableData): boolean {
+  return !!d.prevRecord && d.prevRecord.players.some((p) => showableCards(d, p.playerId).length > 0);
 }
 
 /** The big blind seat for a hand dealt to `seats` (sorted or not) with this button. */
