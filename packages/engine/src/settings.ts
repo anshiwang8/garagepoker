@@ -37,11 +37,11 @@ export interface TableSettings {
   displayCents: boolean;
 }
 
-/** SPEC §5 defaults: NLH, 10/20 (stored as cents), 8 seats, 1 board, no bomb pots, 20 s + 60 s bank. */
+/** SPEC §5 defaults: NLH, 10/20, cent mode off, 8 seats, 1 board, no bomb pots, 20 s + 60 s bank. */
 export const DEFAULT_SETTINGS: TableSettings = {
   variant: "NLH",
-  smallBlind: 1000,
-  bigBlind: 2000,
+  smallBlind: 10,
+  bigBlind: 20,
   ante: 0,
   seats: 8,
   boards: 1,

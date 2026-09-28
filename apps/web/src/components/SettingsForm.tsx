@@ -61,11 +61,12 @@ export function SettingsForm({
   footer?: React.ReactNode;
 }) {
   const [s, setS] = useState<TableSettings>(initial);
-  const [texts, setTexts] = useState<Record<ChipField, string>>({
-    smallBlind: chipsToInput(initial.smallBlind),
-    bigBlind: chipsToInput(initial.bigBlind),
-    ante: chipsToInput(initial.ante),
+  const textsFor = (v: TableSettings): Record<ChipField, string> => ({
+    smallBlind: chipsToInput(v.smallBlind, v.displayCents),
+    bigBlind: chipsToInput(v.bigBlind, v.displayCents),
+    ante: chipsToInput(v.ante, v.displayCents),
   });
+  const [texts, setTexts] = useState<Record<ChipField, string>>(() => textsFor(initial));
   const [badText, setBadText] = useState<Partial<Record<ChipField, boolean>>>({});
 
   const set = <K extends keyof TableSettings>(key: K, value: TableSettings[K]) => setS((prev) => ({ ...prev, [key]: value }));
@@ -74,8 +75,12 @@ export function SettingsForm({
   const invalid = issues.length > 0 || Object.values(badText).some(Boolean);
 
   const chipField = (field: ChipField, label: string) => (
-    <Field label={label} error={badText[field] ? "Enter an amount like 10 or 0.50" : issue(field)}>
+    <Field
+      label={label}
+      error={badText[field] ? (s.displayCents ? "Enter an amount like 10 or 0.50" : "Enter a whole number") : issue(field)}
+    >
       <ChipInput
+        centMode={s.displayCents}
         text={texts[field]}
         ariaLabel={label}
         onText={(text, cents) => {
@@ -263,7 +268,18 @@ export function SettingsForm({
         <Toggle label="UTG straddle (2 BB)" checked={s.straddle} onChange={(v) => set("straddle", v)} hint="Never heads-up" />
         <Toggle label="Auto-start next hand" checked={s.autoStart} onChange={(v) => set("autoStart", v)} hint="3 s to show results" />
         <Toggle label="Allow rebuys" checked={s.rebuys} onChange={(v) => set("rebuys", v)} hint="Through your approval" />
-        <Toggle label="Display cents" checked={s.displayCents} onChange={(v) => set("displayCents", v)} hint="Only changes how amounts are shown" />
+        <Toggle
+          label="Cent mode"
+          checked={s.displayCents}
+          onChange={(v) => {
+            // Stored amounts don't change; re-show them in the new mode.
+            const next = { ...s, displayCents: v };
+            setS(next);
+            setTexts(textsFor(next));
+            setBadText({});
+          }}
+          hint={s.displayCents ? "Amounts show as 19.80; type decimals like 0.50" : "Amounts show as whole numbers like 1980"}
+        />
       </div>
 
       {issues.length > 0 && (

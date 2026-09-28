@@ -120,7 +120,7 @@ seats × hole cards + boards × 5 × runs ≤ deck size
 
 ## 5. Table settings (owner menu)
 
-Settings changes apply from the next hand, never mid-hand.
+The owner can change settings at any time, including during a hand. Changes apply from the next hand, never mid-hand; until then every player sees a "Changes apply next hand" notice.
 
 | Setting | Default | Notes |
 | --- | --- | --- |
@@ -129,7 +129,7 @@ Settings changes apply from the next hand, never mid-hand.
 | Seats | 8 | 2–9, capped by deck math |
 | Boards | 1 | 1 or 2 |
 | Bomb pot | Off | Off / every hand / every N hands; ante in BB (default 2 BB); away players skip it |
-| Display cents | No | Amounts are always stored as integer cents; this only changes how they're shown |
+| Cent mode | Off | Amounts are always stored as integers, never floats. Off: shown as whole numbers (1980); inputs take whole numbers. On: shown as amount / 100 with 2 decimals (1980 → 19.80) everywhere (stacks, pot, bets, blinds, antes, ledger, settle-up); inputs accept decimals and multiply by 100 (0.50 → 50) |
 | UTG straddle (2 BB) | No | Off automatically during bomb pots |
 | Run it twice | No | No / ask players / always; disabled where deck math fails |
 | Rabbit hunt | No | |
@@ -182,18 +182,24 @@ Store one entry per event, so the ledger is an audit log, not just running total
 - Works in mobile and desktop browsers. The table lays out horizontally or vertically depending on the screen's aspect ratio; design mobile portrait first.
 - There are no chip graphics, only numbers. The total pot is shown in the middle of the table, above the board.
 - A dealer button marker rotates around the table.
-- Each seat shows name, stack, current bet, and cards (face down for opponents).
-- The player's own hand shows its current label ("Top pair", "Flush", …).
+- **Seats:** every seat shows its cards as two large overlapping cards (Omaha variants fan 4–5), face down for opponents, with name and stack in a panel next to them and the current bet toward the centre. Your own seat is bigger. On a phone, tableside cards are about twice their old size so they're readable.
+- **Hand-strength tag:** a small coloured tag under the cards names the hand ("PAIR", "TWO PAIR", "FLUSH"; Hi/Lo shows both halves, e.g. "FLUSH" + "8-6 LOW"). Only the card's owner sees it, until showdown.
+- **Dealer button:** shown above the seat that has it.
+- **Phones:** there is no separate hand panel at the bottom of the screen; your cards are at your seat. Nothing may cover the action bar (the owner's approval popup waits until you've acted).
 - **Action bar:** Fold, Check/Call (shows the amount), Raise.
   - Raise opens a small popup with a slider and an editable amount to its right.
-  - Presets above them: Min, ⅓ pot, ½ pot, ¾ pot, All in. All in is capped at pot in PL.
+  - Presets above them. Preflop when nobody has raised yet: Min, 2 BB, 3 BB, All in. Otherwise: Min, ⅓ pot, ½ pot, ¾ pot, Pot, All in (a pot fraction raises to the current bet plus that share of the pot after calling).
+  - In pot-limit games every preset is capped at the maximum pot-sized raise, and a capped All in is labelled "Pot (max)".
+  - Presets below the min raise or above the player's stack are hidden; presets that land on the same amount are shown once.
 - **Run it twice:** a prompt appears when it's eligible and disappears after 5 s; no answer means it runs once.
 - **Pineapple:** a discard picker appears on each discard street.
 - Double board shows two stacked boards, each labeled with its share of the pot.
-- **Away button**, always visible.
+- **Away button** ("I'm back" when away), always visible to seated players. The owner's **Pause** button is always visible too; Pause takes effect after the current hand.
+- **Copy link:** when no hand is running (a new table, paused, or waiting for players), a "Copy link" button in the centre of the felt copies the table URL and briefly shows "Copied".
+- **Refresh:** reloading the page mid-game reconnects to the same table, seat and cards, with no re-join prompt.
 - **Ledger button**, bottom left.
 - **Chat panel**, if enabled.
-- **Fairness:** at hand start, show a short deck hash. After the hand, a "Verify" link shows the revealed deck and salt.
+- **Fairness:** at hand start, show a short deck hash. After the hand, a "Verify" link checks the revealed cards against it in the browser (per-card commitments: see §8).
 
 ---
 
@@ -215,7 +221,7 @@ Browsers render only what they receive
 
 - The server is authoritative. Clients never compute game state.
 - The engine is a pure reducer with no I/O, no `Date.now` and no `Math.random`; randomness and time are passed in. The action log doubles as hand history and makes hands replayable.
-- **Provable fairness:** at hand start, publish SHA-256(salt + deck). After the hand, reveal the salt and the deck.
+- **Provable fairness (per-card commitments):** at hand start, each deck position gets its own random salt and hash SHA-256(salt:index:card), and the server publishes SHA-256 of all those hashes. After the hand it reveals every position hash, plus the salt and card only for cards that became public (boards, shown hands, rabbit cards once hunted), so folded hands and discards stay secret.
 
 ## 9. Stack
 

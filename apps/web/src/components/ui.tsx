@@ -88,13 +88,16 @@ export const inputClass =
 export function ChipInput({
   text,
   onText,
+  centMode,
   placeholder,
   className = "",
   autoFocus,
   ariaLabel,
 }: {
   text: string;
-  onText: (text: string, cents: number | null) => void;
+  onText: (text: string, amount: number | null) => void;
+  /** Cent mode on: decimals allowed and multiplied by 100. Off: whole numbers. */
+  centMode: boolean;
   placeholder?: string;
   className?: string;
   autoFocus?: boolean;
@@ -102,14 +105,14 @@ export function ChipInput({
 }) {
   return (
     <input
-      inputMode="decimal"
+      inputMode={centMode ? "decimal" : "numeric"}
       autoComplete="off"
       className={`${inputClass} ${className}`}
       value={text}
       placeholder={placeholder}
       autoFocus={autoFocus}
       aria-label={ariaLabel}
-      onChange={(e) => onText(e.target.value, parseChips(e.target.value))}
+      onChange={(e) => onText(e.target.value, parseChips(e.target.value, centMode))}
     />
   );
 }
@@ -166,6 +169,52 @@ export function ConfirmButton({ label, confirm, onConfirm, variant = "danger" }:
       onBlur={() => setArmed(false)}
     >
       {armed ? confirm : label}
+    </Button>
+  );
+}
+
+/**
+ * Copies text. The Clipboard API needs a secure context (https or localhost);
+ * elsewhere (e.g. a LAN address) fall back to a hidden textarea.
+ */
+export async function copyText(text: string): Promise<boolean> {
+  try {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch {
+    // Fall through to the textarea.
+  }
+  try {
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.setAttribute("readonly", "");
+    ta.style.position = "fixed";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.select();
+    const ok = document.execCommand("copy");
+    ta.remove();
+    return ok;
+  } catch {
+    return false;
+  }
+}
+
+/** "Copy link" for the table URL; shows "Copied" briefly. */
+export function CopyLinkButton() {
+  const [state, setState] = useState<"idle" | "copied" | "failed">("idle");
+  return (
+    <Button
+      variant="primary"
+      className="mt-1 px-5 py-2.5"
+      onClick={async () => {
+        setState((await copyText(window.location.href)) ? "copied" : "failed");
+        setTimeout(() => setState("idle"), 1_500);
+      }}
+    >
+      {state === "copied" ? "Copied" : state === "failed" ? "Couldn't copy: use the address bar" : "Copy link"}
     </Button>
   );
 }

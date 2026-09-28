@@ -23,7 +23,7 @@ export function SeatRequestDialog({
   const dc = view.settings.displayCents;
   const defaultBuyIn = view.settings.bigBlind * 100;
   const [nickname, setNickname] = useState(savedNickname);
-  const [text, setText] = useState(chipsToInput(defaultBuyIn));
+  const [text, setText] = useState(chipsToInput(defaultBuyIn, dc));
   const [buyIn, setBuyIn] = useState<number | null>(defaultBuyIn);
   const [postBlind, setPostBlind] = useState(false);
   const started = view.handNumber > 0;
@@ -58,6 +58,7 @@ export function SeatRequestDialog({
           error={buyIn === null ? "Enter an amount" : undefined}
         >
           <ChipInput
+            centMode={dc}
             text={text}
             ariaLabel="Buy-in"
             onText={(t, cents) => {
@@ -92,7 +93,8 @@ export function SeatRequestDialog({
 
 export function RebuyDialog({ view, send, onClose }: { view: TableView; send: Send; onClose: () => void }) {
   const initial = view.settings.bigBlind * 100;
-  const [text, setText] = useState(chipsToInput(initial));
+  const dc = view.settings.displayCents;
+  const [text, setText] = useState(chipsToInput(initial, dc));
   const [amount, setAmount] = useState<number | null>(initial);
   return (
     <Modal title="Rebuy" onClose={onClose}>
@@ -107,6 +109,7 @@ export function RebuyDialog({ view, send, onClose }: { view: TableView; send: Se
       >
         <Field label="Amount" hint="Added after the current hand if you're in one." error={amount === null ? "Enter an amount" : undefined}>
           <ChipInput
+            centMode={dc}
             text={text}
             autoFocus
             ariaLabel="Rebuy amount"
@@ -135,7 +138,7 @@ export function ApprovalPopup({ view, send }: { view: TableView; send: Send }) {
 
 function Approval({ request, total, view, send }: { request: RequestView; total: number; view: TableView; send: Send }) {
   const dc = view.settings.displayCents;
-  const [text, setText] = useState(chipsToInput(request.amount));
+  const [text, setText] = useState(chipsToInput(request.amount, dc));
   const [amount, setAmount] = useState<number | null>(request.amount);
   const title = request.kind === "seat" ? "Seat request" : "Rebuy request";
   return (
@@ -149,6 +152,7 @@ function Approval({ request, total, view, send }: { request: RequestView; total:
         </p>
         <Field label={request.kind === "seat" ? "Starting stack" : "Amount to add"} error={amount === null ? "Enter an amount" : undefined}>
           <ChipInput
+            centMode={dc}
             text={text}
             ariaLabel="Approved amount"
             onText={(t, c) => {

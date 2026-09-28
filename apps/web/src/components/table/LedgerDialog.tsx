@@ -67,7 +67,7 @@ export function LedgerDialog({ view, onClose }: { view: TableView; onClose?: () 
           <p className="text-xs text-muted">The app never handles real money; it only does the arithmetic.</p>
           <Button
             className="self-start"
-            onClick={() => downloadText(`garagepoker-${view.tableId}-ledger.csv`, ledgerCsv(rows, view.settlement))}
+            onClick={() => downloadText(`garagepoker-${view.tableId}-ledger.csv`, ledgerCsv(rows, view.settlement, dc))}
           >
             Download CSV
           </Button>

@@ -2,6 +2,7 @@
 
 import type { ClientMessage, TableView } from "@garagepoker/protocol";
 import { useState } from "react";
+import { raisePresets, VARIANTS } from "@garagepoker/engine";
 import { chipsToInput, formatChips } from "@/lib/chips";
 import { Button, ChipInput } from "../ui";
 import type { Countdown } from "./Seat";
@@ -80,37 +81,36 @@ function RaisePopup({ view, onRaise, onCancel }: { view: TableView; onRaise: (to
   const min = legal.minRaiseTo;
   const max = legal.maxRaiseTo;
   const allInTo = me.bet + me.stack;
-  const capped = max < allInTo;
-  const unit = dc ? 1 : 100;
-
-  const clamp = (x: number) => Math.min(max, Math.max(min, x));
-  /** Raise to the current bet plus a fraction of the pot after calling. */
-  const potFraction = (f: number) => {
-    const raw = hand.currentBet + Math.round(f * (hand.pot + legal.callAmount));
-    return clamp(Math.floor(raw / unit) * unit);
-  };
-  const presets: { label: string; to: number; note?: string }[] = [
-    { label: "Min", to: min },
-    { label: "⅓ pot", to: potFraction(1 / 3) },
-    { label: "½ pot", to: potFraction(1 / 2) },
-    { label: "¾ pot", to: potFraction(3 / 4) },
-    { label: "All in", to: max, note: capped ? "pot max" : undefined },
-  ];
+  // SPEC §7: big-blind multiples preflop until someone raises, pot fractions
+  // otherwise; capped at the pot in pot-limit (engine raisePresets).
+  const unopened = hand.street === "preflop" && !view.seats.some((s) => s?.inHand && s.lastAction?.type === "raise");
+  const presets = raisePresets({
+    unopened,
+    bigBlind: view.settings.bigBlind,
+    pot: hand.pot,
+    currentBet: hand.currentBet,
+    callAmount: legal.callAmount,
+    minRaiseTo: min,
+    maxRaiseTo: max,
+    allInTo,
+    potLimit: VARIANTS[view.settings.variant].betting === "PL",
+  });
 
   const [amount, setAmount] = useState(min);
-  const [text, setText] = useState(chipsToInput(min));
+  const [text, setText] = useState(chipsToInput(min, dc));
   const [bad, setBad] = useState(false);
   const choose = (to: number) => {
     setAmount(to);
-    setText(chipsToInput(to));
+    setText(chipsToInput(to, dc));
     setBad(false);
   };
   const valid = !bad && amount <= max && (amount >= min || amount === allInTo);
   const verb = hand.currentBet === 0 ? "Bet" : "Raise to";
 
   return (
-    <div className="absolute inset-x-0 bottom-full mb-2 rounded-2xl border border-line bg-panel p-3 shadow-2xl">
-      <div className="mb-3 grid grid-cols-5 gap-1.5">
+    // z-40: above the seats on the felt, which it overlaps on a phone.
+    <div className="absolute inset-x-0 bottom-full z-40 mb-2 rounded-2xl border border-line bg-panel p-3 shadow-2xl">
+      <div className="mb-3 grid gap-1.5" style={{ gridTemplateColumns: `repeat(${presets.length}, minmax(0, 1fr))` }}>
         {presets.map((p) => (
           <button
             key={p.label}
@@ -121,7 +121,7 @@ function RaisePopup({ view, onRaise, onCancel }: { view: TableView; onRaise: (to
             }`}
           >
             <span className="font-semibold">{p.label}</span>
-            <span className="tabular text-[10px] text-muted">{p.note ?? formatChips(p.to, dc)}</span>
+            <span className="tabular text-[10px] text-muted">{formatChips(p.to, dc)}</span>
           </button>
         ))}
       </div>
@@ -131,15 +131,13 @@ function RaisePopup({ view, onRaise, onCancel }: { view: TableView; onRaise: (to
           className="min-w-0 flex-1"
           min={min}
           max={max}
-          step={unit}
+          step={1}
           value={Math.min(max, Math.max(min, amount))}
           aria-label="Raise amount"
-          onChange={(e) => {
-            const v = Number(e.target.value);
-            choose(max - v < unit ? max : v);
-          }}
+          onChange={(e) => choose(Number(e.target.value))}
         />
         <ChipInput
+          centMode={dc}
           className="w-24 text-right"
           text={text}
           ariaLabel="Raise amount"

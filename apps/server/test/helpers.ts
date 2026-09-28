@@ -32,7 +32,8 @@ export function harness(settings: Partial<TableSettings> = {}) {
 	const data: TableData = newTableData(
 		"TestTable1",
 		token("owner"),
-		{ ...DEFAULT_SETTINGS, autoStart: false, ...settings },
+		// Tests pin 10.00/20.00 in cent units (1000/2000) so their worked amounts stay the same.
+		{ ...DEFAULT_SETTINGS, smallBlind: 1000, bigBlind: 2000, autoStart: false, ...settings },
 		{ now: clock.now, random },
 	);
 	const table = () => new Table(data, { now: clock.now, random, connected });
@@ -111,7 +112,7 @@ export async function createTable(ownerToken: string, settings: Partial<TableSet
 	const res = await SELF.fetch("https://gp.test/api/tables", {
 		method: "POST",
 		headers: { "Content-Type": "application/json", Origin: ORIGIN, "CF-Connecting-IP": freshIp() },
-		body: JSON.stringify({ token: ownerToken, settings }),
+		body: JSON.stringify({ token: ownerToken, settings: { smallBlind: 1000, bigBlind: 2000, ...settings } }),
 	});
 	expect(res.status).toBe(201);
 	return ((await res.json()) as { tableId: string }).tableId;

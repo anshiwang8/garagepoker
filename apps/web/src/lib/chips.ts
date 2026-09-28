@@ -1,29 +1,24 @@
 /**
- * Chip amounts are integer cents everywhere. These helpers only convert for
- * display and input; they never do floating-point arithmetic on amounts.
+ * Chip amounts are integers everywhere. Cent mode (SPEC §5) only changes how
+ * they're shown and typed; the rules live in @garagepoker/engine so the
+ * browser and the tests use the same code, and no floats touch an amount.
+ *
+ *   cent mode off: 1980 <-> "1980"
+ *   cent mode on:  1980 <-> "19.80", and "0.50" is typed as 50
  */
+import { formatAmount, parseAmount } from "@garagepoker/engine";
 
-/** 1000 -> "10", 1050 -> "10.50"; always 2 decimals when displayCents is on. */
-export function formatChips(cents: number, displayCents = false): string {
-  const whole = Math.trunc(cents / 100);
-  const frac = Math.abs(cents % 100);
-  const sign = cents < 0 && whole === 0 ? "-" : "";
-  const main = sign + whole.toLocaleString("en-US");
-  if (!displayCents && frac === 0) return main;
-  return `${main}.${String(frac).padStart(2, "0")}`;
+/** For display: stacks, pots, bets, blinds, ledger, settle-up. */
+export function formatChips(amount: number, centMode: boolean): string {
+  return formatAmount(amount, centMode);
 }
 
-/** Same as formatChips but without thousands separators, for input fields. */
-export function chipsToInput(cents: number): string {
-  const whole = Math.trunc(cents / 100);
-  const frac = cents % 100;
-  return frac === 0 ? String(whole) : `${whole}.${String(frac).padStart(2, "0")}`;
+/** The editable text for an amount field. */
+export function chipsToInput(amount: number, centMode: boolean): string {
+  return formatAmount(amount, centMode);
 }
 
-/** "10", "10.5", "1,000.25" -> cents. Null if it isn't a valid amount. */
-export function parseChips(text: string): number | null {
-  const t = text.trim().replace(/,/g, "");
-  const m = /^(\d{1,11})(?:\.(\d{0,2}))?$/.exec(t);
-  if (!m) return null;
-  return Number(m[1]) * 100 + Number((m[2] ?? "").padEnd(2, "0"));
+/** What the user typed -> the stored integer, or null if it isn't valid in this mode. */
+export function parseChips(text: string, centMode: boolean): number | null {
+  return parseAmount(text, centMode);
 }

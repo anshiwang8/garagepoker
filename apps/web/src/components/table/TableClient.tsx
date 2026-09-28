@@ -115,8 +115,10 @@ export function TableClient({ tableId }: { tableId: string }) {
           </Button>
         )}
         <DiscardPicker view={view} send={send} now={now} />
+        {/* Phones show your cards at your seat on the table; this larger view is
+            only for the landscape side column, where it covers nothing. */}
         {mySeat?.inHand && mySeat.cards && !(view.hand?.discard?.seats.includes(mySeat.seat)) && (
-          <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1">
+          <div className="hidden flex-wrap items-center justify-center gap-x-3 gap-y-1 wide:flex">
             <div className="flex gap-1.5">
               {mySeat.cards.map((c, i) => (
                 <PlayingCard key={i} card={c} size={mySeat.cards!.length > 2 ? "md" : "lg"} dim={mySeat.folded} />
@@ -140,8 +142,9 @@ export function TableClient({ tableId }: { tableId: string }) {
       </section>
 
       {/* Utility row: Ledger bottom-left, Away always visible */}
-      <footer className="area-util flex items-center gap-2 border-t border-line bg-panel/70 px-3 pt-2 safe-bottom">
+      <footer className="area-util flex items-center gap-1 wide:gap-2 border-t border-line bg-panel/70 px-2 pt-2 wide:px-3 safe-bottom">
         <Button onClick={() => setDialog({ kind: "ledger" })}>Ledger</Button>
+        {view.you.isOwner && view.status !== "ended" && <PauseButton view={view} send={send} />}
         {view.handNumber > 0 && !view.you.watchBlocked && (
           <Button variant="ghost" onClick={() => send({ type: "getReplay" })}>
             Last hand
@@ -172,7 +175,8 @@ export function TableClient({ tableId }: { tableId: string }) {
       {dialog?.kind === "rebuy" && <RebuyDialog view={view} send={send} onClose={close} />}
       {dialog?.kind === "ledger" && <LedgerDialog view={view} onClose={close} />}
       {dialog?.kind === "owner" && view.you.isOwner && <OwnerMenu view={view} send={send} onClose={close} />}
-      {view.you.isOwner && dialog?.kind !== "owner" && <ApprovalPopup view={view} send={send} />}
+      {/* Never over the action bar: requests wait until you've acted. */}
+      {view.you.isOwner && dialog?.kind !== "owner" && !view.you.legal && <ApprovalPopup view={view} send={send} />}
       {view.status === "ended" && !dialog && !replay && <LedgerDialog view={view} />}
       {replay && <ReplayDialog key={replay.hand} replay={replay} displayCents={view.settings.displayCents} onClose={closeReplay} />}
 
@@ -194,6 +198,25 @@ export function TableClient({ tableId }: { tableId: string }) {
       </div>
     </div>
   );
+}
+
+/** The owner's Pause / Resume, always on screen (SPEC §7). Pause waits for the hand to end. */
+function PauseButton({ view, send }: { view: TableView; send: ReturnType<typeof useTableSocket>["send"] }) {
+  if (view.status === "paused") {
+    return (
+      <Button variant="primary" onClick={() => send({ type: "startGame" })}>
+        {view.handNumber === 0 ? "Start" : "Resume"}
+      </Button>
+    );
+  }
+  if (view.pauseRequested) {
+    return (
+      <Button onClick={() => send({ type: "startGame" })} title="Tap to keep playing">
+        Pausing after hand
+      </Button>
+    );
+  }
+  return <Button onClick={() => send({ type: "pauseGame" })}>Pause</Button>;
 }
 
 function Centered({ children }: { children: React.ReactNode }) {

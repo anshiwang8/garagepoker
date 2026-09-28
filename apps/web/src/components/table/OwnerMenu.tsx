@@ -121,7 +121,7 @@ function PlayersTab({ view, send }: { view: TableView; send: Send }) {
 
 function PlayerRow({ seat, view, send }: { seat: SeatView; view: TableView; send: Send }) {
   const dc = view.settings.displayCents;
-  const [text, setText] = useState(chipsToInput(view.settings.bigBlind * 100));
+  const [text, setText] = useState(chipsToInput(view.settings.bigBlind * 100, dc));
   const [amount, setAmount] = useState<number | null>(view.settings.bigBlind * 100);
   const isMe = seat.playerId === view.you.playerId;
   const adjust = (op: "add" | "remove" | "set") => amount !== null && send({ type: "adjustStack", playerId: seat.playerId, op, amount });
@@ -137,6 +137,7 @@ function PlayerRow({ seat, view, send }: { seat: SeatView; view: TableView; send
       </div>
       <div className="flex flex-wrap items-center gap-2">
         <ChipInput
+          centMode={dc}
           className="w-24"
           text={text}
           ariaLabel={`Amount for ${seat.nickname}`}

@@ -160,8 +160,8 @@ describe("validateConfig", () => {
     expect([1, 2, 3, 4, 5, 6].map((h) => isBombPotHand(every3, h))).toEqual([false, false, true, false, false, true]);
     expect(isBombPotHand({ ...DEFAULT_SETTINGS, bombPotMode: "everyHand" }, 7)).toBe(true);
     expect(isBombPotHand(DEFAULT_SETTINGS, 5)).toBe(false);
-    // The ante is in big blinds: 2 BB at 10/20 = 4000 cents.
-    expect(handConfigFor({ ...DEFAULT_SETTINGS, boards: 2 }, true)).toMatchObject({ boards: 2, bombPot: { ante: 4000 } });
+    // The ante is in big blinds: 2 BB at 10/20 = 40.
+    expect(handConfigFor({ ...DEFAULT_SETTINGS, boards: 2 }, true)).toMatchObject({ boards: 2, bombPot: { ante: 40 } });
     expect(handConfigFor(DEFAULT_SETTINGS).bombPot).toBeNull();
   });
 

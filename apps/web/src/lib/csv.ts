@@ -1,11 +1,4 @@
-import type { LedgerRow, Payment } from "@garagepoker/engine";
-
-/** Cents as a plain decimal with 2 places, e.g. -3200 -> "-32.00". No floats involved. */
-function amount(cents: number): string {
-  const sign = cents < 0 ? "-" : "";
-  const abs = Math.abs(cents);
-  return `${sign}${Math.trunc(abs / 100)}.${String(abs % 100).padStart(2, "0")}`;
-}
+import { formatAmount, type LedgerRow, type Payment } from "@garagepoker/engine";
 
 /**
  * A text cell. Quotes it when needed, and neutralises values a spreadsheet
@@ -17,7 +10,9 @@ function text(value: string): string {
 }
 
 /** The ledger, then the settle-up payments. */
-export function ledgerCsv(rows: readonly LedgerRow[], payments: readonly Payment[] | null): string {
+export function ledgerCsv(rows: readonly LedgerRow[], payments: readonly Payment[] | null, centMode: boolean): string {
+  // Plain numbers as shown at the table: 1980, or 19.80 in cent mode.
+  const amount = (n: number) => formatAmount(n, centMode);
   const lines = ["Player,Buy-in,Buy-out,Stack,Net"];
   for (const r of rows) {
     lines.push([text(r.nickname), amount(r.buyIn), amount(r.buyOut), amount(r.stack), amount(r.net)].join(","));

@@ -1,5 +1,6 @@
 import type { TableView } from "@garagepoker/protocol";
 import { formatChips } from "@/lib/chips";
+import { CopyLinkButton } from "../ui";
 import { CardSlot, PlayingCard } from "./PlayingCard";
 import { wonBySeat } from "./HandResult";
 import { type Countdown, Seat } from "./Seat";
@@ -8,6 +9,23 @@ import { type Countdown, Seat } from "./Seat";
 function around(index: number, count: number, rx: number, ry: number, offsetDeg = 0) {
   const a = ((90 + (index * 360) / count + offsetDeg) * Math.PI) / 180;
   return { left: `${50 + rx * Math.cos(a)}%`, top: `${50 + ry * Math.sin(a)}%` };
+}
+
+/**
+ * Where a seat sits. Yours is pinned to the bottom edge; the others go round
+ * the ellipse, clamped so a seat near the edge never runs off the screen.
+ */
+function seatPosition(index: number, count: number): React.CSSProperties {
+  if (index === 0) return { left: "50%", bottom: 2, transform: "translateX(-50%)" };
+  const a = ((90 + (index * 360) / count) * Math.PI) / 180;
+  const x = 50 + 42 * Math.cos(a);
+  const y = 46 + 44 * Math.sin(a);
+  return {
+    // --seat-edge: how close to the side a seat's centre may get (set per layout below).
+    left: `clamp(var(--seat-edge), ${x}%, calc(100% - var(--seat-edge)))`,
+    top: `clamp(4.5rem, ${y}%, calc(100% - 4.5rem))`,
+    transform: "translate(-50%, -50%)",
+  };
 }
 
 export function TableFelt({
@@ -44,7 +62,8 @@ export function TableFelt({
   const cardSize = rows.length > 2 ? "xs" : "sm";
 
   return (
-    <div className="relative min-h-0 flex-1 select-none">
+    // overflow-hidden: nothing on the felt ever spills over the action bar below it.
+    <div className="relative min-h-0 flex-1 select-none overflow-hidden [--seat-edge:3.3rem] wide:[--seat-edge:4.75rem]">
       {/* Rail and felt */}
       <div className="absolute inset-[9%_7%] rounded-[50%] border-[10px] border-rail bg-[radial-gradient(ellipse_at_center,var(--color-felt)_0%,var(--color-felt-dark)_75%)] shadow-[inset_0_0_40px_rgba(0,0,0,.6)]" />
 
@@ -87,15 +106,26 @@ export function TableFelt({
           <div className="text-[10px] uppercase tracking-wider text-muted">Rabbit hunt by {rabbit.by} · display only</div>
         )}
         {statusText && <div className="max-w-[16rem] text-sm text-text/80">{statusText}</div>}
+        {/* No hand running (new, paused or waiting for players): invite people. */}
+        {!hand && view.status !== "ended" && (view.status === "paused" || view.handNumber === 0) && <CopyLinkButton />}
       </div>
 
-      {/* Bets, pulled toward the centre */}
+      {/* Settings saved mid-hand: everyone sees they're coming. */}
+      {view.pendingSettings && (
+        <div className="absolute inset-x-0 top-1 z-20 flex justify-center">
+          <span className="rounded-full border border-gold/50 bg-panel/95 px-3 py-0.5 text-xs text-gold shadow">
+            Settings changed · Changes apply next hand
+          </span>
+        </div>
+      )}
+
+      {/* Bets, pulled toward the centre (landscape; phones show them at each seat). */}
       {hand &&
         view.seats.map((s) =>
           s && s.bet > 0 ? (
             <div
               key={`bet-${s.seat}`}
-              className="absolute -translate-x-1/2 -translate-y-1/2 rounded-full bg-black/55 px-2 py-0.5 text-xs font-semibold tabular text-gold"
+              className="absolute hidden -translate-x-1/2 -translate-y-1/2 rounded-full bg-black/55 px-2 py-0.5 text-xs font-semibold tabular text-gold wide:block"
               style={around(indexOf(s.seat), n, 26, 24)}
             >
               {formatChips(s.bet, dc)}
@@ -103,26 +133,17 @@ export function TableFelt({
           ) : null,
         )}
 
-      {/* Dealer button */}
-      {view.buttonSeat !== null && view.seats[view.buttonSeat - 1] && (
-        <div
-          className="absolute flex h-5 w-5 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-white text-[10px] font-black text-ink shadow"
-          style={around(indexOf(view.buttonSeat), n, 32, 30, 16)}
-          aria-label="Dealer button"
-        >
-          D
-        </div>
-      )}
-
       {/* Seats */}
       {view.seats.map((s, i) => {
         const number = i + 1;
         return (
-          <div key={number} className="absolute z-10 -translate-x-1/2 -translate-y-1/2" style={around(indexOf(number), n, 42, 41)}>
+          <div key={number} className="absolute z-10" style={seatPosition(indexOf(number), n)}>
             <Seat
               seat={s}
               number={number}
               isYou={number === view.you.seat}
+              isButton={view.buttonSeat === number && !!s}
+              labels={number === view.you.seat ? view.you.labels : null}
               toAct={hand?.toAct === number}
               countdown={hand?.toAct === number ? countdown : null}
               displayCents={dc}
