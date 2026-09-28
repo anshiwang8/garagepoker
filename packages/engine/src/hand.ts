@@ -27,15 +27,23 @@ export interface Variant {
   betting: Betting;
   handRule: HandRule;
   split: Split;
+  /**
+   * Pineapple (SPEC §1): everyone discards 1 card, face down and at the same
+   * time, before betting on the preflop, flop and turn, holding 2 on the river.
+   */
+  discard: boolean;
 }
 
 /** SPEC §1 presets. A new variant is a new row, not new code. */
 export const VARIANTS = {
-  NLH: { holeCards: 2, deckSize: 52, betting: "NL", handRule: "any", split: "high" },
-  PLO: { holeCards: 4, deckSize: 52, betting: "PL", handRule: "omaha", split: "high" },
-  PLO5: { holeCards: 5, deckSize: 52, betting: "PL", handRule: "omaha", split: "high" },
-  PLOHL: { holeCards: 4, deckSize: 52, betting: "PL", handRule: "omaha", split: "hilo" },
-  PLO5HL: { holeCards: 5, deckSize: 52, betting: "PL", handRule: "omaha", split: "hilo" },
+  NLH: { holeCards: 2, deckSize: 52, betting: "NL", handRule: "any", split: "high", discard: false },
+  PLO: { holeCards: 4, deckSize: 52, betting: "PL", handRule: "omaha", split: "high", discard: false },
+  PLO5: { holeCards: 5, deckSize: 52, betting: "PL", handRule: "omaha", split: "high", discard: false },
+  PLOHL: { holeCards: 4, deckSize: 52, betting: "PL", handRule: "omaha", split: "hilo", discard: false },
+  PLO5HL: { holeCards: 5, deckSize: 52, betting: "PL", handRule: "omaha", split: "hilo", discard: false },
+  PINEAPPLE: { holeCards: 5, deckSize: 52, betting: "NL", handRule: "any", split: "high", discard: true },
+  /** 36 cards, 6 to A; Triton rankings (flush > full house, trips > straight). */
+  SHORT: { holeCards: 2, deckSize: 36, betting: "NL", handRule: "any", split: "high", discard: false },
 } as const satisfies Record<string, Variant>;
 
 export interface HandConfig {
@@ -102,6 +110,8 @@ export interface PlayerState {
   acted: boolean;
   /** The bet to match when this player last acted (for the reopen rule). */
   facedBet: number;
+  /** Pineapple discards. Server-only: never sent to any client. */
+  discards: Card[];
 }
 
 export type LogType =
@@ -117,7 +127,8 @@ export type LogType =
   | "raise"
   | "uncalled"
   | "ritAccept"
-  | "ritDecline";
+  | "ritDecline"
+  | "discard";
 
 export interface LogEntry {
   street: Street;
@@ -185,6 +196,12 @@ export interface HandState {
   ritOffer: { seats: number[]; accepted: number[] } | null;
   /** The street on which betting ended with cards still to come (a run-out), if any. */
   runOutFrom: Street | null;
+  /**
+   * Pineapple: seats that still owe a discard on this street, and what
+   * happens once everyone has discarded (bet from a player index, or deal the
+   * next street when there's no betting, as in a bomb pot's preflop).
+   */
+  discard: { pending: number[]; then: { bet: number } | { deal: true } } | null;
   street: Street;
   /** The bet to match on this street. */
   currentBet: number;
@@ -203,7 +220,9 @@ export type PlayerAction =
   /** Bet or raise to a total street bet of `to`. All-in is `to` = bet + stack. */
   | { type: "raise"; seat: number; to: number }
   /** Answer a run-it-twice offer. Not turn-based: anyone in the pot, in any order. */
-  | { type: "runItTwice"; seat: number; accept: boolean };
+  | { type: "runItTwice"; seat: number; accept: boolean }
+  /** Pineapple: discard one card. Everyone discards at the same time, in any order. */
+  | { type: "discard"; seat: number; card: Card };
 
 export interface LegalActions {
   seat: number;
@@ -267,6 +286,7 @@ export function startHand(input: StartHandInput): HandState {
     folded: false,
     acted: false,
     facedBet: 0,
+    discards: [],
   }));
   let deckIndex = 0;
   for (let k = 1; k <= n; k++) {
@@ -285,6 +305,7 @@ export function startHand(input: StartHandInput): HandState {
     secondRun: null,
     ritOffer: null,
     runOutFrom: null,
+    discard: null,
     street: "preflop",
     currentBet: config.bombPot ? 0 : config.bigBlind,
     lastRaiseSize: config.bigBlind,
@@ -296,8 +317,10 @@ export function startHand(input: StartHandInput): HandState {
   if (config.bombPot) {
     // SPEC §1: everyone antes; no blinds, straddle or preflop betting.
     for (let k = 1; k <= n; k++) postAnte(s, at(k), config.bombPot.ante);
+    // Pineapple still discards preflop, then deals the flop without betting.
+    if (needsDiscard(s)) return openDiscards(s, { deal: true });
     dealNextStreet(s);
-    return advance(s, btn);
+    return startStreet(s, btn);
   }
 
   if (config.ante > 0) {
@@ -327,7 +350,7 @@ export function startHand(input: StartHandInput): HandState {
     }
   });
 
-  return advance(s, lastForced);
+  return startStreet(s, lastForced);
 }
 
 /** What the player to act may do, or null when the hand is complete. */
@@ -340,7 +363,9 @@ export function legalActions(state: HandState): LegalActions | null {
 export function applyAction(state: HandState, action: PlayerAction): HandState {
   if (state.street === "complete") throw new EngineError("the hand is complete");
   if (action.type === "runItTwice") return decideRunItTwice(state, action.seat, action.accept);
+  if (action.type === "discard") return discardCard(state, action.seat, action.card);
   if (state.ritOffer) throw new EngineError("waiting for everyone to decide on running it twice");
+  if (state.discard) throw new EngineError("waiting for everyone to discard");
   if (state.toAct === null) throw new EngineError("nobody is to act");
   if (action.seat !== state.toAct) {
     throw new EngineError(`it is seat ${state.toAct}'s turn, not seat ${action.seat}'s`);
@@ -442,6 +467,8 @@ function validateHandConfig(c: HandConfig): void {
     throw new EngineError(`invalid hand rule ${v.handRule}`);
   }
   if (v.split !== "high" && v.split !== "hilo") throw new EngineError(`invalid split ${v.split}`);
+  if (v.split === "hilo" && v.deckSize === 36) throw new EngineError("Hi/Lo isn't available with short deck");
+  if (v.discard && v.holeCards - 3 !== 2) throw new EngineError("Pineapple needs 5 hole cards (3 discards, 2 kept)");
   if (c.boards !== undefined && c.boards !== 1 && c.boards !== 2) {
     throw new EngineError(`boards must be 1 or 2, got ${c.boards}`);
   }
@@ -582,8 +609,60 @@ function advance(s: HandState, from: number): HandState {
       }
     }
     dealNextStreet(s);
+    if (needsDiscard(s)) return openDiscards(s, { bet: btn });
     from = btn;
   }
+}
+
+/** Betting on a new street starts here, after any Pineapple discards. */
+function startStreet(s: HandState, from: number): HandState {
+  return needsDiscard(s) ? openDiscards(s, { bet: from }) : advance(s, from);
+}
+
+/** Pineapple discards before betting on the preflop, flop and turn. */
+function needsDiscard(s: HandState): boolean {
+  return (
+    s.config.variant.discard &&
+    (s.street === "preflop" || s.street === "flop" || s.street === "turn") &&
+    s.players.filter((p) => !p.folded).length > 1
+  );
+}
+
+function openDiscards(s: HandState, then: { bet: number } | { deal: true }): HandState {
+  // Everyone still in, all-in players included: they must hold 2 at showdown.
+  s.discard = { pending: s.players.filter((p) => !p.folded).map((p) => p.seat), then };
+  s.toAct = null;
+  return s;
+}
+
+function discardCard(state: HandState, seat: number, card: Card): HandState {
+  const pending = state.discard;
+  if (!pending) throw new EngineError("nobody is discarding now");
+  if (!pending.pending.includes(seat)) throw new EngineError(`seat ${seat} has nothing to discard`);
+  const s = cloneState(state);
+  const p = s.players[indexOfSeat(s, seat)]!;
+  if (!p.hole.includes(card)) throw new EngineError("you don't hold that card");
+  p.hole = p.hole.filter((c) => c !== card);
+  p.discards = [...p.discards, card];
+  // The log records that a player discarded, never which card.
+  s.log.push({ street: s.street, seat, type: "discard", amount: 0 });
+  const left = pending.pending.filter((x) => x !== seat);
+  if (left.length > 0) {
+    s.discard = { pending: left, then: pending.then };
+    return s;
+  }
+  s.discard = null;
+  if ("deal" in pending.then) {
+    dealNextStreet(s);
+    return startStreet(s, indexOfSeat(s, s.button));
+  }
+  return advance(s, pending.then.bet);
+}
+
+/** The card a timed-out player discards: the lowest rank (then suit). */
+export function lowestCard(cards: readonly Card[]): Card {
+  if (cards.length === 0) throw new EngineError("no cards");
+  return Math.min(...cards);
 }
 
 /** Everyone left is all-in, or all but one: no more betting can happen. */
@@ -594,6 +673,9 @@ function isRunOut(s: HandState): boolean {
 
 /** Cards are still to come, and the deck holds enough to finish every board twice. */
 function canRunTwice(s: HandState): boolean {
+  // Pineapple: each run would need its own discards, so only once the turn
+  // discard is done (just the river to come).
+  if (s.config.variant.discard && s.street !== "turn") return false;
   const missing = s.boards.reduce((sum, b) => sum + (5 - b.length), 0);
   return missing > 0 && s.deckIndex + 2 * missing <= s.deck.length;
 }

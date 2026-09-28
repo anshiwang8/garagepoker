@@ -12,6 +12,8 @@ import {
   type HandState,
   handConfigFor,
   handLabel,
+  lowestCard,
+  parseCard,
   rabbitCards,
   isBombPotHand,
   LedgerError,
@@ -130,6 +132,8 @@ export interface TableData {
   nextHandAt: number | null;
   /** While run it twice is offered: when an unanswered offer runs once. */
   ritDeadline: number | null;
+  /** While Pineapple players discard: when anyone still pending discards their lowest card. */
+  discardDeadline: number | null;
   lastHand: LastHand | null;
   /**
    * The last finished hand's full engine state, deck included, for the
@@ -187,6 +191,7 @@ export function newTableData(
     handTimeouts: [],
     nextHandAt: null,
     ritDeadline: null,
+    discardDeadline: null,
     lastHand: null,
     prevHand: null,
     ledger: [],
@@ -247,6 +252,8 @@ export class Table {
         return this.answerRunItTwice(playerId, m.hand, m.accept);
       case "rabbitHunt":
         return this.rabbitHunt(playerId, m.hand);
+      case "discard":
+        return this.discard(playerId, m.hand, m.card);
     }
 
     // Owner only from here.
@@ -307,6 +314,16 @@ export class Table {
       d.hand = applyAction(d.hand, { type: "runItTwice", seat, accept: false });
       this.afterAction();
     }
+    if (d.hand?.discard && d.discardDeadline !== null && this.now >= d.discardDeadline) {
+      // SPEC §1: on timeout, discard the lowest card.
+      for (const seat of d.hand.discard.pending) {
+        const s = this.seat(seat)!;
+        if (!this.deps.connected.has(s.playerId) && !d.handTimeouts.includes(seat)) d.handTimeouts.push(seat);
+        const hole = d.hand.players.find((p) => p.seat === seat)!.hole;
+        d.hand = applyAction(d.hand, { type: "discard", seat, card: lowestCard(hole) });
+      }
+      this.afterAction();
+    }
     if (!d.hand && d.nextHandAt !== null && this.now >= d.nextHandAt) this.startNextHand();
     if (d.ownerOfflineSince !== null && this.now - d.ownerOfflineSince >= OWNER_OFFLINE_MS) {
       this.handOffOwnership();
@@ -332,6 +349,7 @@ export class Table {
     }
     if (d.nextHandAt !== null) times.push(d.nextHandAt);
     if (d.hand?.ritOffer && d.ritDeadline !== null) times.push(d.ritDeadline);
+    if (d.hand?.discard && d.discardDeadline !== null) times.push(d.discardDeadline);
     if (d.ownerOfflineSince !== null) times.push(d.ownerOfflineSince + OWNER_OFFLINE_MS);
     if (d.emptySince !== null) times.push(d.emptySince + IDLE_DELETE_MS);
     return times.length ? Math.min(...times) : null;
@@ -663,6 +681,19 @@ export class Table {
     d.lastHand!.rabbit = { boards: rabbitCards(d.prevHand!), by: seat.nickname };
   }
 
+  private discard(playerId: string, hand: number, cardText: string) {
+    const d = this.data;
+    if (!d.hand || hand !== d.handNumber) throw new TableError("That hand is over");
+    if (!d.hand.discard) throw new TableError("Nobody is discarding now");
+    const n = this.seatNumberOf(playerId);
+    if (n === null || !d.hand.discard.pending.includes(n)) throw new TableError("You have nothing to discard");
+    const card = parseCard(cardText);
+    if (!d.hand.players.find((p) => p.seat === n)!.hole.includes(card)) throw new TableError("You don't hold that card");
+    d.hand = applyAction(d.hand, { type: "discard", seat: n, card });
+    this.seat(n)!.missedHands = 0;
+    this.afterAction();
+  }
+
   private act(playerId: string, hand: number, action: Extract<ClientMessage, { type: "act" }>["action"]) {
     const d = this.data;
     if (!d.hand || hand !== d.handNumber) throw new TableError("That hand is over");
@@ -710,6 +741,13 @@ export class Table {
       return;
     }
     d.ritDeadline = null;
+    if (hand.discard) {
+      // Pineapple: everyone discards at once; one clock for the street.
+      d.turn = null;
+      d.discardDeadline ??= this.now + d.settings.decisionTimeSec * 1000;
+      return;
+    }
+    d.discardDeadline = null;
     if (hand.toAct === null) throw new Error("hand stalled with nobody to act");
     const seat = this.seat(hand.toAct)!;
     const decisionDeadline = this.now + d.settings.decisionTimeSec * 1000;
@@ -740,6 +778,7 @@ export class Table {
     d.hand = null;
     d.turn = null;
     d.ritDeadline = null;
+    d.discardDeadline = null;
 
     for (const n of d.handTimeouts) {
       const s = this.seat(n)!;

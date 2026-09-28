@@ -119,6 +119,8 @@ export const clientMessageSchema = z.discriminatedUnion("type", [
   msg("runItTwice", { hand: z.number().int().min(1), accept: z.boolean() }),
   /** After a hand that ended before the river: show what would have come. */
   msg("rabbitHunt", { hand: z.number().int().min(1) }),
+  /** Pineapple: discard one of your cards (face down, everyone at once). */
+  msg("discard", { hand: z.number().int().min(1), card: z.string().regex(/^[2-9TJQKA][cdhs]$/) }),
 
   // Owner only
   msg("approveRequest", { requestId, stack: positiveCents }),
@@ -233,6 +235,11 @@ export interface HandView {
    * `deadline`; any decline, or the deadline passing, means it runs once.
    */
   ritOffer: { seats: number[]; accepted: number[]; deadline: number } | null;
+  /**
+   * Pineapple: seats that still owe a discard on this street. Anyone still
+   * pending at `deadline` discards their lowest card.
+   */
+  discard: { seats: number[]; deadline: number } | null;
 }
 
 /** One share of a pot: a board (0-based) and a half; both null for an uncontested pot. */

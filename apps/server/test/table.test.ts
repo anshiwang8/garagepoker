@@ -472,6 +472,65 @@ describe("rabbit hunt", () => {
 	});
 });
 
+describe("Pineapple", () => {
+	const holeOf = (h: ReturnType<typeof harness>, seat: number) =>
+		h.data.hand!.players.find((p) => p.seat === seat)!.hole.map(cardToString);
+
+	it("discards at once before betting; discarded cards reach no client; a timeout discards the lowest", () => {
+		const { h, owner, bob } = headsUp({ variant: "PINEAPPLE" });
+		const carol = h.join("carol"); // spectator
+		h.send(owner, { type: "startGame" });
+		const deadline = h.clock.now + DEFAULT_SETTINGS.decisionTimeSec * 1000;
+		expect(h.view(carol).hand!.discard).toEqual({ seats: [1, 2], deadline });
+		expect(h.view(owner).you.legal).toBeNull();
+		expect(h.view(owner).seats[0]!.cards).toHaveLength(5);
+
+		const ownerCard = holeOf(h, 1)[2]!;
+		expect(() => h.send(owner, { type: "discard", hand: 1, card: holeOf(h, 2)[0]! })).toThrow(/don't hold/);
+		h.send(owner, { type: "discard", hand: 1, card: ownerCard });
+		expect(() => h.send(owner, { type: "discard", hand: 1, card: holeOf(h, 1)[0]! })).toThrow(/nothing to discard/);
+		expect(h.view(bob).hand!.discard!.seats).toEqual([2]);
+
+		// Bob never answers: at the deadline his lowest card goes.
+		const bobHole = h.data.hand!.players.find((p) => p.seat === 2)!.hole;
+		const bobLowest = cardToString(Math.min(...bobHole));
+		h.advance(DEFAULT_SETTINGS.decisionTimeSec * 1000);
+		expect(h.data.hand!.discard).toBeNull();
+		expect(holeOf(h, 2)).not.toContain(bobLowest);
+		expect(h.view(owner).hand!.toAct).toBe(1); // preflop betting starts
+
+		// Neither discard appears in any view, including the discarders' own.
+		for (const id of [owner, bob, carol]) {
+			const json = JSON.stringify(h.view(id));
+			expect(json).not.toContain(`"${ownerCard}"`);
+			expect(json).not.toContain(`"${bobLowest}"`);
+		}
+		expect(h.view(owner).seats[0]!.cards).toHaveLength(4);
+		expect(h.view(bob).seats[0]!.cards).toEqual([null, null, null, null]);
+	});
+
+	it("plays to showdown holding 2 cards each", () => {
+		const { h, owner } = headsUp({ variant: "PINEAPPLE" });
+		h.send(owner, { type: "startGame" });
+		while (h.data.hand) {
+			if (h.data.hand.discard) h.advance(DEFAULT_SETTINGS.decisionTimeSec * 1000);
+			else h.act(h.table().data.hand!.currentBet > h.data.hand.players.find((p) => p.seat === h.data.hand!.toAct)!.bet ? { type: "call" } : { type: "check" });
+		}
+		expect(h.data.lastHand!.shown.every((s) => s.cards.length === 2)).toBe(true);
+		balanced(h);
+	});
+});
+
+describe("short deck", () => {
+	it("deals from a 36-card deck", () => {
+		const { h, owner } = headsUp({ variant: "SHORT" });
+		h.send(owner, { type: "startGame" });
+		expect(h.data.hand!.deck).toHaveLength(36);
+		const ranks = new Set(h.data.hand!.deck.map((c) => cardToString(c)[0]));
+		for (const low of ["2", "3", "4", "5"]) expect(ranks.has(low)).toBe(false);
+	});
+});
+
 describe("ledger invariant", () => {
 	it("throws after a hand if the nets don't sum to 0", () => {
 		const { h, owner } = headsUp();

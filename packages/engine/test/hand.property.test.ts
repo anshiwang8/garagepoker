@@ -98,7 +98,13 @@ function playHand(params: HandParams): void {
   // Plain checks in the hot loop; expect() is slow over millions of actions.
   while (s.street !== "complete") {
     if (!conserved(s)) throw new Error(`chips not conserved after ${steps} actions`);
-    if (s.ritOffer) {
+    if (s.discard) {
+      // Pineapple: a random player who still owes a discard throws a random card.
+      const pending = s.discard.pending;
+      const seat = pending[Math.floor(r() * pending.length)]!;
+      const hole = s.players.find((p) => p.seat === seat)!.hole;
+      s = applyAction(s, { type: "discard", seat, card: hole[Math.floor(r() * hole.length)]! });
+    } else if (s.ritOffer) {
       // Players answer in turn; most accept.
       const offer = s.ritOffer;
       const seat = offer.seats.find((x) => !offer.accepted.includes(x))!;
@@ -156,15 +162,25 @@ function playHand(params: HandParams): void {
   }
 
   // No card dealt twice, across hole cards, every board and the second run.
-  const dealt = [...s.players.flatMap((p) => p.hole), ...s.boards.flat(), ...runTwoCards];
+  const dealt = [...s.players.flatMap((p) => [...p.hole, ...p.discards]), ...s.boards.flat(), ...runTwoCards];
   expect(new Set(dealt).size).toBe(dealt.length);
   expect(s.boards).toHaveLength(params.boards);
-  for (const p of s.players) expect(p.hole).toHaveLength(variant.holeCards);
+  for (const p of s.players) {
+    expect(p.hole.length + p.discards.length).toBe(variant.holeCards);
+    if (!variant.discard) expect(p.discards).toEqual([]);
+  }
+  // Pineapple: anyone who reached showdown holds exactly 2, having discarded 3.
+  if (variant.discard) {
+    for (const h of result.showdown) expect(h.hole).toHaveLength(2);
+    // Discards are never logged by card.
+    expect(s.log.filter((e) => e.type === "discard").every((e) => e.amount === 0 && e.to === undefined)).toBe(true);
+  }
 
   // Bomb pots: nobody acts preflop, and there's no blind or straddle.
   if (config.bombPot) {
     expect(s.bombPot).toBe(true);
-    expect(s.log.filter((e) => e.street === "preflop").every((e) => e.type === "ante")).toBe(true);
+    // Preflop is only antes (plus Pineapple discards): no blinds, straddle or betting.
+    expect(s.log.filter((e) => e.street === "preflop").every((e) => e.type === "ante" || e.type === "discard")).toBe(true);
   }
 
   // Showdown: full boards; Omaha hands (high and low) use exactly 2 hole + 3 board on each board.
@@ -187,7 +203,7 @@ function playHand(params: HandParams): void {
 }
 
 describe("hand state machine properties", () => {
-  it("over 100k random hands (incl. hi/lo, double board, bomb pots, run it twice): chips conserved, no card dealt twice", () => {
+  it("over 100k random hands (incl. hi/lo, double board, bomb pots, run it twice, Pineapple, short deck): chips conserved, no card dealt twice", () => {
     fc.assert(fc.property(handArb, playHand), { numRuns: 100_000 });
   }, 600_000);
 });

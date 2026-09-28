@@ -102,6 +102,10 @@ export function buildView(
           toAct: hand.toAct,
           decisionDeadline: data.turn?.decisionDeadline ?? null,
           bankDeadline: data.turn?.bankDeadline ?? null,
+          discard:
+            hand.discard && data.discardDeadline !== null
+              ? { seats: [...hand.discard.pending], deadline: data.discardDeadline }
+              : null,
           ritOffer:
             hand.ritOffer && data.ritDeadline !== null
               ? { seats: [...hand.ritOffer.seats], accepted: [...hand.ritOffer.accepted], deadline: data.ritDeadline }

@@ -8,6 +8,7 @@ import { useServerNow, useTableSocket } from "@/lib/useTableSocket";
 import { VARIANT_LABELS } from "../SettingsForm";
 import { Button, ConfirmButton } from "../ui";
 import { ActionBar } from "./ActionBar";
+import { DiscardPicker } from "./DiscardPicker";
 import { RunItTwicePrompt } from "./RunItTwicePrompt";
 import { HandResult } from "./HandResult";
 import { LedgerDialog } from "./LedgerDialog";
@@ -26,7 +27,7 @@ type Dialog = { kind: "seat"; seat: number } | { kind: "rebuy" } | { kind: "ledg
 export function TableClient({ tableId }: { tableId: string }) {
   const { view, connection, send, toasts, dismiss, clockOffset } = useTableSocket(tableId);
   const [dialog, setDialog] = useState<Dialog>(null);
-  const now = useServerNow(clockOffset, !!view?.hand?.toAct || !!view?.hand?.ritOffer);
+  const now = useServerNow(clockOffset, !!view?.hand?.toAct || !!view?.hand?.ritOffer || !!view?.hand?.discard);
 
   if (!view) {
     return (
@@ -102,7 +103,8 @@ export function TableClient({ tableId }: { tableId: string }) {
             {view.handNumber === 0 ? "Start game" : "Resume game"}
           </Button>
         )}
-        {mySeat?.inHand && mySeat.cards && (
+        <DiscardPicker view={view} send={send} now={now} />
+        {mySeat?.inHand && mySeat.cards && !(view.hand?.discard?.seats.includes(mySeat.seat)) && (
           <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1">
             <div className="flex gap-1.5">
               {mySeat.cards.map((c, i) => (

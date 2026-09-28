@@ -31,6 +31,8 @@ export function actionText(a: NonNullable<SeatView["lastAction"]>, displayCents:
       return "Run it twice: yes";
     case "ritDecline":
       return "Run it twice: no";
+    case "discard":
+      return "Discarded";
   }
 }
 
