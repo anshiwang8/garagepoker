@@ -11,6 +11,13 @@ import { DurableObject } from "cloudflare:workers";
 import { clientKey } from "./rateLimit.js";
 import { newTableData, randomId, Table, type TableData, TableError } from "./table.js";
 import { seal } from "./fairness.js";
+import {
+	ALARM_CLAMP_MS,
+	CREATE_TABLE_LIMIT,
+	CREATE_TABLE_WINDOW_MS,
+	parseAllowedOrigins,
+	scheduleAlarm,
+} from "./limits.js";
 import { buildReplay } from "./replay.js";
 import { buildView } from "./view.js";
 
@@ -19,19 +26,6 @@ export { RateLimiter } from "./rateLimit.js";
 const cryptoRandom: RandomSource = (buf) => {
 	crypto.getRandomValues(buf);
 };
-
-/** Backstop against alarm loops: never schedule an alarm sooner than this from now. */
-export const ALARM_CLAMP_MS = 5_000;
-
-/**
- * An alarm at or before now fires again immediately; if tick() can't make
- * progress, that repeats until the table is deleted. Push such an alarm out
- * by ALARM_CLAMP_MS instead. (Table.nextAlarm() shouldn't produce one: this
- * is the safety net.)
- */
-export function scheduleAlarm(at: number, now: number): { at: number; clamped: boolean } {
-	return at > now ? { at, clamped: false } : { at: now + ALARM_CLAMP_MS, clamped: true };
-}
 
 interface Attachment {
 	/** Set by the "hello" message. */
@@ -225,23 +219,6 @@ function send(ws: WebSocket, message: ServerMessage): void {
 // ---------------------------------------------------------------------------
 // Worker: routes HTTP and WebSocket requests to the right TableRoom.
 // ---------------------------------------------------------------------------
-
-/**
- * The sites allowed to create tables or open table sockets, from the
- * ALLOWED_ORIGINS wrangler var (comma-separated). Whitespace and trailing
- * slashes are ignored (browsers never send a trailing slash in Origin). An
- * empty or missing var allows nothing: misconfiguration fails closed.
- */
-export function parseAllowedOrigins(value: string | undefined): string[] {
-	return (value ?? "")
-		.split(",")
-		.map((s) => s.trim().replace(/\/+$/, ""))
-		.filter(Boolean);
-}
-
-/** POST /api/tables: at most this many per client IP per window. */
-export const CREATE_TABLE_LIMIT = 5;
-export const CREATE_TABLE_WINDOW_MS = 60_000;
 
 /**
  * The request's Origin if it's allowed, else null. Browsers always send

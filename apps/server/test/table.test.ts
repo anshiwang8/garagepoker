@@ -1,6 +1,6 @@
 import { assertLedgerBalanced, cardToString, DEFAULT_SETTINGS, ledgerRows, rabbitCards } from "@garagepoker/engine";
 import { describe, expect, it } from "vitest";
-import { ALARM_CLAMP_MS, scheduleAlarm } from "../src/index.js";
+import { ALARM_CLAMP_MS, scheduleAlarm } from "../src/limits.js";
 import { IDLE_DELETE_MS, OWNER_OFFLINE_MS, RIT_DECISION_MS } from "../src/table.js";
 import { harness, token } from "./helpers.js";
 

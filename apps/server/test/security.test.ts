@@ -1,6 +1,6 @@
 import { env, runInDurableObject, SELF } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
-import { CREATE_TABLE_LIMIT, parseAllowedOrigins } from "../src/index.js";
+import { CREATE_TABLE_LIMIT, parseAllowedOrigins } from "../src/limits.js";
 import { clientKey, type RateLimiter } from "../src/rateLimit.js";
 import { freshIp, ORIGIN, token } from "./helpers.js";
 
