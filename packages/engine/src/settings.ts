@@ -1,4 +1,6 @@
-import { type HandConfig, VARIANTS } from "./hand";
+import { type HandConfig, type RunItTwiceMode, VARIANTS } from "./hand";
+
+export const RUN_IT_TWICE_MODES: RunItTwiceMode[] = ["no", "ask", "always"];
 
 export type VariantName = keyof typeof VARIANTS;
 export const VARIANT_NAMES = Object.keys(VARIANTS) as VariantName[];
@@ -21,6 +23,10 @@ export interface TableSettings {
   bombPotEvery: number;
   /** Bomb-pot ante, in big blinds (SPEC default 2). */
   bombPotAnteBB: number;
+  /** SPEC §2.7: "no", "ask" every player in the pot, or "always". Needs deck math with 2 runs. */
+  runItTwice: RunItTwiceMode;
+  /** SPEC §2.8: after a hand ends before the river, anyone seated can see what would have come. */
+  rabbitHunt: boolean;
   straddle: boolean;
   decisionTimeSec: number;
   timeBankSec: number;
@@ -40,6 +46,8 @@ export const DEFAULT_SETTINGS: TableSettings = {
   bombPotMode: "off",
   bombPotEvery: 5,
   bombPotAnteBB: 2,
+  runItTwice: "no",
+  rabbitHunt: false,
   straddle: false,
   decisionTimeSec: 20,
   timeBankSec: 60,
@@ -86,16 +94,19 @@ export function validateConfig(s: TableSettings): ConfigIssue[] {
   if (!seatsOk) add("seats", `Seats must be ${MIN_SEATS}-${MAX_SEATS}`);
   if (s.boards !== 1 && s.boards !== 2) add("boards", "Boards must be 1 or 2");
   else if (seatsOk && variant) {
-    const needed = cardsNeeded(s.seats, variant.holeCards, s.boards);
+    const runs = s.runItTwice === "no" ? 1 : 2;
+    const needed = cardsNeeded(s.seats, variant.holeCards, s.boards, runs);
     if (needed > variant.deckSize) {
-      const boards = s.boards === 2 ? " with 2 boards" : "";
-      add("seats", `${s.seats} seats${boards} need ${needed} cards; the deck has ${variant.deckSize}`, [
+      const extras = [s.boards === 2 && "2 boards", runs === 2 && "run it twice"].filter(Boolean).join(" and ");
+      add(
         "seats",
-        "variant",
-        "boards",
-      ]);
+        `${s.seats} seats${extras ? ` with ${extras}` : ""} need ${needed} cards; the deck has ${variant.deckSize}`,
+        runs === 2 ? ["seats", "variant", "boards", "runItTwice"] : ["seats", "variant", "boards"],
+      );
     }
   }
+  if (!RUN_IT_TWICE_MODES.includes(s.runItTwice)) add("runItTwice", "Unknown run it twice setting");
+  if (typeof s.rabbitHunt !== "boolean") add("rabbitHunt", "Rabbit hunt must be on or off");
   if (!BOMB_POT_MODES.includes(s.bombPotMode)) add("bombPotMode", "Unknown bomb pot mode");
   if (!Number.isInteger(s.bombPotEvery) || s.bombPotEvery < 2 || s.bombPotEvery > 100) {
     add("bombPotEvery", "Bomb pot frequency must be every 2-100 hands");
@@ -129,5 +140,6 @@ export function handConfigFor(s: TableSettings, bombPot = false): HandConfig {
     straddle: s.straddle,
     boards: s.boards,
     bombPot: bombPot ? { ante: s.bombPotAnteBB * s.bigBlind } : null,
+    runItTwice: s.runItTwice,
   };
 }

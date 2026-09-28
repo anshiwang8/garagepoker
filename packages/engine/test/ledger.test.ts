@@ -127,6 +127,27 @@ describe("validateConfig", () => {
     });
   });
 
+  it("counts two runs in the deck math when run it twice is on (SPEC §3 table)", () => {
+    const check = (patch: object) => validateConfig({ ...DEFAULT_SETTINGS, ...patch });
+    // PLO5, 8 seats, double board, run it twice: 8 × 5 + 2 × 5 × 2 = 60 > 52.
+    const [issue] = check({ variant: "PLO5", seats: 8, boards: 2, runItTwice: "ask" });
+    expect(issue).toEqual({
+      field: "seats",
+      message: "8 seats with 2 boards and run it twice need 60 cards; the deck has 52",
+      related: ["seats", "variant", "boards", "runItTwice"],
+    });
+    // PLO, 8 seats, double board, run it twice: 32 + 20 = 52: allowed.
+    expect(check({ variant: "PLO", seats: 8, boards: 2, runItTwice: "always" })).toEqual([]);
+    // NLH, 8 seats, run it twice: 16 + 10 = 26.
+    expect(check({ runItTwice: "ask", rabbitHunt: true })).toEqual([]);
+    // Without run it twice, the same PLO5 double board table is fine (50 cards),
+    // and the issue doesn't mention run it twice.
+    expect(check({ variant: "PLO5", seats: 8, boards: 2 })).toEqual([]);
+    expect(check({ runItTwice: "sometimes" }).map((i) => i.field)).toEqual(["runItTwice"]);
+    expect(check({ rabbitHunt: "yes" }).map((i) => i.field)).toEqual(["rabbitHunt"]);
+    expect(handConfigFor({ ...DEFAULT_SETTINGS, runItTwice: "ask" }).runItTwice).toBe("ask");
+  });
+
   it("validates bomb pot settings and picks bomb-pot hands", () => {
     const fields = (patch: object) => validateConfig({ ...DEFAULT_SETTINGS, ...patch }).map((i) => i.field);
     expect(fields({ bombPotMode: "sometimes" })).toEqual(["bombPotMode"]);

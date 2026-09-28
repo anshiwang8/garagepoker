@@ -35,6 +35,13 @@ export function TableFelt({
   const won = showResult ? wonBySeat(lastHand) : new Map<number, number>();
   const boards = hand?.boards ?? (showResult ? lastHand.boards : []);
   const bombPot = hand?.bombPot ?? (showResult && lastHand.bombPot);
+  const secondRun = showResult ? lastHand.secondRun : null;
+  const rabbit = showResult ? lastHand.rabbit : null;
+  // One row per run × board: up to 4 when a double board ran twice.
+  const rows = [boards, ...(secondRun ? [secondRun] : [])].flatMap((run, r) =>
+    run.map((cards, b) => ({ run: r, board: b, cards })),
+  );
+  const cardSize = rows.length > 2 ? "xs" : "sm";
 
   return (
     <div className="relative min-h-0 flex-1 select-none">
@@ -53,22 +60,32 @@ export function TableFelt({
             Pot <span className="tabular font-bold text-gold">{formatChips(hand.pot, dc)}</span>
           </div>
         )}
-        {boards.map((board, b) => (
-          <div key={b} className="flex items-center gap-1.5" aria-label={boards.length > 1 ? `Board ${b + 1}` : "Board"}>
-            {boards.length > 1 && (
-              <div className="flex w-11 shrink-0 flex-col items-end text-[10px] leading-tight">
-                <span className="text-muted">Board {b + 1}</span>
-                {/* Each board plays for its half of the pot (server-computed). */}
-                {hand && <span className="tabular font-semibold text-gold">{formatChips(hand.boardShares[b]!, dc)}</span>}
-              </div>
-            )}
-            <div className="flex gap-1">
-              {Array.from({ length: 5 }, (_, i) =>
-                board[i] ? <PlayingCard key={i} card={board[i]!} size="sm" /> : <CardSlot key={i} size="sm" />,
+        {rows.map(({ run, board, cards: row }) => {
+          const label = [secondRun && `Run ${run + 1}`, boards.length > 1 && `Board ${board + 1}`].filter(Boolean).join(" · ");
+          const hunted = run === 0 && rabbit ? rabbit.boards[board] ?? [] : [];
+          return (
+            <div key={`${run}-${board}`} className="flex items-center gap-1.5" aria-label={label || "Board"}>
+              {label && (
+                <div className="flex w-12 shrink-0 flex-col items-end text-[10px] leading-tight">
+                  <span className="text-muted">{label}</span>
+                  {/* Each board plays for its half of the pot (server-computed). */}
+                  {hand && <span className="tabular font-semibold text-gold">{formatChips(hand.boardShares[board]!, dc)}</span>}
+                </div>
               )}
+              <div className="flex gap-1">
+                {Array.from({ length: 5 }, (_, i) => {
+                  const card = row[i] ?? hunted[i - row.length];
+                  if (!card) return <CardSlot key={i} size={cardSize} />;
+                  // Rabbit cards: what would have come. Display only.
+                  return <PlayingCard key={i} card={card} size={cardSize} dim={i >= row.length} />;
+                })}
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
+        {rabbit && (
+          <div className="text-[10px] uppercase tracking-wider text-muted">Rabbit hunt by {rabbit.by} · display only</div>
+        )}
         {statusText && <div className="max-w-[16rem] text-sm text-text/80">{statusText}</div>}
       </div>
 

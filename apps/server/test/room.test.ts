@@ -1,3 +1,4 @@
+import { cardToString, rabbitCards } from "@garagepoker/engine";
 import type { ClientMessage } from "@garagepoker/protocol";
 import { env, evictDurableObject, runDurableObjectAlarm, runInDurableObject, SELF } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
@@ -276,6 +277,68 @@ describe("playing hands over WebSockets", () => {
 			const share = slices.filter((s) => s.board === board).reduce((sum, s) => sum + s.amount, 0);
 			expect(share).toBe(4_000);
 		}
+		expect(carol.view.ledger.reduce((sum, r) => sum + r.net, 0)).toBe(0);
+	});
+
+	it("runs it twice when everyone accepts, and rabbit cards reach no one until asked", async () => {
+		const tableId = await createTable(ALICE, { autoStart: false, runItTwice: "ask", rabbitHunt: true });
+		const alice = await Client.connect(tableId, ALICE);
+		const bob = await Client.connect(tableId, BOB);
+		const carol = await Client.connect(tableId, token("carol")); // spectator
+		const all = [alice, bob, carol];
+		await step(all, alice, { type: "requestSeat", seat: 1, nickname: "Alice", buyIn: 100_000, postBlind: false });
+		await step(all, bob, { type: "requestSeat", seat: 2, nickname: "Bob", buyIn: 50_000, postBlind: false });
+		await step(all, alice, { type: "approveRequest", requestId: alice.view.requests![0]!.id, stack: 50_000 });
+
+		// Hand 1: all-in preflop, both accept run it twice.
+		await step(all, alice, { type: "startGame" });
+		await step(all, alice, { type: "act", hand: 1, action: { type: "raise", to: 50_000 } });
+		await step(all, bob, { type: "act", hand: 1, action: { type: "call" } });
+		for (const c of all) expect(c.view.hand!.ritOffer).toMatchObject({ seats: [1, 2], accepted: [] });
+		await step(all, bob, { type: "runItTwice", hand: 1, accept: true });
+		await step(all, alice, { type: "runItTwice", hand: 1, accept: true });
+		const ran = carol.view.lastHand!;
+		expect(ran.secondRun).toHaveLength(1);
+		expect(ran.pots[0]!.slices.map((s) => s.run)).toEqual([0, 1]);
+		expect(ran.pots[0]!.slices.map((s) => s.amount)).toEqual([50_000, 50_000]);
+		expect(ran.rabbitAvailable).toBe(false); // the board ran out
+
+		// Hand 2 (if both still have chips): a preflop fold leaves a board to hunt.
+		if (alice.view.seats.slice(0, 2).some((s) => s!.stack === 0)) {
+			await step(all, alice, { type: "adjustStack", playerId: alice.view.seats[0]!.playerId, op: "set", amount: 50_000 });
+			await step(all, alice, { type: "adjustStack", playerId: bob.view.you.playerId, op: "set", amount: 50_000 });
+		}
+		await step(all, alice, { type: "startGame" });
+		const toAct = alice.view.hand!.toAct === 1 ? alice : bob;
+		const other = toAct === alice ? bob : alice;
+		await step(all, toAct, { type: "act", hand: 2, action: { type: "raise", to: 6_000 } });
+		await step(all, other, { type: "act", hand: 2, action: { type: "fold" } });
+		expect(carol.view.lastHand).toMatchObject({ number: 2, rabbitAvailable: true, rabbit: null });
+
+		// The server knows the rabbit cards; no client has received any of them.
+		const prev = await runInDurableObject(env.TABLE.getByName(tableId), (room: TableRoom) =>
+			(room as unknown as { data: { prevHand: Parameters<typeof rabbitCards>[0] } }).data.prevHand,
+		);
+		const rabbit = rabbitCards(prev).flat().map(cardToString);
+		expect(rabbit).toHaveLength(5);
+		const counts = all.map((c) => c.raw.length);
+		const since = (c: Client, i: number) => c.raw.slice(counts[i]!);
+		const hand2Start = all.map((c) => c.raw.findIndex((r) => r.includes('"number":2')));
+		all.forEach((c, i) => {
+			for (const r of c.raw.slice(hand2Start[i]!)) {
+				// Hand 1's result is still in these views; only its boards could share
+				// card strings, so strip them before scanning.
+				const view = JSON.parse(r).view;
+				const text = JSON.stringify({ ...view, lastHand: view?.lastHand?.number === 1 ? null : view?.lastHand });
+				for (const card of rabbit) expect(text).not.toContain(`"${card}"`);
+			}
+		});
+
+		await step(all, bob, { type: "rabbitHunt", hand: 2 });
+		all.forEach((c, i) => {
+			expect(since(c, i).length).toBeGreaterThan(0);
+			expect(c.view.lastHand!.rabbit).toEqual({ boards: [rabbit], by: "Bob" });
+		});
 		expect(carol.view.ledger.reduce((sum, r) => sum + r.net, 0)).toBe(0);
 	});
 

@@ -27,6 +27,10 @@ export function actionText(a: NonNullable<SeatView["lastAction"]>, displayCents:
       return "Ante";
     case "uncalled":
       return "Returned";
+    case "ritAccept":
+      return "Run it twice: yes";
+    case "ritDecline":
+      return "Run it twice: no";
   }
 }
 

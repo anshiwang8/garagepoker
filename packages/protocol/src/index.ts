@@ -10,6 +10,8 @@
 import {
   BOMB_POT_MODES,
   type BombPotMode,
+  RUN_IT_TWICE_MODES,
+  type RunItTwiceMode,
   type LedgerRow,
   type LegalActions,
   type LogType,
@@ -53,6 +55,8 @@ export const settingsSchema = z
     bombPotMode: z.enum(BOMB_POT_MODES as [BombPotMode, ...BombPotMode[]]),
     bombPotEvery: z.number().int(),
     bombPotAnteBB: z.number().int(),
+    runItTwice: z.enum(RUN_IT_TWICE_MODES as [RunItTwiceMode, ...RunItTwiceMode[]]),
+    rabbitHunt: z.boolean(),
     straddle: z.boolean(),
     decisionTimeSec: z.number().int(),
     timeBankSec: z.number().int(),
@@ -111,6 +115,10 @@ export const clientMessageSchema = z.discriminatedUnion("type", [
   msg("act", { hand: z.number().int().min(1), action: playerActionSchema }),
   msg("setAway", { away: z.boolean() }),
   msg("leaveSeat", {}),
+  /** Answer the run-it-twice prompt (anyone in the pot, within 5 s). */
+  msg("runItTwice", { hand: z.number().int().min(1), accept: z.boolean() }),
+  /** After a hand that ended before the river: show what would have come. */
+  msg("rabbitHunt", { hand: z.number().int().min(1) }),
 
   // Owner only
   msg("approveRequest", { requestId, stack: positiveCents }),
@@ -220,10 +228,17 @@ export interface HandView {
   /** When the decision time runs out, then when the time bank does. */
   decisionDeadline: number | null;
   bankDeadline: number | null;
+  /**
+   * Run it twice is being offered: every seat in `seats` must accept before
+   * `deadline`; any decline, or the deadline passing, means it runs once.
+   */
+  ritOffer: { seats: number[]; accepted: number[]; deadline: number } | null;
 }
 
 /** One share of a pot: a board (0-based) and a half; both null for an uncontested pot. */
 export interface SliceView {
+  /** 0-based run (1 = the second run), null for an uncontested pot. */
+  run: number | null;
   board: number | null;
   half: "high" | "low" | null;
   amount: number;
@@ -239,7 +254,20 @@ export interface LastHandView {
   /** Main pot first, then side pots. */
   pots: { amount: number; slices: SliceView[] }[];
   /** Hands shown at showdown, with one label per board. Empty if everyone else folded. */
-  shown: { seat: number; nickname: string; cards: string[]; labels: string[] }[];
+  shown: {
+    seat: number;
+    nickname: string;
+    cards: string[];
+    labels: string[];
+    /** Labels on the second run's boards, when run twice. */
+    secondRunLabels: string[] | null;
+  }[];
+  /** The second run's boards, when run twice. */
+  secondRun: string[][] | null;
+  /** A seated player can ask to see the rest of the board (rabbit hunt is on and the hand ended early). */
+  rabbitAvailable: boolean;
+  /** The rabbit-hunted cards per board, once someone asked. Display only. */
+  rabbit: { boards: string[][]; by: string } | null;
 }
 
 export interface RequestView {

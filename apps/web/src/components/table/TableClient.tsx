@@ -8,6 +8,7 @@ import { useServerNow, useTableSocket } from "@/lib/useTableSocket";
 import { VARIANT_LABELS } from "../SettingsForm";
 import { Button, ConfirmButton } from "../ui";
 import { ActionBar } from "./ActionBar";
+import { RunItTwicePrompt } from "./RunItTwicePrompt";
 import { HandResult } from "./HandResult";
 import { LedgerDialog } from "./LedgerDialog";
 import { OwnerMenu } from "./OwnerMenu";
@@ -25,7 +26,7 @@ type Dialog = { kind: "seat"; seat: number } | { kind: "rebuy" } | { kind: "ledg
 export function TableClient({ tableId }: { tableId: string }) {
   const { view, connection, send, toasts, dismiss, clockOffset } = useTableSocket(tableId);
   const [dialog, setDialog] = useState<Dialog>(null);
-  const now = useServerNow(clockOffset, !!view?.hand?.toAct);
+  const now = useServerNow(clockOffset, !!view?.hand?.toAct || !!view?.hand?.ritOffer);
 
   if (!view) {
     return (
@@ -120,7 +121,8 @@ export function TableClient({ tableId }: { tableId: string }) {
             </div>
           </div>
         )}
-        {!view.hand && view.lastHand && view.lastHand.number === view.handNumber && <HandResult view={view} />}
+        {!view.hand && view.lastHand && view.lastHand.number === view.handNumber && <HandResult view={view} send={send} />}
+        <RunItTwicePrompt view={view} send={send} now={now} />
         <ActionBar view={view} send={send} countdown={view.hand?.toAct === view.you.seat ? countdown : null} />
       </section>
 

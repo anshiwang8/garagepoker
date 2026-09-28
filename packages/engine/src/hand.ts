@@ -55,7 +55,15 @@ export interface HandConfig {
    * The table decides which hands are bomb pots and who is dealt in.
    */
   bombPot?: { ante: number } | null;
+  /**
+   * SPEC §2.7. "ask": when everyone left is all-in (or all but one) with cards
+   * still to come, every player in the pot must accept; "always": run twice
+   * without asking. Default "no".
+   */
+  runItTwice?: RunItTwiceMode;
 }
+
+export type RunItTwiceMode = "no" | "ask" | "always";
 
 export interface SeatedPlayer {
   seat: number;
@@ -107,7 +115,9 @@ export type LogType =
   | "call"
   | "bet"
   | "raise"
-  | "uncalled";
+  | "uncalled"
+  | "ritAccept"
+  | "ritDecline";
 
 export interface LogEntry {
   street: Street;
@@ -125,6 +135,8 @@ export interface LogEntry {
  * the pot had a single eligible player and wasn't split at all.
  */
 export interface PotSlice {
+  /** 0-based run (1 when run twice), null for an unsplit pot. */
+  run: number | null;
   /** 0-based board index. */
   board: number | null;
   half: "high" | "low" | null;
@@ -143,6 +155,8 @@ export interface ShowdownHand {
   hole: Card[];
   /** Per board: the best high hand, and the qualifying low (hi/lo only). */
   boards: { high: HandValue; low: LowValue | null }[];
+  /** The same for the second run's boards, when run twice. */
+  secondRun: { high: HandValue; low: LowValue | null }[] | null;
 }
 
 export interface HandResult {
@@ -165,6 +179,12 @@ export interface HandState {
   boards: Card[][];
   /** This hand is a bomb pot. */
   bombPot: boolean;
+  /** Boards of the second run when run twice (`boards` is the first run). */
+  secondRun: Card[][] | null;
+  /** Waiting for every player in the pot to accept running it twice. */
+  ritOffer: { seats: number[]; accepted: number[] } | null;
+  /** The street on which betting ended with cards still to come (a run-out), if any. */
+  runOutFrom: Street | null;
   street: Street;
   /** The bet to match on this street. */
   currentBet: number;
@@ -181,7 +201,9 @@ export type PlayerAction =
   | { type: "check"; seat: number }
   | { type: "call"; seat: number }
   /** Bet or raise to a total street bet of `to`. All-in is `to` = bet + stack. */
-  | { type: "raise"; seat: number; to: number };
+  | { type: "raise"; seat: number; to: number }
+  /** Answer a run-it-twice offer. Not turn-based: anyone in the pot, in any order. */
+  | { type: "runItTwice"; seat: number; accept: boolean };
 
 export interface LegalActions {
   seat: number;
@@ -260,6 +282,9 @@ export function startHand(input: StartHandInput): HandState {
     deckIndex,
     boards: Array.from({ length: boardCount }, () => []),
     bombPot: !!config.bombPot,
+    secondRun: null,
+    ritOffer: null,
+    runOutFrom: null,
     street: "preflop",
     currentBet: config.bombPot ? 0 : config.bigBlind,
     lastRaiseSize: config.bigBlind,
@@ -313,7 +338,10 @@ export function legalActions(state: HandState): LegalActions | null {
 
 /** The reducer: returns a new state and leaves the input untouched. Throws EngineError on illegal actions. */
 export function applyAction(state: HandState, action: PlayerAction): HandState {
-  if (state.toAct === null) throw new EngineError("the hand is complete");
+  if (state.street === "complete") throw new EngineError("the hand is complete");
+  if (action.type === "runItTwice") return decideRunItTwice(state, action.seat, action.accept);
+  if (state.ritOffer) throw new EngineError("waiting for everyone to decide on running it twice");
+  if (state.toAct === null) throw new EngineError("nobody is to act");
   if (action.seat !== state.toAct) {
     throw new EngineError(`it is seat ${state.toAct}'s turn, not seat ${action.seat}'s`);
   }
@@ -443,6 +471,7 @@ function cloneState(s: HandState): HandState {
     ...s,
     players: s.players.map((p) => ({ ...p })),
     boards: s.boards.map((b) => b.slice()),
+    secondRun: s.secondRun?.map((b) => b.slice()) ?? null,
     log: s.log.slice(),
   };
 }
@@ -539,9 +568,101 @@ function advance(s: HandState, from: number): HandState {
       finish(s);
       return s;
     }
+    // SPEC §2.7: the moment no more action is possible with cards still to
+    // come, offer run it twice (once: if the deck can't cover two runs then,
+    // it runs once to the river).
+    if (s.runOutFrom === null && isRunOut(s)) {
+      s.runOutFrom = s.street;
+      const mode = s.config.runItTwice ?? "no";
+      if (mode !== "no" && canRunTwice(s)) {
+        if (mode === "always") return runOutAndFinish(s, 2);
+        s.ritOffer = { seats: s.players.filter((p) => !p.folded).map((p) => p.seat), accepted: [] };
+        s.toAct = null;
+        return s;
+      }
+    }
     dealNextStreet(s);
     from = btn;
   }
+}
+
+/** Everyone left is all-in, or all but one: no more betting can happen. */
+function isRunOut(s: HandState): boolean {
+  const live = s.players.filter((p) => !p.folded);
+  return live.length >= 2 && live.filter((p) => p.stack > 0).length <= 1;
+}
+
+/** Cards are still to come, and the deck holds enough to finish every board twice. */
+function canRunTwice(s: HandState): boolean {
+  const missing = s.boards.reduce((sum, b) => sum + (5 - b.length), 0);
+  return missing > 0 && s.deckIndex + 2 * missing <= s.deck.length;
+}
+
+function decideRunItTwice(state: HandState, seat: number, accept: boolean): HandState {
+  const offer = state.ritOffer;
+  if (!offer) throw new EngineError("run it twice isn't being offered");
+  if (!offer.seats.includes(seat)) throw new EngineError(`seat ${seat} isn't in the pot`);
+  if (offer.accepted.includes(seat)) throw new EngineError(`seat ${seat} already accepted`);
+  const s = cloneState(state);
+  s.log.push({ street: s.street, seat, type: accept ? "ritAccept" : "ritDecline", amount: 0 });
+  // Any decline means it runs once (SPEC §2.7).
+  if (!accept) return runOutAndFinish(s, 1);
+  s.ritOffer = { seats: offer.seats, accepted: [...offer.accepted, seat] };
+  if (s.ritOffer.accepted.length < offer.seats.length) return s;
+  return runOutAndFinish(s, 2);
+}
+
+/**
+ * Deals the rest of the board(s) and settles the hand. The second run uses the
+ * next cards of the same deck, dealt street by street, board by board.
+ */
+function runOutAndFinish(s: HandState, runs: 1 | 2): HandState {
+  s.ritOffer = null;
+  s.toAct = null;
+  const from = s.street;
+  const shared = s.boards.map((b) => b.slice());
+  while (s.street !== "river") dealNextStreet(s);
+  if (runs === 2) {
+    s.secondRun = shared;
+    s.deckIndex = dealStreets(s.deck, s.deckIndex, s.secondRun, from, "river");
+  }
+  finish(s);
+  return s;
+}
+
+const NEXT_STREET: Partial<Record<Street, Street>> = { preflop: "flop", flop: "turn", turn: "river" };
+
+/**
+ * Deals each street after `from` up to and including `until` onto `boards`:
+ * board 1 then board 2 on each street, no burn cards. Returns the new deck index.
+ */
+function dealStreets(deck: readonly Card[], index: number, boards: Card[][], from: Street, until: Street): number {
+  let street = from;
+  while (street !== until) {
+    street = NEXT_STREET[street]!;
+    const count = street === "flop" ? 3 : 1;
+    for (const board of boards) {
+      board.push(...deck.slice(index, index + count));
+      index += count;
+    }
+  }
+  return index;
+}
+
+/**
+ * SPEC §2.8 rabbit hunt: the cards that would have come, per board, when a
+ * hand ended before the river. Taken from the same shuffled deck in dealing
+ * order (never a new shuffle); display only. Empty lists when there's nothing
+ * to hunt.
+ */
+export function rabbitCards(s: HandState): Card[][] {
+  if (s.street !== "complete") throw new EngineError("the hand isn't over");
+  const boards = s.boards.map(() => [] as Card[]);
+  const dealt = s.boards[0]!.length;
+  if (s.secondRun || dealt === 5) return boards;
+  const reached: Street = dealt === 0 ? "preflop" : dealt === 3 ? "flop" : "turn";
+  dealStreets(s.deck, s.deckIndex, boards, reached, "river");
+  return boards;
 }
 
 /** Returns the part of the biggest bet on this street that nobody matched. */
@@ -562,14 +683,9 @@ function returnUncalled(s: HandState): void {
 }
 
 function dealNextStreet(s: HandState): void {
-  const next: Record<string, Street> = { preflop: "flop", flop: "turn", turn: "river" };
-  s.street = next[s.street]!;
-  const count = s.street === "flop" ? 3 : 1;
-  // Board 1 then board 2 on each street; no burn cards.
-  for (const board of s.boards) {
-    board.push(...s.deck.slice(s.deckIndex, s.deckIndex + count));
-    s.deckIndex += count;
-  }
+  const from = s.street;
+  s.street = NEXT_STREET[from]!;
+  s.deckIndex = dealStreets(s.deck, s.deckIndex, s.boards, from, s.street);
   for (const p of s.players) {
     p.bet = 0;
     p.acted = false;
@@ -588,46 +704,66 @@ function finish(s: HandState): void {
   const variant = s.config.variant;
   const hilo = variant.split === "hilo";
   const live = s.players.filter((p) => !p.folded);
+  const runs = s.secondRun ? [s.boards, s.secondRun] : [s.boards];
+  const evaluate = (hole: Card[], boards: Card[][]) =>
+    boards.map((board) => ({
+      high: handValue(variant, hole, board),
+      low: hilo ? lowValue(variant, hole, board) : null,
+    }));
   const showdown: ShowdownHand[] =
     live.length > 1
       ? live.map((p) => ({
           seat: p.seat,
           hole: p.hole,
-          boards: s.boards.map((board) => ({
-            high: handValue(variant, p.hole, board),
-            low: hilo ? lowValue(variant, p.hole, board) : null,
-          })),
+          boards: evaluate(p.hole, s.boards),
+          secondRun: s.secondRun ? evaluate(p.hole, s.secondRun) : null,
         }))
       : [];
-  const hands = new Map(showdown.map((h) => [h.seat, h.boards]));
+  const hands = new Map(showdown.map((h) => [h.seat, h.secondRun ? [h.boards, h.secondRun] : [h.boards]]));
   const inOrder = (seats: number[]) => seats.slice().sort((a, b) => order(a) - order(b));
 
-  // SPEC §2.5: each board takes half of each pot; within a board the high and
-  // the qualifying low each take half; ties split; odd chips go to board 1,
-  // then to the high half, then to the first winner left of the button.
+  // SPEC §2.5 and §2.7: each run takes half of each pot, each board half of
+  // its run's share, and within a board the high and the qualifying low each
+  // take half (the run split comes first because a low can qualify in one run
+  // and not the other). Ties split. Odd chips go to run 1, then board 1, then
+  // the high half, then the first winner left of the button.
   const pots: PotResult[] = computePots(s.players).map((pot) => {
     const slices: PotSlice[] = [];
     if (pot.eligible.length === 1) {
       const seat = pot.eligible[0]!;
-      slices.push({ board: null, half: null, amount: pot.amount, winners: [{ seat, amount: pot.amount }] });
+      slices.push({ run: null, board: null, half: null, amount: pot.amount, winners: [{ seat, amount: pot.amount }] });
     } else {
-      splitEven(pot.amount, s.boards.length).forEach((share, b) => {
-        if (share === 0) return;
-        const at = (seat: number) => hands.get(seat)![b]!;
-        const lowSeats = hilo ? pot.eligible.filter((seat) => at(seat).low) : [];
-        const lowAmount = lowSeats.length > 0 ? Math.floor(share / 2) : 0;
-        const highAmount = share - lowAmount;
+      splitEven(pot.amount, runs.length).forEach((runShare, r) => {
+        splitEven(runShare, runs[r]!.length).forEach((share, b) => {
+          if (share === 0) return;
+          const at = (seat: number) => hands.get(seat)![r]![b]!;
+          const lowSeats = hilo ? pot.eligible.filter((seat) => at(seat).low) : [];
+          const lowAmount = lowSeats.length > 0 ? Math.floor(share / 2) : 0;
+          const highAmount = share - lowAmount;
 
-        const bestHigh = Math.max(...pot.eligible.map((seat) => at(seat).high.score));
-        const highWinners = pot.eligible.filter((seat) => at(seat).high.score === bestHigh);
-        slices.push({ board: b, half: "high", amount: highAmount, winners: splitPot(highAmount, inOrder(highWinners)) });
+          const bestHigh = Math.max(...pot.eligible.map((seat) => at(seat).high.score));
+          const highWinners = pot.eligible.filter((seat) => at(seat).high.score === bestHigh);
+          slices.push({
+            run: r,
+            board: b,
+            half: "high",
+            amount: highAmount,
+            winners: splitPot(highAmount, inOrder(highWinners)),
+          });
 
-        if (lowAmount > 0) {
-          // Lower low score is the better low.
-          const bestLowScore = Math.min(...lowSeats.map((seat) => at(seat).low!.score));
-          const lowWinners = lowSeats.filter((seat) => at(seat).low!.score === bestLowScore);
-          slices.push({ board: b, half: "low", amount: lowAmount, winners: splitPot(lowAmount, inOrder(lowWinners)) });
-        }
+          if (lowAmount > 0) {
+            // Lower low score is the better low.
+            const bestLowScore = Math.min(...lowSeats.map((seat) => at(seat).low!.score));
+            const lowWinners = lowSeats.filter((seat) => at(seat).low!.score === bestLowScore);
+            slices.push({
+              run: r,
+              board: b,
+              half: "low",
+              amount: lowAmount,
+              winners: splitPot(lowAmount, inOrder(lowWinners)),
+            });
+          }
+        });
       });
     }
     const perSeat = new Map<number, number>();

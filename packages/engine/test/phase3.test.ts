@@ -51,11 +51,12 @@ describe("SPEC §10 phase 3 exit: double-board Hi/Lo bomb pot with a side pot", 
       // Board 1 share: 309 / 2 → 155 (board 1 takes the odd chip).
       // A low qualifies, so high = ceil(155 / 2) = 78 (odd chip to the high half).
       // Seat 3's trip kings (Kh Kc + Kd Q 7) beat seat 2's trip queens and seat 1's nines.
-      { board: 0, half: "high", amount: 78, winners: [{ seat: 3, amount: 78 }] },
+      { run: 0, board: 0, half: "high", amount: 78, winners: [{ seat: 3, amount: 78 }] },
       // Low = 155 − 78 = 77. Seats 3 and 1 tie with 7-4-3-2-A (A2 + 3 4 7);
       // seat 2's 8-7-6-4-3 is worse. 77 / 2 = 38 r1: the odd chip goes to the
       // first winner left of the button (order 2, 3, 1), so seat 3 gets 39, seat 1 gets 38.
       {
+        run: 0,
         board: 0,
         half: "low",
         amount: 77,
@@ -66,17 +67,17 @@ describe("SPEC §10 phase 3 exit: double-board Hi/Lo bomb pot with a side pot", 
       },
       // Board 2 share: 309 − 155 = 154. Board 2 has one low card (5), so no low:
       // the high takes all 154. Seat 1's nines full (9c 9d + 9h Jc Jh) wins.
-      { board: 1, half: "high", amount: 154, winners: [{ seat: 1, amount: 154 }] },
+      { run: 0, board: 1, half: "high", amount: 154, winners: [{ seat: 1, amount: 154 }] },
     ]);
 
     expect(side!.slices).toEqual([
       // Board 1 share: 114 / 2 = 57. High = ceil(57 / 2) = 29. Seat 3 isn't
       // eligible, so seat 2's trip queens (Qd Qc + Qs K 7) win.
-      { board: 0, half: "high", amount: 29, winners: [{ seat: 2, amount: 29 }] },
+      { run: 0, board: 0, half: "high", amount: 29, winners: [{ seat: 2, amount: 29 }] },
       // Low = 57 − 29 = 28. Seat 1's 7-4-3-2-A beats seat 2's 8-7-6-4-3.
-      { board: 0, half: "low", amount: 28, winners: [{ seat: 1, amount: 28 }] },
+      { run: 0, board: 0, half: "low", amount: 28, winners: [{ seat: 1, amount: 28 }] },
       // Board 2 share: 57, no low: seat 1's nines full take it.
-      { board: 1, half: "high", amount: 57, winners: [{ seat: 1, amount: 57 }] },
+      { run: 0, board: 1, half: "high", amount: 57, winners: [{ seat: 1, amount: 57 }] },
     ]);
 
     // Totals: seat 1 = 38 + 154 + 28 + 57 = 277; seat 2 = 29; seat 3 = 78 + 39 = 117.
@@ -104,7 +105,7 @@ describe("hi/lo", () => {
     const s = checkDown(play(start({ 1: 1000, 2: 1000 }, 1, PLOHL, deck), "1 call"));
     // Board has only one low card (4): no low possible. Seat 2's A K + T 9 4
     // hearts is a flush; seat 1 has trip nines. Flush takes all 40.
-    expect(s.result!.pots[0]!.slices).toEqual([{ board: 0, half: "high", amount: 40, winners: [{ seat: 2, amount: 40 }] }]);
+    expect(s.result!.pots[0]!.slices).toEqual([{ run: 0, board: 0, half: "high", amount: 40, winners: [{ seat: 2, amount: 40 }] }]);
   });
 
   it("splits high and low, odd chip to the high half, and can scoop both", () => {
@@ -118,8 +119,8 @@ describe("hi/lo", () => {
     // Seat 2 (As 2s Kc Kd): high = the wheel (A2 + 3 4 5), low = 5-4-3-2-A.
     // Seat 3 (8h 7h Qc Qd): high = pair of queens, low = 8-7-5-4-3. Seat 2 scoops.
     expect(s.result!.pots[0]!.slices).toEqual([
-      { board: 0, half: "high", amount: 22, winners: [{ seat: 2, amount: 22 }] },
-      { board: 0, half: "low", amount: 21, winners: [{ seat: 2, amount: 21 }] },
+      { run: 0, board: 0, half: "high", amount: 22, winners: [{ seat: 2, amount: 22 }] },
+      { run: 0, board: 0, half: "low", amount: 21, winners: [{ seat: 2, amount: 21 }] },
     ]);
     expect(s.result!.payouts).toEqual([{ seat: 2, amount: 43 }]);
   });
@@ -145,8 +146,8 @@ describe("double board", () => {
     // Both players have one pair on each board; aces beat kings on both boards.
     // Pot 40: 20 per board, both to seat 2.
     expect(s.result!.pots[0]!.slices).toEqual([
-      { board: 0, half: "high", amount: 20, winners: [{ seat: 2, amount: 20 }] },
-      { board: 1, half: "high", amount: 20, winners: [{ seat: 2, amount: 20 }] },
+      { run: 0, board: 0, half: "high", amount: 20, winners: [{ seat: 2, amount: 20 }] },
+      { run: 0, board: 1, half: "high", amount: 20, winners: [{ seat: 2, amount: 20 }] },
     ]);
   });
 
@@ -157,8 +158,8 @@ describe("double board", () => {
     // Pot = 2 antes + 20 + 20 = 42: 21 per board. (Heads-up with equal calls the
     // pot is always even, so the board odd-chip rule is checked via splitEven below.)
     expect(s.result!.pots[0]!.slices).toEqual([
-      { board: 0, half: "high", amount: 21, winners: [{ seat: 2, amount: 21 }] },
-      { board: 1, half: "high", amount: 21, winners: [{ seat: 1, amount: 21 }] },
+      { run: 0, board: 0, half: "high", amount: 21, winners: [{ seat: 2, amount: 21 }] },
+      { run: 0, board: 1, half: "high", amount: 21, winners: [{ seat: 1, amount: 21 }] },
     ]);
     expect(splitEven(155, 2)).toEqual([78, 77]);
     expect(splitEven(309, 2)).toEqual([155, 154]);
@@ -196,7 +197,7 @@ describe("bomb pots", () => {
     // seat 2 can win, and the 60 main pot is contested.
     expect(s.result!.pots).toMatchObject([
       { amount: 60, eligible: [1, 2] },
-      { amount: 10, eligible: [2], slices: [{ board: null, half: null, amount: 10, winners: [{ seat: 2, amount: 10 }] }] },
+      { amount: 10, eligible: [2], slices: [{ run: null, board: null, half: null, amount: 10, winners: [{ seat: 2, amount: 10 }] }] },
     ]);
     expect(stack(s, 1) + stack(s, 2)).toBe(1030);
   });

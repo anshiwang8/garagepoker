@@ -19,6 +19,7 @@ const handArb = fc.record({
   boards: fc.constantFrom(1 as const, 2 as const),
   // A third of hands are bomb pots, with a 1-3 BB ante.
   bombPotBB: fc.oneof(fc.constant(0), fc.constant(0), fc.integer({ min: 1, max: 3 })),
+  runItTwice: fc.constantFrom("no" as const, "ask" as const, "always" as const),
   bigBlind: fc.integer({ min: 2, max: 100 }),
   sbPercent: fc.integer({ min: 0, max: 100 }),
   antePercent: fc.oneof(fc.constant(0), fc.integer({ min: 1, max: 100 })),
@@ -74,8 +75,10 @@ function playHand(params: HandParams): void {
     straddle: params.straddle,
     boards: params.boards,
     bombPot: params.bombPotBB > 0 ? { ante: params.bombPotBB * bb } : null,
+    runItTwice: params.runItTwice,
   };
-  // Respect the deck math: seats × hole + boards × 5 ≤ deck size.
+  // Deck math for one run: seats × hole + boards × 5 ≤ deck size. (Not capped
+  // for two runs, so hands where the deck can't cover run it twice happen too.)
   const maxPlayers = Math.floor((variant.deckSize - params.boards * 5) / variant.holeCards);
   const seats = params.seats.slice(0, maxPlayers);
   const players = seats.map((seat, i) => ({
@@ -93,9 +96,16 @@ function playHand(params: HandParams): void {
     st.players.reduce((sum, p) => sum + p.stack + p.committed, 0) === total;
 
   // Plain checks in the hot loop; expect() is slow over millions of actions.
-  while (s.toAct !== null) {
+  while (s.street !== "complete") {
     if (!conserved(s)) throw new Error(`chips not conserved after ${steps} actions`);
-    s = applyAction(s, randomAction(s, r));
+    if (s.ritOffer) {
+      // Players answer in turn; most accept.
+      const offer = s.ritOffer;
+      const seat = offer.seats.find((x) => !offer.accepted.includes(x))!;
+      s = applyAction(s, { type: "runItTwice", seat, accept: r() < 0.8 });
+    } else {
+      s = applyAction(s, randomAction(s, r));
+    }
     if (++steps >= 500) throw new Error("hand did not terminate");
   }
 
@@ -123,8 +133,30 @@ function playHand(params: HandParams): void {
     }
   }
 
-  // No card dealt twice, across hole cards and every board.
-  const dealt = [...s.players.flatMap((p) => p.hole), ...s.boards.flat()];
+  // Run it twice: only when enabled, only after a run-out, and only if every
+  // player in the pot accepted (or it's "always"). Run 2 shares the cards that
+  // were out when the run-out began and deals the rest fresh.
+  const shared = { preflop: 0, flop: 3, turn: 4, river: 5, complete: 5 }[s.runOutFrom ?? "river"];
+  const runTwoCards: number[] = [];
+  if (s.secondRun) {
+    expect(config.runItTwice).not.toBe("no");
+    expect(s.runOutFrom).not.toBeNull();
+    if (config.runItTwice === "ask") {
+      const answers = s.log.filter((e) => e.type === "ritAccept" || e.type === "ritDecline");
+      expect(answers.every((e) => e.type === "ritAccept")).toBe(true);
+    }
+    s.secondRun.forEach((board, b) => {
+      expect(board).toHaveLength(5);
+      expect(board.slice(0, shared)).toEqual(s.boards[b]!.slice(0, shared));
+      runTwoCards.push(...board.slice(shared));
+    });
+  }
+  for (const pot of result.pots) {
+    for (const slice of pot.slices) if (slice.run !== null) expect(slice.run).toBeLessThan(s.secondRun ? 2 : 1);
+  }
+
+  // No card dealt twice, across hole cards, every board and the second run.
+  const dealt = [...s.players.flatMap((p) => p.hole), ...s.boards.flat(), ...runTwoCards];
   expect(new Set(dealt).size).toBe(dealt.length);
   expect(s.boards).toHaveLength(params.boards);
   for (const p of s.players) expect(p.hole).toHaveLength(variant.holeCards);
@@ -139,20 +171,23 @@ function playHand(params: HandParams): void {
   if (result.showdown.length > 0) {
     for (const board of s.boards) expect(board).toHaveLength(5);
     if (variant.handRule === "omaha") {
-      for (const { hole, boards } of result.showdown) {
-        boards.forEach(({ high, low }, b) => {
-          for (const cards of low ? [high.cards, low.cards] : [high.cards]) {
-            expect(cards.filter((c) => hole.includes(c))).toHaveLength(2);
-            expect(cards.filter((c) => s.boards[b]!.includes(c))).toHaveLength(3);
-          }
-        });
+      for (const { hole, boards, secondRun } of result.showdown) {
+        const runs = secondRun ? [[boards, s.boards], [secondRun, s.secondRun!]] as const : [[boards, s.boards]] as const;
+        for (const [values, runBoards] of runs) {
+          values.forEach(({ high, low }, b) => {
+            for (const cards of low ? [high.cards, low.cards] : [high.cards]) {
+              expect(cards.filter((c) => hole.includes(c))).toHaveLength(2);
+              expect(cards.filter((c) => runBoards[b]!.includes(c))).toHaveLength(3);
+            }
+          });
+        }
       }
     }
   }
 }
 
 describe("hand state machine properties", () => {
-  it("over 100k random hands (incl. hi/lo, double board, bomb pots): chips conserved, no card dealt twice", () => {
+  it("over 100k random hands (incl. hi/lo, double board, bomb pots, run it twice): chips conserved, no card dealt twice", () => {
     fc.assert(fc.property(handArb, playHand), { numRuns: 100_000 });
   }, 600_000);
 });

@@ -12,6 +12,7 @@ import {
   type HandState,
   handConfigFor,
   handLabel,
+  rabbitCards,
   isBombPotHand,
   LedgerError,
   type LedgerEvent,
@@ -39,6 +40,8 @@ export const MISSED_HANDS_BEFORE_AWAY = 2;
 export const TIME_BANK_REFILL_EVERY_HANDS = 10;
 export const TIME_BANK_REFILL_MS = 10_000;
 export const MAX_SEATS = 9;
+/** SPEC §2.7: players have 5 s to accept running it twice. */
+export const RIT_DECISION_MS = 5_000;
 
 /** An error the player caused; its message is shown to them. */
 export class TableError extends Error {
@@ -95,7 +98,11 @@ export interface LastHand {
   /** Each pot split into slices (board × high/low); see the engine's PotSlice. */
   pots: { amount: number; slices: PotSlice[] }[];
   /** One label per board. */
-  shown: { seat: number; nickname: string; cards: Card[]; labels: string[] }[];
+  shown: { seat: number; nickname: string; cards: Card[]; labels: string[]; secondRunLabels: string[] | null }[];
+  /** The second run's boards, when run twice. */
+  secondRun: Card[][] | null;
+  /** Rabbit-hunted cards per board, once a seated player asked (SPEC §2.8). */
+  rabbit: { boards: Card[][]; by: string } | null;
 }
 
 export interface TableData {
@@ -121,7 +128,14 @@ export interface TableData {
   /** Seats that timed out while disconnected in the current hand. */
   handTimeouts: number[];
   nextHandAt: number | null;
+  /** While run it twice is offered: when an unanswered offer runs once. */
+  ritDeadline: number | null;
   lastHand: LastHand | null;
+  /**
+   * The last finished hand's full engine state, deck included, for the
+   * rabbit hunt. Server-only: never put in a view. Overwritten each hand.
+   */
+  prevHand: HandState | null;
   ledger: LedgerEvent[];
   ownerOfflineSince: number | null;
   emptySince: number | null;
@@ -172,7 +186,9 @@ export function newTableData(
     turn: null,
     handTimeouts: [],
     nextHandAt: null,
+    ritDeadline: null,
     lastHand: null,
+    prevHand: null,
     ledger: [],
     ownerOfflineSince: null,
     emptySince: deps.now,
@@ -227,6 +243,10 @@ export class Table {
       }
       case "leaveSeat":
         return this.leave(this.requireSeatNumber(playerId), "leave");
+      case "runItTwice":
+        return this.answerRunItTwice(playerId, m.hand, m.accept);
+      case "rabbitHunt":
+        return this.rabbitHunt(playerId, m.hand);
     }
 
     // Owner only from here.
@@ -280,6 +300,13 @@ export class Table {
       // Connected players dip into their time bank; disconnected ones don't.
       if (!connected || this.now >= turn.bankDeadline) this.timeout(turn, connected);
     }
+    if (d.hand?.ritOffer && d.ritDeadline !== null && this.now >= d.ritDeadline) {
+      // No answer in time: it runs once (SPEC §2.7).
+      const offer = d.hand.ritOffer;
+      const seat = offer.seats.find((s) => !offer.accepted.includes(s))!;
+      d.hand = applyAction(d.hand, { type: "runItTwice", seat, accept: false });
+      this.afterAction();
+    }
     if (!d.hand && d.nextHandAt !== null && this.now >= d.nextHandAt) this.startNextHand();
     if (d.ownerOfflineSince !== null && this.now - d.ownerOfflineSince >= OWNER_OFFLINE_MS) {
       this.handOffOwnership();
@@ -304,6 +331,7 @@ export class Table {
       times.push(this.now < d.turn.decisionDeadline ? d.turn.decisionDeadline : d.turn.bankDeadline);
     }
     if (d.nextHandAt !== null) times.push(d.nextHandAt);
+    if (d.hand?.ritOffer && d.ritDeadline !== null) times.push(d.ritDeadline);
     if (d.ownerOfflineSince !== null) times.push(d.ownerOfflineSince + OWNER_OFFLINE_MS);
     if (d.emptySince !== null) times.push(d.emptySince + IDLE_DELETE_MS);
     return times.length ? Math.min(...times) : null;
@@ -615,6 +643,26 @@ export class Table {
     this.afterAction();
   }
 
+  private answerRunItTwice(playerId: string, hand: number, accept: boolean) {
+    const d = this.data;
+    if (!d.hand || hand !== d.handNumber) throw new TableError("That hand is over");
+    if (!d.hand.ritOffer) throw new TableError("Run it twice isn't being offered");
+    const n = this.seatNumberOf(playerId);
+    if (n === null || !d.hand.ritOffer.seats.includes(n)) throw new TableError("You're not in this pot");
+    if (d.hand.ritOffer.accepted.includes(n)) throw new TableError("You already accepted");
+    d.hand = applyAction(d.hand, { type: "runItTwice", seat: n, accept });
+    this.afterAction();
+  }
+
+  private rabbitHunt(playerId: string, hand: number) {
+    const d = this.data;
+    const seat = this.requireSeated(playerId);
+    if (!d.settings.rabbitHunt) throw new TableError("Rabbit hunt is turned off");
+    if (!rabbitAvailable(d) || d.lastHand!.number !== hand) throw new TableError("There's nothing to rabbit hunt");
+    // Same deck, dealing order continued: display only, pots are settled.
+    d.lastHand!.rabbit = { boards: rabbitCards(d.prevHand!), by: seat.nickname };
+  }
+
   private act(playerId: string, hand: number, action: Extract<ClientMessage, { type: "act" }>["action"]) {
     const d = this.data;
     if (!d.hand || hand !== d.handNumber) throw new TableError("That hand is over");
@@ -651,10 +699,18 @@ export class Table {
   private afterAction() {
     const d = this.data;
     const hand = d.hand!;
-    if (hand.toAct === null) {
+    if (hand.street === "complete") {
       this.finishHand(hand);
       return;
     }
+    if (hand.ritOffer) {
+      // Waiting on run-it-twice answers, not on a player's turn.
+      d.turn = null;
+      d.ritDeadline ??= this.now + RIT_DECISION_MS;
+      return;
+    }
+    d.ritDeadline = null;
+    if (hand.toAct === null) throw new Error("hand stalled with nobody to act");
     const seat = this.seat(hand.toAct)!;
     const decisionDeadline = this.now + d.settings.decisionTimeSec * 1000;
     d.turn = { seat: hand.toAct, decisionDeadline, bankDeadline: decisionDeadline + seat.timeBankMs };
@@ -675,10 +731,15 @@ export class Table {
         nickname: this.seat(seat)!.nickname,
         cards: hole,
         labels: hand.boards.map((board) => handLabel(hand.config.variant, hole, board).text),
+        secondRunLabels: hand.secondRun?.map((board) => handLabel(hand.config.variant, hole, board).text) ?? null,
       })),
+      secondRun: hand.secondRun,
+      rabbit: null,
     };
+    d.prevHand = hand;
     d.hand = null;
     d.turn = null;
+    d.ritDeadline = null;
 
     for (const n of d.handTimeouts) {
       const s = this.seat(n)!;
@@ -707,6 +768,24 @@ export class Table {
       this.afterChange();
     }
   }
+}
+
+/**
+ * Whether a seated player may rabbit hunt the last hand right now: it's on,
+ * we're between hands, and that hand ended before the river (SPEC §2.8).
+ */
+export function rabbitAvailable(d: TableData): boolean {
+  const last = d.lastHand;
+  return (
+    d.settings.rabbitHunt &&
+    !d.hand &&
+    !!last &&
+    !!d.prevHand &&
+    last.number === d.handNumber &&
+    !last.rabbit &&
+    !last.secondRun &&
+    last.boards[0]!.length < 5
+  );
 }
 
 /** The big blind seat for a hand dealt to `seats` (sorted or not) with this button. */

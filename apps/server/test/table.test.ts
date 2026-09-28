@@ -1,6 +1,6 @@
-import { assertLedgerBalanced, DEFAULT_SETTINGS, ledgerRows } from "@garagepoker/engine";
+import { assertLedgerBalanced, cardToString, DEFAULT_SETTINGS, ledgerRows, rabbitCards } from "@garagepoker/engine";
 import { describe, expect, it } from "vitest";
-import { IDLE_DELETE_MS, OWNER_OFFLINE_MS } from "../src/table.js";
+import { IDLE_DELETE_MS, OWNER_OFFLINE_MS, RIT_DECISION_MS } from "../src/table.js";
 import { harness, token } from "./helpers.js";
 
 /** Owner in seat 1 and Bob in seat 2, game not started. */
@@ -360,6 +360,115 @@ describe("joining a game in progress", () => {
 		expect(h.data.ledger.at(-1)).toMatchObject({ kind: "leave", buyOut: 50_000 });
 		balanced(h);
 		expect(owner).toBeTruthy();
+	});
+});
+
+describe("run it twice", () => {
+	/** Heads-up all-in preflop: owner shoves 100,000, Bob calls all-in for 50,000. */
+	function allIn(settings: object) {
+		const { h, owner, bob } = headsUp(settings);
+		h.send(owner, { type: "startGame" });
+		h.act({ type: "raise", to: 100_000 });
+		h.act({ type: "call" });
+		return { h, owner, bob };
+	}
+
+	it("offers it to everyone in the pot for 5 s; all accepting runs it twice", () => {
+		const { h, owner, bob } = allIn({ runItTwice: "ask" });
+		const offer = h.view(bob).hand!.ritOffer;
+		expect(offer).toEqual({ seats: [1, 2], accepted: [], deadline: h.clock.now + RIT_DECISION_MS });
+		expect(h.view(owner).you.legal).toBeNull();
+		expect(h.table().nextAlarm()).toBe(h.clock.now + RIT_DECISION_MS);
+
+		h.send(bob, { type: "runItTwice", hand: 1, accept: true });
+		expect(h.view(owner).hand!.ritOffer!.accepted).toEqual([2]);
+		expect(() => h.send(bob, { type: "runItTwice", hand: 1, accept: true })).toThrow(/already accepted/);
+		h.send(owner, { type: "runItTwice", hand: 1, accept: true });
+
+		const last = h.view(owner).lastHand!;
+		expect(last.secondRun).toHaveLength(1);
+		expect(last.secondRun![0]).toHaveLength(5);
+		expect(new Set(last.pots.flatMap((p) => p.slices.map((s) => s.run)))).toEqual(new Set([0, 1]));
+		expect(last.shown.every((s) => s.secondRunLabels?.length === 1)).toBe(true);
+		balanced(h);
+	});
+
+	it("any decline, or no answer within 5 s, runs it once", () => {
+		const declined = allIn({ runItTwice: "ask" });
+		declined.h.send(declined.owner, { type: "runItTwice", hand: 1, accept: false });
+		expect(declined.h.view(declined.owner).lastHand!.secondRun).toBeNull();
+
+		const slow = allIn({ runItTwice: "ask" });
+		slow.h.send(slow.owner, { type: "runItTwice", hand: 1, accept: true });
+		slow.h.advance(RIT_DECISION_MS - 1);
+		expect(slow.h.data.hand!.ritOffer).not.toBeNull();
+		slow.h.advance(1);
+		expect(slow.h.data.hand).toBeNull();
+		expect(slow.h.view(slow.bob).lastHand!.secondRun).toBeNull();
+		balanced(slow.h);
+	});
+
+	it("'always' runs twice without asking; 'no' never offers", () => {
+		const always = allIn({ runItTwice: "always" });
+		expect(always.h.view(always.owner).lastHand!.secondRun).toHaveLength(1);
+		const no = allIn({ runItTwice: "no" });
+		expect(no.h.view(no.owner).lastHand!.secondRun).toBeNull();
+		expect(() => no.h.send(no.bob, { type: "runItTwice", hand: 1, accept: true })).toThrow(/hand is over/);
+	});
+
+	it("rejects answers from players outside the pot", () => {
+		const { h } = allIn({ runItTwice: "ask" });
+		const carol = h.seat("carol", 3, 1_000);
+		expect(() => h.send(carol, { type: "runItTwice", hand: 1, accept: true })).toThrow(/not in this pot/);
+	});
+});
+
+describe("rabbit hunt", () => {
+	/** Owner raises preflop and Bob folds: the hand ends with no board. */
+	function foldedPreflop(settings: object = { rabbitHunt: true }) {
+		const { h, owner, bob } = headsUp(settings);
+		const carol = h.join("carol"); // spectator
+		h.send(owner, { type: "startGame" });
+		h.act({ type: "raise", to: 6_000 });
+		h.act({ type: "fold" });
+		const rabbit = rabbitCards(h.data.prevHand!).map((b) => b.map(cardToString));
+		return { h, owner, bob, carol, rabbit };
+	}
+
+	it("keeps the rabbit cards off every client until a seated player asks", () => {
+		const { h, owner, bob, carol, rabbit } = foldedPreflop();
+		expect(rabbit[0]).toHaveLength(5);
+		for (const id of [owner, bob, carol]) {
+			const json = JSON.stringify(h.view(id));
+			for (const card of rabbit.flat()) expect(json).not.toContain(`"${card}"`);
+			expect(h.view(id).lastHand).toMatchObject({ rabbitAvailable: true, rabbit: null });
+		}
+		expect(() => h.send(carol, { type: "rabbitHunt", hand: 1 })).toThrow(/isn't seated/);
+		expect(() => h.send(bob, { type: "rabbitHunt", hand: 7 })).toThrow(/nothing to rabbit hunt/);
+
+		h.send(bob, { type: "rabbitHunt", hand: 1 });
+		for (const id of [owner, bob, carol]) {
+			expect(h.view(id).lastHand).toMatchObject({ rabbitAvailable: false, rabbit: { boards: rabbit, by: "bob" } });
+		}
+		expect(() => h.send(owner, { type: "rabbitHunt", hand: 1 })).toThrow(/nothing to rabbit hunt/);
+		// Display only: Bob still lost the blind he posted.
+		expect(h.data.seats[1]!.stack).toBe(48_000);
+	});
+
+	it("isn't available when it's off, after a full board, or once the next hand starts", () => {
+		const off = foldedPreflop({ rabbitHunt: false });
+		expect(off.h.view(off.bob).lastHand!.rabbitAvailable).toBe(false);
+		expect(() => off.h.send(off.bob, { type: "rabbitHunt", hand: 1 })).toThrow(/turned off/);
+
+		const { h, owner, bob } = headsUp({ rabbitHunt: true });
+		h.send(owner, { type: "startGame" });
+		h.act({ type: "raise", to: 100_000 });
+		h.act({ type: "call" }); // all-in: the board runs out to the river
+		expect(h.view(bob).lastHand!.rabbitAvailable).toBe(false);
+
+		const next = foldedPreflop();
+		next.h.send(next.owner, { type: "startGame" });
+		expect(next.h.view(next.bob).lastHand!.rabbitAvailable).toBe(false);
 	});
 });
 

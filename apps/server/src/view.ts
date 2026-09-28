@@ -5,7 +5,7 @@
  */
 import { cardToString, handLabel, ledgerRows, legalActions, potTotal, settleUp, splitEven } from "@garagepoker/engine";
 import type { RequestView, SeatView, TableView } from "@garagepoker/protocol";
-import type { SeatRequest, TableData } from "./table.js";
+import { rabbitAvailable, type SeatRequest, type TableData } from "./table.js";
 
 const cards = (cs: readonly number[]) => cs.map(cardToString);
 
@@ -102,6 +102,10 @@ export function buildView(
           toAct: hand.toAct,
           decisionDeadline: data.turn?.decisionDeadline ?? null,
           bankDeadline: data.turn?.bankDeadline ?? null,
+          ritOffer:
+            hand.ritOffer && data.ritDeadline !== null
+              ? { seats: [...hand.ritOffer.seats], accepted: [...hand.ritOffer.accepted], deadline: data.ritDeadline }
+              : null,
         }
       : null,
     lastHand: data.lastHand
@@ -113,6 +117,8 @@ export function buildView(
           pots: data.lastHand.pots.map((p) => ({
             amount: p.amount,
             slices: p.slices.map((s) => ({
+              // (Hands saved before run it twice have no run.)
+              run: s.run ?? (s.board === null ? null : 0),
               board: s.board,
               half: s.half,
               amount: s.amount,
@@ -124,7 +130,14 @@ export function buildView(
             nickname: x.nickname,
             cards: cards(x.cards),
             labels: x.labels,
+            secondRunLabels: x.secondRunLabels ?? null,
           })),
+          secondRun: data.lastHand.secondRun?.map(cards) ?? null,
+          rabbitAvailable: rabbitAvailable(data),
+          // Rabbit cards appear only once a seated player asked for them.
+          rabbit: data.lastHand.rabbit
+            ? { boards: data.lastHand.rabbit.boards.map(cards), by: data.lastHand.rabbit.by }
+            : null,
         }
       : null,
     requests: isOwner ? data.requests.map(requestView) : null,

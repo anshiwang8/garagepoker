@@ -2,6 +2,8 @@
 
 import {
   BOMB_POT_MODES,
+  RUN_IT_TWICE_MODES,
+  type RunItTwiceMode,
   type BombPotMode,
   type ConfigIssue,
   MAX_BOMB_POT_ANTE_BB,
@@ -38,6 +40,7 @@ function reasonFor(candidate: TableSettings, field: keyof TableSettings): string
 }
 
 const BOMB_POT_LABELS: Record<BombPotMode, string> = { off: "Off", everyHand: "Every hand", everyN: "Every N hands" };
+const RIT_LABELS: Record<RunItTwiceMode, string> = { no: "No", ask: "Ask", always: "Always" };
 
 export function SettingsForm({
   initial,
@@ -225,7 +228,30 @@ export function SettingsForm({
         </Field>
       </div>
 
+      <fieldset>
+        <legend className="mb-2 text-xs font-medium uppercase tracking-wide text-muted">Run it twice</legend>
+        <Segmented
+          value={s.runItTwice}
+          onChange={(v) => set("runItTwice", v)}
+          options={RUN_IT_TWICE_MODES.map((m) => ({
+            value: m,
+            label: RIT_LABELS[m],
+            reason: m === "no" ? undefined : reasonFor({ ...s, runItTwice: m }, "runItTwice"),
+          }))}
+        />
+        <p className="mt-1.5 text-xs text-muted">
+          {reasonFor({ ...s, runItTwice: "ask" }, "runItTwice") ??
+            "When everyone left is all-in: each run takes half of every pot. “Ask” needs everyone in the pot to agree within 5 s."}
+        </p>
+      </fieldset>
+
       <div className="flex flex-col divide-y divide-line rounded-xl border border-line bg-ink px-3">
+        <Toggle
+          label="Rabbit hunt"
+          checked={s.rabbitHunt}
+          onChange={(v) => set("rabbitHunt", v)}
+          hint="After a hand ends early, show what would have come"
+        />
         <Toggle label="UTG straddle (2 BB)" checked={s.straddle} onChange={(v) => set("straddle", v)} hint="Never heads-up" />
         <Toggle label="Auto-start next hand" checked={s.autoStart} onChange={(v) => set("autoStart", v)} hint="3 s to show results" />
         <Toggle label="Allow rebuys" checked={s.rebuys} onChange={(v) => set("rebuys", v)} hint="Through your approval" />
