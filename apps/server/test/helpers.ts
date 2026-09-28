@@ -40,6 +40,13 @@ export function harness(settings: Partial<TableSettings> = {}) {
 		const t = table();
 		t.syncPresence();
 		t.tick();
+		// Every table test checks the alarm invariant: after tick(), the next alarm
+		// is in the future (unless the table is due for deletion). A due alarm
+		// that tick() can't act on would re-fire forever.
+		const next = t.nextAlarm();
+		if (next && next.at <= clock.now && !t.shouldDelete()) {
+			throw new Error(`"${next.timer}" alarm at ${next.at} is not after now (${clock.now})`);
+		}
 	};
 	const h = {
 		data,

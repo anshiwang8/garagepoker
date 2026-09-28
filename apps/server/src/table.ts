@@ -97,6 +97,9 @@ export interface TableHandRecord {
   players: { seat: number; playerId: string; nickname: string }[];
 }
 
+/** The timers that can wake a TableRoom. */
+export type AlarmTimer = "turn" | "nextHand" | "runItTwice" | "discard" | "ownerHandOff" | "idleDelete";
+
 export interface TurnTimer {
   seat: number;
   decisionDeadline: number;
@@ -345,9 +348,7 @@ export class Table {
       this.afterAction();
     }
     if (!d.hand && d.nextHandAt !== null && this.now >= d.nextHandAt) this.startNextHand();
-    if (d.ownerOfflineSince !== null && this.now - d.ownerOfflineSince >= OWNER_OFFLINE_MS) {
-      this.handOffOwnership();
-    }
+    this.maybeHandOffOwnership();
   }
 
   /** Call after connections change. */
@@ -358,21 +359,38 @@ export class Table {
     else d.ownerOfflineSince ??= this.now;
     if (connected.size > 0) d.emptySince = null;
     else d.emptySince ??= this.now;
+    // Someone who can take over may have just connected to an ownerless table.
+    this.maybeHandOffOwnership();
   }
 
-  /** When tick() next has something to do. */
-  nextAlarm(): number | null {
+  /**
+   * When tick() next has something to do, and which timer that is.
+   *
+   * Invariant: every timer listed here is one tick() will act on once it's
+   * due. A due timer that tick() can't act on would make the alarm re-fire
+   * immediately, forever (TableRoom.persist() clamps that as a backstop).
+   */
+  nextAlarm(): { at: number; timer: AlarmTimer } | null {
     const d = this.data;
-    const times: number[] = [];
+    const due: { at: number; timer: AlarmTimer }[] = [];
     if (d.hand && d.turn) {
-      times.push(this.now < d.turn.decisionDeadline ? d.turn.decisionDeadline : d.turn.bankDeadline);
+      // At the decision deadline a disconnected player times out; a connected
+      // one moves on to the time bank, which is still in the future.
+      const at = this.now < d.turn.decisionDeadline ? d.turn.decisionDeadline : d.turn.bankDeadline;
+      due.push({ at, timer: "turn" });
     }
-    if (d.nextHandAt !== null) times.push(d.nextHandAt);
-    if (d.hand?.ritOffer && d.ritDeadline !== null) times.push(d.ritDeadline);
-    if (d.hand?.discard && d.discardDeadline !== null) times.push(d.discardDeadline);
-    if (d.ownerOfflineSince !== null) times.push(d.ownerOfflineSince + OWNER_OFFLINE_MS);
-    if (d.emptySince !== null) times.push(d.emptySince + IDLE_DELETE_MS);
-    return times.length ? Math.min(...times) : null;
+    // tick() only starts a hand between hands.
+    if (!d.hand && d.nextHandAt !== null) due.push({ at: d.nextHandAt, timer: "nextHand" });
+    if (d.hand?.ritOffer && d.ritDeadline !== null) due.push({ at: d.ritDeadline, timer: "runItTwice" });
+    if (d.hand?.discard && d.discardDeadline !== null) due.push({ at: d.discardDeadline, timer: "discard" });
+    if (d.ownerOfflineSince !== null) {
+      const at = d.ownerOfflineSince + OWNER_OFFLINE_MS;
+      // Once it's due, only wake if someone can take over. Otherwise the
+      // hand-off happens when a candidate connects or comes back from away.
+      if (at > this.now || this.handOffCandidate()) due.push({ at, timer: "ownerHandOff" });
+    }
+    if (d.emptySince !== null) due.push({ at: d.emptySince + IDLE_DELETE_MS, timer: "idleDelete" });
+    return due.reduce<{ at: number; timer: AlarmTimer } | null>((min, x) => (!min || x.at < min.at ? x : min), null);
   }
 
   /** SPEC §4: delete a table with no connected players for 12 hours. */
@@ -621,13 +639,20 @@ export class Table {
     d.nextHandAt ??= this.now;
   }
 
-  private handOffOwnership() {
+  /** SPEC §4: who takes over from an offline owner: the longest-seated connected, active player. */
+  private handOffCandidate(): SeatData | undefined {
     const d = this.data;
-    const candidates = d.seats
+    return d.seats
       .filter((s): s is SeatData => !!s && !s.away && s.playerId !== d.ownerId)
       .filter((s) => this.deps.connected.has(s.playerId))
-      .sort((a, b) => a.seatedAt - b.seatedAt);
-    const next = candidates[0];
+      .sort((a, b) => a.seatedAt - b.seatedAt)[0];
+  }
+
+  /** Hands ownership over once the owner has been offline 5 minutes and someone can take it. */
+  private maybeHandOffOwnership() {
+    const d = this.data;
+    if (d.ownerOfflineSince === null || this.now - d.ownerOfflineSince < OWNER_OFFLINE_MS) return;
+    const next = this.handOffCandidate();
     if (next) {
       d.ownerId = next.playerId;
       d.ownerOfflineSince = null;

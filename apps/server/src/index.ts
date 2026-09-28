@@ -20,6 +20,19 @@ const cryptoRandom: RandomSource = (buf) => {
 	crypto.getRandomValues(buf);
 };
 
+/** Backstop against alarm loops: never schedule an alarm sooner than this from now. */
+export const ALARM_CLAMP_MS = 5_000;
+
+/**
+ * An alarm at or before now fires again immediately; if tick() can't make
+ * progress, that repeats until the table is deleted. Push such an alarm out
+ * by ALARM_CLAMP_MS instead. (Table.nextAlarm() shouldn't produce one: this
+ * is the safety net.)
+ */
+export function scheduleAlarm(at: number, now: number): { at: number; clamped: boolean } {
+	return at > now ? { at, clamped: false } : { at: now + ALARM_CLAMP_MS, clamped: true };
+}
+
 interface Attachment {
 	/** Set by the "hello" message. */
 	playerId: string | null;
@@ -163,9 +176,19 @@ export class TableRoom extends DurableObject<Env> {
 
 	private async persist(table: Table): Promise<void> {
 		await this.ctx.storage.put("table", this.data);
-		const at = table.nextAlarm();
-		if (at === null) await this.ctx.storage.deleteAlarm();
-		else await this.ctx.storage.setAlarm(at);
+		const next = table.nextAlarm();
+		if (next === null) {
+			await this.ctx.storage.deleteAlarm();
+			return;
+		}
+		const { at, clamped } = scheduleAlarm(next.at, this.now());
+		if (clamped) {
+			console.warn(
+				`TableRoom ${this.data?.id}: "${next.timer}" alarm was due at ${new Date(next.at).toISOString()}, ` +
+					`not in the future; clamped to +${ALARM_CLAMP_MS / 1000} s to avoid an alarm loop`,
+			);
+		}
+		await this.ctx.storage.setAlarm(at);
 	}
 
 	private broadcast(closing?: WebSocket): void {

@@ -1,5 +1,6 @@
 import { assertLedgerBalanced, cardToString, DEFAULT_SETTINGS, ledgerRows, rabbitCards } from "@garagepoker/engine";
 import { describe, expect, it } from "vitest";
+import { ALARM_CLAMP_MS, scheduleAlarm } from "../src/index.js";
 import { IDLE_DELETE_MS, OWNER_OFFLINE_MS, RIT_DECISION_MS } from "../src/table.js";
 import { harness, token } from "./helpers.js";
 
@@ -378,7 +379,7 @@ describe("run it twice", () => {
 		const offer = h.view(bob).hand!.ritOffer;
 		expect(offer).toEqual({ seats: [1, 2], accepted: [], deadline: h.clock.now + RIT_DECISION_MS });
 		expect(h.view(owner).you.legal).toBeNull();
-		expect(h.table().nextAlarm()).toBe(h.clock.now + RIT_DECISION_MS);
+		expect(h.table().nextAlarm()).toEqual({ at: h.clock.now + RIT_DECISION_MS, timer: "runItTwice" });
 
 		h.send(bob, { type: "runItTwice", hand: 1, accept: true });
 		expect(h.view(owner).hand!.ritOffer!.accepted).toEqual([2]);
@@ -531,6 +532,68 @@ describe("short deck", () => {
 	});
 });
 
+describe("alarms", () => {
+	it("owner offline with no one to take over: no alarm in the past, and a seated player connecting takes over", () => {
+		const { h, owner, bob } = headsUp();
+		h.join("carol"); // a spectator keeps the table from being empty
+		h.disconnect(bob);
+		h.disconnect(owner);
+		expect(h.table().nextAlarm()).toEqual({ at: h.clock.now + OWNER_OFFLINE_MS, timer: "ownerHandOff" });
+
+		// Five minutes pass: Carol isn't seated and Bob is offline, so nobody qualifies.
+		h.advance(OWNER_OFFLINE_MS);
+		expect(h.data.ownerId).toBe(owner);
+		expect(h.data.ownerOfflineSince).not.toBeNull();
+		// The hand-off isn't rescheduled for a time that's already passed.
+		expect(h.table().nextAlarm()).toBeNull();
+		h.advance(60 * 60_000);
+		expect(h.table().nextAlarm()).toBeNull();
+		expect(h.data.ownerId).toBe(owner);
+
+		// Bob connects: presence alone (no timer) hands him the table.
+		h.connected.add(bob);
+		h.table().syncPresence();
+		expect(h.data.ownerId).toBe(bob);
+		expect(h.data.ownerOfflineSince).toBeNull();
+		expect(h.view(bob).you.isOwner).toBe(true);
+	});
+
+	it("an away player isn't a candidate until they come back", () => {
+		const { h, owner, bob } = headsUp();
+		h.send(bob, { type: "setAway", away: true });
+		h.disconnect(owner);
+		h.advance(OWNER_OFFLINE_MS);
+		expect(h.data.ownerId).toBe(owner);
+		expect(h.table().nextAlarm()).toBeNull();
+		h.send(bob, { type: "setAway", away: false });
+		expect(h.data.ownerId).toBe(bob);
+	});
+
+	it("still schedules the hand-off while it's in the future", () => {
+		const { h, owner } = headsUp();
+		h.disconnect(owner);
+		h.advance(OWNER_OFFLINE_MS - 1);
+		expect(h.table().nextAlarm()).toEqual({ at: h.clock.now + 1, timer: "ownerHandOff" });
+		h.advance(1); // Bob is seated and connected: he takes over on time
+		expect(h.data.ownerId).not.toBe(owner);
+	});
+
+	it("never schedules the next hand during a hand", () => {
+		const { h, owner } = headsUp({ autoStart: true });
+		h.send(owner, { type: "startGame" });
+		h.data.nextHandAt = h.clock.now - 1; // inconsistent state: must not wake us
+		expect(h.table().nextAlarm()!.timer).toBe("turn");
+	});
+
+	it("TableRoom's safety net clamps a due or past alarm to +5 s", () => {
+		const now = 1_000_000;
+		expect(scheduleAlarm(now + 1, now)).toEqual({ at: now + 1, clamped: false });
+		expect(scheduleAlarm(now, now)).toEqual({ at: now + ALARM_CLAMP_MS, clamped: true });
+		expect(scheduleAlarm(now - 60_000, now)).toEqual({ at: now + ALARM_CLAMP_MS, clamped: true });
+		expect(ALARM_CLAMP_MS).toBe(5_000);
+	});
+});
+
 describe("ledger invariant", () => {
 	it("throws after a hand if the nets don't sum to 0", () => {
 		const { h, owner } = headsUp();
@@ -545,7 +608,7 @@ describe("lifetime", () => {
 		const { h, owner, bob } = headsUp();
 		h.disconnect(owner);
 		h.disconnect(bob);
-		expect(h.table().nextAlarm()).toBe(h.clock.now + OWNER_OFFLINE_MS);
+		expect(h.table().nextAlarm()).toEqual({ at: h.clock.now + OWNER_OFFLINE_MS, timer: "ownerHandOff" });
 		h.advance(IDLE_DELETE_MS - 1);
 		expect(h.table().shouldDelete()).toBe(false);
 		h.advance(1);

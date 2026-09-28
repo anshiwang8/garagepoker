@@ -342,6 +342,41 @@ describe("playing hands over WebSockets", () => {
 		expect(carol.view.ledger.reduce((sum, r) => sum + r.net, 0)).toBe(0);
 	});
 
+	it("doesn't loop the alarm when the owner is offline and nobody can take over", async () => {
+		const { tableId, alice, bob } = await twoPlayerTable();
+		const carol = await Client.connect(tableId, token("carol")); // spectator: the table isn't empty
+		const stub = env.TABLE.getByName(tableId);
+
+		// Bob, then the owner, go offline. Carol isn't seated, so she can't take over.
+		let rev = carol.rev;
+		bob.close();
+		await carol.waitForRev(rev + 1);
+		rev = carol.rev;
+		alice.close();
+		await carol.waitForRev(rev + 1);
+
+		// Six minutes later the hand-off alarm fires, but there's no candidate.
+		const later = Date.now() + 6 * 60_000;
+		await runInDurableObject(stub, (room: TableRoom) => {
+			room.now = () => later;
+		});
+		expect(await runDurableObjectAlarm(stub)).toBe(true);
+		const alarm = await runInDurableObject(stub, (_room: TableRoom, state) => state.storage.getAlarm());
+		// Nothing is scheduled at all: no hand, not empty, and the hand-off has no
+		// candidate. (The old bug rescheduled it in the past, re-firing forever;
+		// asserting null also checks the fix itself, not just persist()'s clamp.)
+		expect(alarm).toBeNull();
+		expect(await runDurableObjectAlarm(stub)).toBe(false);
+		expect(carol.view.seats[0]).toMatchObject({ nickname: "Alice", isOwner: true });
+
+		// Bob reconnects: he's seated and active, so he takes over right away.
+		rev = carol.rev;
+		const bob2 = await Client.connect(tableId, BOB);
+		await carol.waitForRev(rev + 1);
+		expect(bob2.view.you.isOwner).toBe(true);
+		expect(carol.view.seats[1]).toMatchObject({ nickname: "Bob", isOwner: true });
+	});
+
 	it("keeps a seat across reconnects and after the object is evicted", async () => {
 		const { tableId, alice, bob, all } = await twoPlayerTable();
 		await step(all, alice, { type: "startGame" });
