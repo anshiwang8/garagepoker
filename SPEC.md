@@ -188,7 +188,7 @@ Store one entry per event, so the ledger is an audit log, not just running total
 - **Phones:** there is no separate hand panel at the bottom of the screen; your cards are at your seat. Nothing may cover the action bar (the owner's approval popup waits until you've acted).
 - **Action bar:** Fold, Check/Call (shows the amount), Raise.
   - Raise opens a small popup with a slider and an editable amount to its right.
-  - Presets above them. Preflop when nobody has raised yet: Min, 2 BB, 3 BB, All in. Otherwise: Min, ⅓ pot, ½ pot, ¾ pot, Pot, All in (a pot fraction raises to the current bet plus that share of the pot after calling).
+  - Presets above them. Preflop when nobody has raised yet: Min, 2 BB, 3 BB, All in. Preflop after a raise: Min, ⅓ pot, ½ pot, ¾ pot, Pot, All in. Postflop: ½ pot, ¾ pot, Pot, All in. A pot fraction raises to the current bet plus that share of the pot after calling.
   - In pot-limit games every preset is capped at the maximum pot-sized raise, and a capped All in is labelled "Pot (max)".
   - Presets below the min raise or above the player's stack are hidden; presets that land on the same amount are shown once.
 - **Run it twice:** a prompt appears when it's eligible and disappears after 5 s; no answer means it runs once.

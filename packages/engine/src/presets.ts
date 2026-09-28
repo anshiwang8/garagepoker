@@ -6,6 +6,8 @@
 export interface RaisePresetInput {
   /** Preflop with no raise yet: offer big-blind multiples. */
   unopened: boolean;
+  /** Flop or later: pot fractions only, no Min. */
+  postflop: boolean;
   bigBlind: number;
   /** All chips in the middle, current bets included. */
   pot: number;
@@ -30,8 +32,10 @@ export interface RaisePreset {
 
 /**
  * - Unopened preflop: Min, 2 BB, 3 BB, All in.
- * - Otherwise: Min, ⅓ pot, ½ pot, ¾ pot, Pot, All in, where a pot fraction
- *   raises to the current bet plus that share of the pot after calling.
+ * - Preflop after a raise: Min, ⅓ pot, ½ pot, ¾ pot, Pot, All in.
+ * - Postflop: ½ pot, ¾ pot, Pot, All in.
+ * - A pot fraction raises to the current bet plus that share of the pot after
+ *   calling.
  * - Pot-limit: every preset is capped at the pot-sized raise; a capped All in
  *   is labelled "Pot (max)".
  * - Presets below the min raise or above the player's stack are hidden, and
@@ -40,11 +44,14 @@ export interface RaisePreset {
 export function raisePresets(i: RaisePresetInput): RaisePreset[] {
   const potAfterCall = i.pot + i.callAmount;
   const fraction = (num: number, den: number) => i.currentBet + Math.floor((potAfterCall * num) / den);
-  const candidates: RaisePreset[] = [{ label: "Min", to: i.minRaiseTo }];
-  if (i.unopened) {
-    candidates.push({ label: "2 BB", to: 2 * i.bigBlind }, { label: "3 BB", to: 3 * i.bigBlind });
+  const candidates: RaisePreset[] = [];
+  if (i.postflop) {
+    candidates.push({ label: "½ pot", to: fraction(1, 2) }, { label: "¾ pot", to: fraction(3, 4) }, { label: "Pot", to: fraction(1, 1) });
+  } else if (i.unopened) {
+    candidates.push({ label: "Min", to: i.minRaiseTo }, { label: "2 BB", to: 2 * i.bigBlind }, { label: "3 BB", to: 3 * i.bigBlind });
   } else {
     candidates.push(
+      { label: "Min", to: i.minRaiseTo },
       { label: "⅓ pot", to: fraction(1, 3) },
       { label: "½ pot", to: fraction(1, 2) },
       { label: "¾ pot", to: fraction(3, 4) },

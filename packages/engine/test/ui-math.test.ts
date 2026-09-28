@@ -45,6 +45,7 @@ describe("cent mode formatting and parsing", () => {
 describe("raise presets", () => {
   const base: RaisePresetInput = {
     unopened: false,
+    postflop: false,
     bigBlind: 20,
     pot: 0,
     currentBet: 0,
@@ -70,7 +71,7 @@ describe("raise presets", () => {
     ]);
   });
 
-  it("facing a raise: Min, ⅓, ½, ¾ pot, Pot, All in (pot after calling)", () => {
+  it("preflop facing a raise: Min, ⅓, ½, ¾ pot, Pot, All in (pot after calling)", () => {
     // Blinds 10/20, UTG raised to 60; the button faces 60: pot 90, call 60 → 150 after calling.
     expect(labels({ pot: 90, currentBet: 60, callAmount: 60, minRaiseTo: 100, maxRaiseTo: 2000, allInTo: 2000 })).toEqual([
       "Min 100", // 60 + 40 (the last raise)
@@ -82,14 +83,26 @@ describe("raise presets", () => {
     ]);
   });
 
-  it("postflop, no bet yet: pot fractions of the pot", () => {
-    expect(labels({ pot: 120, minRaiseTo: 20, maxRaiseTo: 500, allInTo: 500 })).toEqual([
-      "Min 20",
-      "⅓ pot 40",
+  it("postflop: ½ pot, ¾ pot, Pot, All in (no Min, no ⅓)", () => {
+    // No bet yet.
+    expect(labels({ postflop: true, pot: 120, minRaiseTo: 20, maxRaiseTo: 500, allInTo: 500 })).toEqual([
       "½ pot 60",
       "¾ pot 90",
       "Pot 120",
       "All in 500",
+    ]);
+    // Facing a bet of 60 into 90 (pot 150 after calling).
+    expect(labels({ postflop: true, pot: 150, currentBet: 60, callAmount: 60, minRaiseTo: 120, maxRaiseTo: 2000, allInTo: 2000 })).toEqual([
+      "½ pot 165", // 60 + 210 / 2
+      "¾ pot 217", // 60 + floor(157.5)
+      "Pot 270",
+      "All in 2000",
+    ]);
+    // Pot-limit postflop: Pot and All in land on the same amount, shown once as Pot (max).
+    expect(labels({ postflop: true, pot: 120, minRaiseTo: 20, maxRaiseTo: 120, allInTo: 500, potLimit: true })).toEqual([
+      "½ pot 60",
+      "¾ pot 90",
+      "Pot (max) 120",
     ]);
   });
 
@@ -133,6 +146,7 @@ describe("raise presets", () => {
       fc.property(
         fc.record({
           unopened: fc.boolean(),
+          postflop: fc.boolean(),
           bigBlind: fc.integer({ min: 1, max: 1000 }),
           pot: fc.integer({ min: 0, max: 1e6 }),
           currentBet: fc.integer({ min: 0, max: 1e5 }),

@@ -82,10 +82,11 @@ function RaisePopup({ view, onRaise, onCancel }: { view: TableView; onRaise: (to
   const max = legal.maxRaiseTo;
   const allInTo = me.bet + me.stack;
   // SPEC §7: big-blind multiples preflop until someone raises, pot fractions
-  // otherwise; capped at the pot in pot-limit (engine raisePresets).
+  // after that and postflop; capped at the pot in pot-limit (engine raisePresets).
   const unopened = hand.street === "preflop" && !view.seats.some((s) => s?.inHand && s.lastAction?.type === "raise");
   const presets = raisePresets({
     unopened,
+    postflop: hand.street !== "preflop",
     bigBlind: view.settings.bigBlind,
     pot: hand.pot,
     currentBet: hand.currentBet,
