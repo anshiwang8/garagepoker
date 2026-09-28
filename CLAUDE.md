@@ -38,6 +38,7 @@ PokerNow-style home-game poker tables. Every variant and table feature is free. 
 - Keep changes small, and commit after each passing step with a clear message.
 - Don't add dependencies without saying why.
 - Don't run `wrangler deploy` or push to git unless asked.
+- Server changes only reach production after `npx wrangler deploy` in apps/server; remind me whenever apps/server or packages/protocol/engine changes.
 
 ## Environment
 

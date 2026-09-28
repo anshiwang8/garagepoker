@@ -93,7 +93,7 @@ export function harness(settings: Partial<TableSettings> = {}) {
 // WebSocket clients against the real Worker + Durable Object
 // ---------------------------------------------------------------------------
 
-/** An allowed browser origin (see ALLOWED_ORIGINS). */
+/** An allowed browser origin (see the ALLOWED_ORIGINS var in wrangler.jsonc). */
 export const ORIGIN = "http://localhost:3000";
 
 let nextIp = 1;

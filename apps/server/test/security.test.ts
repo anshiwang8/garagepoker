@@ -1,6 +1,6 @@
 import { env, runInDurableObject, SELF } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
-import { ALLOWED_ORIGINS, CREATE_TABLE_LIMIT } from "../src/index.js";
+import { CREATE_TABLE_LIMIT, parseAllowedOrigins } from "../src/index.js";
 import { clientKey, type RateLimiter } from "../src/rateLimit.js";
 import { freshIp, ORIGIN, token } from "./helpers.js";
 
@@ -9,9 +9,20 @@ const create = (headers: Record<string, string>, body: unknown = { token: token(
 const upgrade = (tableId: string, headers: Record<string, string>) =>
 	SELF.fetch(`https://gp.test/api/tables/${tableId}/ws`, { headers: { Upgrade: "websocket", ...headers } });
 
+const ALLOWED_ORIGINS = parseAllowedOrigins(env.ALLOWED_ORIGINS);
+
 describe("allowed origins", () => {
-	it("allows exactly the production site and local dev", () => {
+	it("reads exactly the production site and local dev from the ALLOWED_ORIGINS var", () => {
 		expect(ALLOWED_ORIGINS).toEqual(["https://garagepoker-flax.vercel.app", "http://localhost:3000"]);
+	});
+
+	it("parses the var leniently but fails closed", () => {
+		expect(parseAllowedOrigins(" https://a.example/ ,http://localhost:3000,, ")).toEqual([
+			"https://a.example",
+			"http://localhost:3000",
+		]);
+		expect(parseAllowedOrigins("")).toEqual([]);
+		expect(parseAllowedOrigins(undefined)).toEqual([]);
 	});
 
 	it("answers CORS preflight only for allowed origins, echoing the origin", async () => {

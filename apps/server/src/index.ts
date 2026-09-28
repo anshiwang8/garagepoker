@@ -197,8 +197,18 @@ function send(ws: WebSocket, message: ServerMessage): void {
 // Worker: routes HTTP and WebSocket requests to the right TableRoom.
 // ---------------------------------------------------------------------------
 
-/** The only sites allowed to create tables or open table sockets. */
-export const ALLOWED_ORIGINS: readonly string[] = ["https://garagepoker-flax.vercel.app", "http://localhost:3000"];
+/**
+ * The sites allowed to create tables or open table sockets, from the
+ * ALLOWED_ORIGINS wrangler var (comma-separated). Whitespace and trailing
+ * slashes are ignored (browsers never send a trailing slash in Origin). An
+ * empty or missing var allows nothing: misconfiguration fails closed.
+ */
+export function parseAllowedOrigins(value: string | undefined): string[] {
+	return (value ?? "")
+		.split(",")
+		.map((s) => s.trim().replace(/\/+$/, ""))
+		.filter(Boolean);
+}
 
 /** POST /api/tables: at most this many per client IP per window. */
 export const CREATE_TABLE_LIMIT = 5;
@@ -211,9 +221,9 @@ export const CREATE_TABLE_WINDOW_MS = 60_000;
  * visitor's browser against the API; it can't stop non-browser clients,
  * which can send any Origin — that's what the rate limit is for.
  */
-function allowedOrigin(request: Request): string | null {
+function allowedOrigin(request: Request, env: Env): string | null {
 	const origin = request.headers.get("Origin");
-	return origin !== null && ALLOWED_ORIGINS.includes(origin) ? origin : null;
+	return origin !== null && parseAllowedOrigins(env.ALLOWED_ORIGINS).includes(origin) ? origin : null;
 }
 
 function corsHeaders(origin: string | null): Record<string, string> {
@@ -239,7 +249,7 @@ const WS_PATH = /^\/api\/tables\/([A-Za-z0-9]{10})\/ws$/;
 export default {
 	async fetch(request, env): Promise<Response> {
 		const url = new URL(request.url);
-		const origin = allowedOrigin(request);
+		const origin = allowedOrigin(request, env);
 
 		if (request.method === "OPTIONS") {
 			return new Response(null, { status: origin ? 204 : 403, headers: corsHeaders(origin) });
