@@ -59,23 +59,36 @@ function tagClass(label: string): string {
   return "bg-zinc-600 text-white";
 }
 
+/** Shorter names for opponents' tags on a phone, where a full table has little room. */
+function shortLabel(label: string): string {
+  return label
+    .replace(/three of a kind/i, "Trips")
+    .replace(/four of a kind/i, "Quads")
+    .replace(/straight flush/i, "Str. flush");
+}
+
 /**
  * Hand-strength tags: one row per board, and in Hi/Lo a tag per half
  * ("FLUSH" + "8-6 LOW"). Only ever passed for your own seat, or for hands
- * shown at showdown.
+ * shown at showdown. `compact` (other seats): on phones the tags wrap within
+ * the seat's width, with short names, so full tables don't overlap.
  */
-function HandTags({ labels }: { labels: string[] }) {
+function HandTags({ labels, compact }: { labels: string[]; compact: boolean }) {
   return (
-    <div className="mt-1 flex flex-col items-center gap-0.5">
+    <div className={`mt-1 flex flex-col items-center gap-0.5 ${compact ? "max-w-[5.25rem] wide:max-w-none" : ""}`}>
       {labels.map((label, b) => (
-        <div key={b} className="flex items-center gap-0.5">
-          {labels.length > 1 && <span className="text-[8px] font-bold text-muted">B{b + 1}</span>}
+        <div key={b} className="flex flex-wrap items-center justify-center gap-0.5">
+          {labels.length > 1 && <span className="text-[8px] font-bold text-text/70">B{b + 1}</span>}
           {label.split(" / ").map((half) => (
             <span
               key={half}
-              className={`whitespace-nowrap rounded px-1 py-px text-[9px] font-bold uppercase leading-tight tracking-wide ${tagClass(half)}`}
+              // Opponents on a phone: "no low" says nothing worth the room it takes.
+              data-nolow={compact && /^no low$/i.test(half) ? "" : undefined}
+              className={`whitespace-nowrap rounded px-1 py-px font-bold uppercase leading-tight tracking-wide data-nolow:hidden wide:data-nolow:inline ${
+                compact ? "text-[8px] wide:text-[9px]" : "text-[9px]"
+              } ${tagClass(half)}`}
             >
-              {half}
+              {compact ? <><span className="wide:hidden">{shortLabel(half)}</span><span className="hidden wide:inline">{half}</span></> : half}
             </span>
           ))}
         </div>
@@ -89,20 +102,29 @@ function HeldCards({ cards, big, dim }: { cards: (string | null)[]; big: boolean
   const n = cards.length;
   const fan = n > 2;
   // How far each card slides under the previous one.
+  // Opponents' Omaha fans are narrower on phones, so a full table fits without
+  // seats overlapping; face-down cards can overlap more (there's no rank to read).
+  const faceDown = cards.every((c) => c === null);
   const overlap = big
     ? fan ? "-ml-9 wide:-ml-7" : "-ml-6 wide:-ml-4"
-    : fan ? "-ml-8 wide:-ml-6" : "-ml-5 wide:-ml-4";
+    : fan ? (faceDown ? "-ml-8 wide:-ml-6" : "-ml-7 wide:-ml-6") : "-ml-5 wide:-ml-4";
+  const size = big ? "seatYou" : fan ? "seatFan" : "seat";
   // Rotated cards stick out past their layout box: pad a fan so it never covers
   // the name panel or runs off the screen edge.
   return (
-    <div className={`flex items-end pt-1 ${fan ? "px-2.5" : "pl-1"}`}>
+    // --fan-step: degrees between cards; opponents' fans are flatter on phones.
+    <div
+      className={`flex items-end pt-1 ${
+        fan ? (big ? "px-4 [--fan-step:6deg] wide:px-2.5" : "px-1.5 [--fan-step:3.5deg] wide:px-2.5 wide:[--fan-step:6deg]") : "pl-1"
+      }`}
+    >
       {cards.map((c, i) => (
         <div
           key={i}
           className={i === 0 ? "" : overlap}
-          style={fan ? { transform: `rotate(${(i - (n - 1) / 2) * 6}deg)`, transformOrigin: "50% 120%" } : undefined}
+          style={fan ? { transform: `rotate(calc(var(--fan-step) * ${i - (n - 1) / 2}))`, transformOrigin: "50% 120%" } : undefined}
         >
-          <PlayingCard card={c} size={big ? "seatYou" : "seat"} corner dim={dim} />
+          <PlayingCard card={c} size={size} corner dim={dim} />
         </div>
       ))}
     </div>
@@ -178,44 +200,42 @@ export function Seat({
           </span>
         )}
       </div>
-      {/* Phones: other seats put the name panel under the cards so they stay narrow
-          and clear of the board; your seat, and every seat in landscape, has it beside. */}
+      {/* No box: cards sit on the felt, name and stack are plain text. Only the
+          seat to act gets an outline (a thin gold glow; yours pulses). */}
       <div
-        className={`relative flex gap-1.5 rounded-xl border px-1 pb-1.5 pt-0.5 shadow-lg ${
-          isYou ? "flex-row items-start" : "flex-col items-center wide:flex-row wide:items-start"
-        } ${
-          toAct && isYou ? "turn-glow border-gold bg-panel-2" : toAct ? "border-gold bg-panel-2 ring-2 ring-gold/60" : isYou ? "border-gold/50 bg-panel/95" : "border-line bg-panel/95"
+        className={`relative flex flex-col items-center rounded-xl px-1 pb-1.5 pt-0.5 ${
+          toAct ? (isYou ? "turn-glow" : "seat-turn") : ""
         }`}
       >
-        {cards && (
-          <div className="flex flex-col items-center">
-            <HeldCards cards={cards} big={isYou} dim={seat.folded && !shown} />
-            {tagLabels && tagLabels.length > 0 && <HandTags labels={tagLabels} />}
+        {/* Phones: other seats put the name under the cards so they stay narrow and
+            clear of the board; your seat, and every seat in landscape, has it beside. */}
+        <div className={`flex gap-1.5 ${isYou ? "flex-row items-center" : "flex-col items-center wide:flex-row wide:items-center"}`}>
+          {cards && <HeldCards cards={cards} big={isYou} dim={seat.folded && !shown} />}
+          <div
+            className={`text-legible flex min-w-[3.75rem] max-w-[6.5rem] flex-col ${cards ? "" : "px-1 text-center"} ${
+              isYou ? "" : "items-center text-center wide:items-start wide:text-left"
+            }`}
+          >
+            <div className="truncate text-xs font-semibold" title={seat.nickname}>
+              {seat.isOwner && <span title="Table owner">★ </span>}
+              {seat.nickname}
+            </div>
+            <div className="tabular text-sm font-bold text-gold">{formatChips(seat.stack, displayCents)}</div>
+            {seat.allIn && !shown ? (
+              <span className="self-start rounded bg-danger px-1 text-[9px] font-bold uppercase text-white [text-shadow:none]">All in</span>
+            ) : seat.folded && seat.inHand && !shown ? (
+              <div className="text-[10px] text-text/70">Folded</div>
+            ) : seat.lastAction && seat.inHand && !shown ? (
+              <div className="truncate text-[10px] text-text/70">{actionText(seat.lastAction, displayCents)}</div>
+            ) : tags.length > 0 ? (
+              <div className="truncate text-[10px] text-text/70">{tags.join(" · ")}</div>
+            ) : null}
+            {won ? <div className="tabular text-[11px] font-bold text-ok">+{formatChips(won, displayCents)}</div> : null}
           </div>
-        )}
-        <div
-          className={`flex min-w-[3.75rem] max-w-[6.5rem] flex-col ${cards ? "py-1" : "px-1 py-1 text-center"} ${
-            isYou ? "" : "-mt-1 items-center text-center wide:mt-0 wide:items-start wide:text-left"
-          }`}
-        >
-          <div className="truncate text-xs font-semibold" title={seat.nickname}>
-            {seat.isOwner && <span title="Table owner">★ </span>}
-            {seat.nickname}
-          </div>
-          <div className="tabular text-sm font-bold text-gold">{formatChips(seat.stack, displayCents)}</div>
-          {seat.allIn && !shown ? (
-            <span className="self-start rounded bg-danger px-1 text-[9px] font-bold uppercase text-white">All in</span>
-          ) : seat.folded && seat.inHand && !shown ? (
-            <div className="text-[10px] text-muted">Folded</div>
-          ) : seat.lastAction && seat.inHand && !shown ? (
-            <div className="truncate text-[10px] text-muted">{actionText(seat.lastAction, displayCents)}</div>
-          ) : tags.length > 0 ? (
-            <div className="truncate text-[10px] text-muted">{tags.join(" · ")}</div>
-          ) : null}
-          {won ? <div className="tabular text-[11px] font-bold text-ok">+{formatChips(won, displayCents)}</div> : null}
         </div>
+        {tagLabels && tagLabels.length > 0 && <HandTags labels={tagLabels} compact={!isYou} />}
         {toAct && countdown && (
-          <div className="absolute inset-x-1 bottom-0.5 h-1 overflow-hidden rounded bg-black/40" aria-label={`${countdown.seconds} seconds left`}>
+          <div className="absolute inset-x-1 bottom-0 h-1 overflow-hidden rounded bg-black/50" aria-label={`${countdown.seconds} seconds left`}>
             <div
               className={`h-full transition-[width] duration-200 ${countdown.inBank ? "bg-danger" : "bg-gold"}`}
               style={{ width: `${Math.max(0, Math.min(1, countdown.fraction)) * 100}%` }}

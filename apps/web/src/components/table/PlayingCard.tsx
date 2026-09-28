@@ -11,9 +11,11 @@ const SIZES = {
   md: "h-14 w-10 text-base rounded-md",
   lg: "h-20 w-14 text-2xl rounded-lg",
   /** Other players' seats: large on phones, smaller in the landscape layout. */
-  seat: "h-14 w-10 text-lg rounded-md wide:h-11 wide:w-8 wide:text-sm",
+  seat: "h-16 w-11 text-xl rounded-md wide:h-11 wide:w-8 wide:text-sm",
+  /** Other players' 4-5 card fans: a little smaller on phones so a full table fits. */
+  seatFan: "h-14 w-10 text-lg rounded-md wide:h-11 wide:w-8 wide:text-sm",
   /** Your own seat: bigger still. */
-  seatYou: "h-20 w-14 text-2xl rounded-lg wide:h-14 wide:w-10 wide:text-base",
+  seatYou: "h-[5.5rem] w-16 text-2xl rounded-lg wide:h-14 wide:w-10 wide:text-base",
 };
 
 export type CardSize = keyof typeof SIZES;

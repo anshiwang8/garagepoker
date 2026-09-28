@@ -66,11 +66,10 @@ input[type="range"] {
 .area-hand { grid-area: hand; }
 .area-util { grid-area: util; }
 
+/* No bar behind it: the buttons and pill float over the page as their own rounded elements. */
 .action-float {
   z-index: 30;
-  padding: 0.5rem max(0.75rem, env(safe-area-inset-right)) 0.5rem max(0.75rem, env(safe-area-inset-left));
-  border-top: 1px solid var(--color-line);
-  background: color-mix(in srgb, var(--color-panel) 92%, transparent);
+  padding: 0.25rem max(0.75rem, env(safe-area-inset-right)) 0.25rem max(0.75rem, env(safe-area-inset-left));
 }
 /* Nothing to show (spectating, between games): take no space at all. */
 .action-float:not(:has(> :not(:empty))) {
@@ -100,28 +99,39 @@ input[type="range"] {
     width: min(24rem, calc(50% - 10rem));
     margin: 0.75rem;
     padding: 0;
-    border: 0;
-    background: none;
   }
 }
 
 /* Seats round the table (TableFelt seatPosition): the phone or landscape point, kept on screen. */
+/*
+ * The hero area (your seat, bottom centre) is reserved: no other seat comes
+ * lower than its top. TableFelt measures --hero-h (your seat's height) and
+ * --opp-half (half the tallest other seat, since seats are centred on their point).
+ */
 .seat-pos {
   left: clamp(var(--seat-edge), var(--xp), calc(100% - var(--seat-edge)));
-  top: clamp(4.5rem, var(--yp), calc(100% - 4.5rem));
+  top: clamp(4.5rem, var(--yp), calc(100% - var(--hero-h, 9rem) - var(--opp-half, 4.75rem)));
   transform: translate(-50%, -50%);
 }
 @media (min-aspect-ratio: 5/4) {
   .seat-pos {
     left: clamp(var(--seat-edge), var(--xw), calc(100% - var(--seat-edge)));
-    top: clamp(4.5rem, var(--yw), calc(100% - 4.5rem));
+    top: clamp(4.5rem, var(--yw), calc(100% - var(--hero-h, 6rem) - var(--opp-half, 3rem)));
   }
 }
 
-/* Your turn: your seat pulses (no sound). */
+/* Seat text sits straight on the felt. */
+.text-legible {
+  text-shadow: 0 1px 2px rgb(0 0 0 / 0.9), 0 0 6px rgb(0 0 0 / 0.55);
+}
+
+/* The seat whose turn it is: a thin gold glow. Yours pulses (no sound). */
+.seat-turn {
+  box-shadow: 0 0 0 1px rgb(233 185 73 / 0.9), 0 0 12px 1px rgb(233 185 73 / 0.4);
+}
 @keyframes turn-glow {
-  0%, 100% { box-shadow: 0 0 0 2px rgb(233 185 73 / 0.9), 0 0 10px 2px rgb(233 185 73 / 0.3); }
-  50% { box-shadow: 0 0 0 3px rgb(233 185 73), 0 0 24px 8px rgb(233 185 73 / 0.55); }
+  0%, 100% { box-shadow: 0 0 0 1px rgb(233 185 73 / 0.9), 0 0 8px 1px rgb(233 185 73 / 0.3); }
+  50% { box-shadow: 0 0 0 1.5px rgb(233 185 73), 0 0 20px 5px rgb(233 185 73 / 0.5); }
 }
 .turn-glow {
   animation: turn-glow 1.2s ease-in-out infinite;
@@ -129,7 +139,7 @@ input[type="range"] {
 @media (prefers-reduced-motion: reduce) {
   .turn-glow {
     animation: none;
-    box-shadow: 0 0 0 3px rgb(233 185 73), 0 0 16px 4px rgb(233 185 73 / 0.5);
+    box-shadow: 0 0 0 1.5px rgb(233 185 73), 0 0 14px 3px rgb(233 185 73 / 0.45);
   }
 }
 

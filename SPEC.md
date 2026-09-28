@@ -180,11 +180,12 @@ Store one entry per event, so the ledger is an audit log, not just running total
 ## 7. UI
 
 - Works in mobile and desktop browsers. The table lays out horizontally or vertically depending on the screen's aspect ratio; design mobile portrait first.
-- **Layout:** top bar, the table, and a bottom toolbar (Ledger, Pause, Last hand, Rebuy, Leave, Away). There is no side panel: the table uses the full width, and your cards and hand label are at your seat. Seats are spread round the table so the bottom corners stay clear for your seat and the action float.
+- **Layout:** top bar, the table, and a bottom toolbar (Ledger, Pause, Last hand, Rebuy, Leave, Away; on phones Last hand, Rebuy and Leave are in a "⋯ More" menu so the toolbar fits 390 px). There is no side panel: the table uses the full width, and your cards and hand label are at your seat. Seats are spread round the table so the bottom corners stay clear for your seat and the action float.
 - There are no chip graphics, only numbers. The total pot is shown in the middle of the table, above the board.
 - A dealer button marker rotates around the table.
-- **Seats:** every seat shows its cards as two large overlapping cards (Omaha variants fan 4–5), face down for opponents, with name and stack in a panel next to them and the current bet toward the centre. Your own seat is bigger. On a phone, tableside cards are about twice their old size so they're readable.
-- **Hand-strength tag:** a small coloured tag under the cards names the hand ("PAIR", "TWO PAIR", "FLUSH"; Hi/Lo shows both halves, e.g. "FLUSH" + "8-6 LOW"). Only the card's owner sees it, until showdown.
+- **Seats:** no box or panel behind a seat: its cards sit on the felt as two large overlapping cards (Omaha variants fan 4–5), face down for opponents, with name and stack as plain text (with a subtle shadow) next to or under them, and the current bet toward the centre. Only the seat whose turn it is gets a thin gold glow. Your own seat is bigger. On a phone, tableside cards are large enough to read; opponents' Omaha fans are a little smaller so a full table fits.
+- **Hero area:** your seat (bottom centre) is reserved: no other seat, bet or button enters it. On narrow screens opponent seats shrink and move toward the rail rather than overlap anything.
+- **Hand-strength tag:** a small coloured tag under the cards names the hand ("PAIR", "TWO PAIR", "FLUSH"; Hi/Lo shows both halves, e.g. "FLUSH" + "8-6 LOW"; double board shows a "B1" and a "B2" row, both always fully visible). Only the card's owner sees it, until showdown. On a phone, opponents' showdown tags use short names ("TRIPS", "QUADS") and leave out "NO LOW".
 - **Dealer button:** shown above the seat that has it.
 - **Action float:** floats over the bottom-right corner of the table, above the toolbar, and never covers your seat or the board.
   - Your turn: Fold (red), Check or "Call 20" (neutral), Raise/Bet (gold), as large bold buttons (at least 56 px tall on desktop, 48 px on phones, 16–18 px text), with your decision timer as a bar above them. Your seat pulses. No sound.
@@ -194,7 +195,7 @@ Store one entry per event, so the ledger is an audit log, not just running total
   - Presets: Preflop when nobody has raised yet: Min, 2 BB, 3 BB, All in. Preflop after a raise: Min, ⅓ pot, ½ pot, ¾ pot, Pot, All in. Postflop: ½ pot, ¾ pot, Pot, All in. A pot fraction raises to the current bet plus that share of the pot after calling.
   - In pot-limit games every preset is capped at the maximum pot-sized raise, and a capped All in is labelled "Pot (max)".
   - Presets below the min raise or above the player's stack are hidden; presets that land on the same amount are shown once.
-- **Phones (portrait):** the action float spans the full width at the bottom, above the toolbar, clear of the safe areas; the table shrinks to fit above it, so nothing overlaps the buttons or your seat. The raise panel opens as a bottom sheet over the table, just above the buttons. The owner's approval popup waits until you've acted.
+- **Phones (portrait):** no background bars: the toolbar buttons and the action float's buttons or pill sit on the page background as separate rounded elements. The action float spans the full width at the bottom, above the toolbar, clear of the safe areas; the table shrinks to fit above it, so nothing overlaps the buttons or your seat. The raise panel opens as a bottom sheet over the table, just above the buttons. The owner's approval popup waits until you've acted.
 - **Run it twice:** a prompt appears when it's eligible and disappears after 5 s; no answer means it runs once.
 - **Pineapple:** a discard picker appears on each discard street.
 - Double board shows two stacked boards, each labeled with its share of the pot.

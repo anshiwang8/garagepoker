@@ -50,6 +50,9 @@ export function TableClient({ tableId }: { tableId: string }) {
   const mySeat = view.you.seat !== null ? view.seats[view.you.seat - 1] : null;
   const canSit = view.you.seat === null && !view.you.request && view.status !== "ended";
   const close = () => setDialog(null);
+  const showReplay = view.handNumber > 0 && !view.you.watchBlocked;
+  const canRebuy = !!mySeat && view.settings.rebuys && view.status !== "ended";
+  const canLeave = !!mySeat && view.status !== "ended";
 
   return (
     <div className="table-layout overflow-hidden">
@@ -123,23 +126,41 @@ export function TableClient({ tableId }: { tableId: string }) {
         />
       </section>
 
-      {/* Utility row: Ledger bottom-left, Away always visible */}
-      <footer className="area-util flex items-center gap-1 wide:gap-2 border-t border-line bg-panel/70 px-2 pt-2 wide:px-3 safe-bottom">
+      {/* Toolbar: Ledger bottom-left, Away always visible. On phones there's no bar
+          behind it, and Last hand / Rebuy / Leave go in the "More" menu so it fits 390 px. */}
+      <footer className="area-util flex items-center gap-1.5 px-3 pt-1 safe-bottom wide:gap-2 wide:border-t wide:border-line wide:bg-panel/70 wide:pt-2">
         <Button onClick={() => setDialog({ kind: "ledger" })}>Ledger</Button>
         {view.you.isOwner && view.status !== "ended" && <PauseButton view={view} send={send} />}
-        {view.handNumber > 0 && !view.you.watchBlocked && (
-          <Button variant="ghost" onClick={() => send({ type: "getReplay" })}>
-            Last hand
-          </Button>
+        {showReplay && (
+          <span className="hidden wide:contents">
+            <Button variant="ghost" onClick={() => send({ type: "getReplay" })}>
+              Last hand
+            </Button>
+          </span>
         )}
         <div className="flex-1" />
-        {mySeat && view.settings.rebuys && view.status !== "ended" && (
-          <Button variant="ghost" onClick={() => setDialog({ kind: "rebuy" })}>
-            Rebuy
-          </Button>
+        {canRebuy && (
+          <span className="hidden wide:contents">
+            <Button variant="ghost" onClick={() => setDialog({ kind: "rebuy" })}>
+              Rebuy
+            </Button>
+          </span>
         )}
-        {mySeat && view.status !== "ended" && (
-          <ConfirmButton label="Leave" confirm="Leave seat?" variant="secondary" onConfirm={() => send({ type: "leaveSeat" })} />
+        {canLeave && (
+          <span className="hidden wide:contents">
+            <ConfirmButton label="Leave" confirm="Leave seat?" variant="secondary" onConfirm={() => send({ type: "leaveSeat" })} />
+          </span>
+        )}
+        {(showReplay || canRebuy || canLeave) && (
+          <MoreMenu>
+            {showReplay && <MenuItem onClick={() => send({ type: "getReplay" })}>Last hand</MenuItem>}
+            {canRebuy && <MenuItem onClick={() => setDialog({ kind: "rebuy" })}>Rebuy</MenuItem>}
+            {canLeave && (
+              <div data-keep-open>
+                <ConfirmButton label="Leave seat" confirm="Tap again to leave" variant="secondary" onConfirm={() => send({ type: "leaveSeat" })} />
+              </div>
+            )}
+          </MoreMenu>
         )}
         <Button
           variant={mySeat?.away ? "primary" : "secondary"}
@@ -199,6 +220,42 @@ function PauseButton({ view, send }: { view: TableView; send: ReturnType<typeof 
     );
   }
   return <Button onClick={() => send({ type: "pauseGame" })}>Pause</Button>;
+}
+
+/** Phones only: the toolbar's less-used actions, in a menu that opens upward. */
+function MoreMenu({ children }: { children: React.ReactNode }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="relative wide:hidden">
+      <Button onClick={() => setOpen((o) => !o)} aria-expanded={open} aria-haspopup="menu">
+        ⋯ More
+      </Button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+          <div
+            role="menu"
+            className="absolute bottom-full right-0 z-50 mb-2 flex min-w-40 flex-col gap-1 rounded-xl border border-line bg-panel p-1.5 shadow-2xl [&_button]:w-full [&_button]:justify-start"
+            onClick={(e) => {
+              // Close after an action, except the first tap of Leave (it asks to confirm).
+              if ((e.target as HTMLElement).closest("[data-keep-open]")) return;
+              setOpen(false);
+            }}
+          >
+            {children}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function MenuItem({ onClick, children }: { onClick: () => void; children: React.ReactNode }) {
+  return (
+    <Button variant="ghost" role="menuitem" onClick={onClick}>
+      {children}
+    </Button>
+  );
 }
 
 function Centered({ children }: { children: React.ReactNode }) {

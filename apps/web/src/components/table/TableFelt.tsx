@@ -1,4 +1,5 @@
 import type { TableView } from "@garagepoker/protocol";
+import { useEffect, useRef, useState } from "react";
 import { formatChips } from "@/lib/chips";
 import { CopyLinkButton } from "../ui";
 import { CardSlot, PlayingCard } from "./PlayingCard";
@@ -76,9 +77,39 @@ export function TableFelt({
   );
   const cardSize = rows.length > 2 ? "xs" : "sm";
 
+  // Measure your seat, and the tallest other seat, so the others always stay
+  // above yours (.seat-pos in globals.css).
+  const feltRef = useRef<HTMLDivElement>(null);
+  const [heroH, setHeroH] = useState<number | null>(null);
+  const [oppH, setOppH] = useState<number | null>(null);
+  useEffect(() => {
+    const felt = feltRef.current;
+    if (!felt) return;
+    const measure = () => {
+      const hero = felt.querySelector<HTMLElement>("[data-hero]");
+      setHeroH(hero ? Math.ceil(hero.getBoundingClientRect().height) : null);
+      let tallest = 0;
+      felt.querySelectorAll<HTMLElement>(".seat-pos").forEach((el) => (tallest = Math.max(tallest, el.getBoundingClientRect().height)));
+      setOppH(tallest ? Math.ceil(tallest) : null);
+    };
+    const ro = new ResizeObserver(measure);
+    felt.querySelectorAll("[data-hero], .seat-pos").forEach((el) => ro.observe(el));
+    measure();
+    return () => ro.disconnect();
+  }, [n]);
+
   return (
     // overflow-hidden: nothing on the felt ever spills over the action bar below it.
-    <div className="relative min-h-0 flex-1 select-none overflow-hidden [--seat-edge:3.3rem] wide:[--seat-edge:4.75rem]">
+    <div
+      className="relative min-h-0 flex-1 select-none overflow-hidden [--seat-edge:3.45rem] wide:[--seat-edge:4.75rem]"
+      ref={feltRef}
+      style={
+        {
+          ...(heroH && { "--hero-h": `${heroH + 2}px` }),
+          ...(oppH && { "--opp-half": `${Math.ceil(oppH / 2) + 2}px` }),
+        } as React.CSSProperties
+      }
+    >
       {/* Rail and felt */}
       <div className="absolute inset-[9%_7%] rounded-[50%] border-[10px] border-rail bg-[radial-gradient(ellipse_at_center,var(--color-felt)_0%,var(--color-felt-dark)_75%)] shadow-[inset_0_0_40px_rgba(0,0,0,.6)]" />
 
@@ -98,9 +129,11 @@ export function TableFelt({
           const label = [secondRun && `Run ${run + 1}`, boards.length > 1 && `Board ${board + 1}`].filter(Boolean).join(" · ");
           const hunted = run === 0 && rabbit ? rabbit.boards[board] ?? [] : [];
           return (
-            <div key={`${run}-${board}`} className="flex items-center gap-1.5" aria-label={label || "Board"}>
+            // Phones: the label goes above its row, keeping a double board narrow enough
+            // for the seats beside it; landscape: to the left.
+            <div key={`${run}-${board}`} className="flex flex-col items-center gap-0.5 wide:flex-row wide:gap-1.5" aria-label={label || "Board"}>
               {label && (
-                <div className="flex w-12 shrink-0 flex-col items-end text-[10px] leading-tight">
+                <div className="flex shrink-0 items-baseline gap-1 text-[10px] leading-tight wide:w-12 wide:flex-col wide:items-end wide:gap-0">
                   <span className="text-muted">{label}</span>
                   {/* Each board plays for its half of the pot (server-computed). */}
                   {hand && <span className="tabular font-semibold text-gold">{formatChips(hand.boardShares[board]!, dc)}</span>}
@@ -152,7 +185,12 @@ export function TableFelt({
       {view.seats.map((s, i) => {
         const number = i + 1;
         return (
-          <div key={number} className={`absolute z-10 ${indexOf(number) === 0 ? "" : "seat-pos"}`} style={seatPosition(indexOf(number), n)}>
+          <div
+            key={number}
+            data-hero={indexOf(number) === 0 ? "" : undefined}
+            className={`absolute z-10 ${indexOf(number) === 0 ? "" : "seat-pos"}`}
+            style={seatPosition(indexOf(number), n)}
+          >
             <Seat
               seat={s}
               number={number}
