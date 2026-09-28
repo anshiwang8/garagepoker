@@ -57,6 +57,7 @@ export const settingsSchema = z
     bombPotAnteBB: z.number().int(),
     runItTwice: z.enum(RUN_IT_TWICE_MODES as [RunItTwiceMode, ...RunItTwiceMode[]]),
     rabbitHunt: z.boolean(),
+    spectators: z.boolean(),
     straddle: z.boolean(),
     decisionTimeSec: z.number().int(),
     timeBankSec: z.number().int(),
@@ -175,6 +176,8 @@ export interface TableView {
   ledger: LedgerRow[];
   /** Once the game has ended: the fewest payments that settle the ledger (SPEC §6). */
   settlement: Payment[] | null;
+  /** How many connected people are watching without a seat. */
+  spectators: number;
 }
 
 export interface YouView {
@@ -192,6 +195,11 @@ export interface YouView {
    * halves: "Flush / 8-6 low". Null if you're not in the hand.
    */
   labels: string[] | null;
+  /**
+   * The owner turned spectators off and you have no seat: game details are
+   * hidden until you sit down.
+   */
+  watchBlocked: boolean;
 }
 
 export interface SeatView {
@@ -240,6 +248,11 @@ export interface HandView {
    * pending at `deadline` discards their lowest card.
    */
   discard: { seats: number[]; deadline: number } | null;
+  /**
+   * Provable fairness: committed before any card was dealt (see
+   * FairnessProof). Null for a moment while the server computes it.
+   */
+  commitment: string | null;
 }
 
 /** One share of a pot: a board (0-based) and a half; both null for an uncontested pot. */
@@ -275,6 +288,8 @@ export interface LastHandView {
   rabbitAvailable: boolean;
   /** The rabbit-hunted cards per board, once someone asked. Display only. */
   rabbit: { boards: string[][]; by: string } | null;
+  /** Everything needed to check this hand's cards against its commitment. */
+  fairness: FairnessProof | null;
 }
 
 export interface RequestView {
@@ -290,4 +305,92 @@ export interface RequestView {
 /** Formats a message for sending. */
 export function encode(message: ServerMessage | ClientMessage): string {
   return JSON.stringify(message);
+}
+
+// ---------------------------------------------------------------------------
+// Provable fairness (SPEC §7, per-card commitments)
+// ---------------------------------------------------------------------------
+
+/**
+ * Before dealing, every deck position i gets its own random salt and a hash
+ * SHA-256(salt + ":" + i + ":" + card). The commitment, sent to everyone at
+ * hand start, is SHA-256 of all those hashes joined by ",".
+ *
+ * After the hand every position hash is published, but the salt and card
+ * only for cards that became public (boards, both runs, showdown hands, and
+ * rabbit cards once hunted). A salted hash says nothing about its card, so
+ * folded hands, Pineapple discards and unhunted rabbit cards stay secret,
+ * while anyone can check that no visible card changed after the deal.
+ */
+export interface FairnessProof {
+  commitment: string;
+  /** One hash per deck position, in deck order. */
+  leaves: string[];
+  /** Salt and card for each position whose card became public. */
+  revealed: { index: number; card: string; salt: string }[];
+}
+
+export const fairnessLeafInput = (salt: string, index: number, card: string): string => `${salt}:${index}:${card}`;
+export const fairnessRootInput = (leaves: readonly string[]): string => leaves.join(",");
+/** The short form shown during a hand. */
+export const shortHash = (hash: string): string => hash.slice(0, 8);
+
+/** The cards shown on the table for a finished hand: boards, both runs, shown hands, rabbit cards. */
+export function lastHandPublicCards(last: LastHandView): string[] {
+  return [
+    ...last.boards.flat(),
+    ...(last.secondRun?.flat() ?? []),
+    ...last.shown.flatMap((s) => s.cards),
+    ...(last.rabbit?.boards.flat() ?? []),
+  ];
+}
+
+export interface FairnessCheck {
+  label: string;
+  ok: boolean;
+}
+
+/**
+ * Checks a hand's proof. `sha256Hex` is Web Crypto in the browser; the server
+ * tests pass the same. `publicCards` are the cards shown on the table (board,
+ * shown hands, rabbit cards); `commitmentAtStart` is the commitment this
+ * client saw when the hand began, if it saw one.
+ */
+export async function verifyFairness(
+  proof: FairnessProof,
+  publicCards: readonly string[],
+  sha256Hex: (text: string) => Promise<string>,
+  commitmentAtStart?: string | null,
+): Promise<{ ok: boolean; checks: FairnessCheck[] }> {
+  const checks: FairnessCheck[] = [];
+  checks.push({
+    label: `One committed hash for each of the ${proof.leaves.length} cards in the deck`,
+    ok: proof.leaves.length === 52 || proof.leaves.length === 36,
+  });
+  const root = await sha256Hex(fairnessRootInput(proof.leaves));
+  checks.push({ label: "The card hashes combine into the commitment", ok: root === proof.commitment });
+  if (commitmentAtStart) {
+    checks.push({
+      label: `It matches the commitment shown when the hand started (${shortHash(commitmentAtStart)})`,
+      ok: commitmentAtStart === proof.commitment,
+    });
+  }
+  let leavesOk = true;
+  for (const r of proof.revealed) {
+    const leaf = await sha256Hex(fairnessLeafInput(r.salt, r.index, r.card));
+    if (leaf !== proof.leaves[r.index]) leavesOk = false;
+  }
+  checks.push({ label: `Each of the ${proof.revealed.length} revealed cards matches its hash`, ok: leavesOk });
+  const indexes = new Set(proof.revealed.map((r) => r.index));
+  const cards = new Set(proof.revealed.map((r) => r.card));
+  checks.push({
+    label: "No card or deck position is revealed twice",
+    ok: indexes.size === proof.revealed.length && cards.size === proof.revealed.length,
+  });
+  const missing = publicCards.filter((c) => !cards.has(c));
+  checks.push({
+    label: missing.length ? `Cards on the table not in the proof: ${missing.join(" ")}` : "Every card shown on the table was committed before the deal",
+    ok: missing.length === 0,
+  });
+  return { ok: checks.every((c) => c.ok), checks };
 }

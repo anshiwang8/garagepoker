@@ -10,6 +10,7 @@ import {
 import { DurableObject } from "cloudflare:workers";
 import { clientKey } from "./rateLimit.js";
 import { newTableData, randomId, Table, type TableData, TableError } from "./table.js";
+import { seal } from "./fairness.js";
 import { buildView } from "./view.js";
 
 export { RateLimiter } from "./rateLimit.js";
@@ -139,6 +140,8 @@ export class TableRoom extends DurableObject<Env> {
 			table = new Table(this.data, this.deps(closing));
 			table.syncPresence();
 			table.tick();
+			// A hand just started: commit to its deck before anyone sees it.
+			if (this.data.fairness && this.data.fairness.commitment === null) await seal(this.data.fairness);
 		} catch (err) {
 			this.data = before;
 			if (!(err instanceof TableError)) console.error("TableRoom error", err);

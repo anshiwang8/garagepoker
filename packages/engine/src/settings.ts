@@ -27,6 +27,8 @@ export interface TableSettings {
   runItTwice: RunItTwiceMode;
   /** SPEC §2.8: after a hand ends before the river, anyone seated can see what would have come. */
   rabbitHunt: boolean;
+  /** SPEC §4: anyone with the link can watch without a seat. */
+  spectators: boolean;
   straddle: boolean;
   decisionTimeSec: number;
   timeBankSec: number;
@@ -48,6 +50,7 @@ export const DEFAULT_SETTINGS: TableSettings = {
   bombPotAnteBB: 2,
   runItTwice: "no",
   rabbitHunt: false,
+  spectators: true,
   straddle: false,
   decisionTimeSec: 20,
   timeBankSec: 60,
@@ -107,6 +110,7 @@ export function validateConfig(s: TableSettings): ConfigIssue[] {
   }
   if (!RUN_IT_TWICE_MODES.includes(s.runItTwice)) add("runItTwice", "Unknown run it twice setting");
   if (typeof s.rabbitHunt !== "boolean") add("rabbitHunt", "Rabbit hunt must be on or off");
+  if (typeof s.spectators !== "boolean") add("spectators", "Spectators must be on or off");
   if (!BOMB_POT_MODES.includes(s.bombPotMode)) add("bombPotMode", "Unknown bomb pot mode");
   if (!Number.isInteger(s.bombPotEvery) || s.bombPotEvery < 2 || s.bombPotEvery > 100) {
     add("bombPotEvery", "Bomb pot frequency must be every 2-100 hands");

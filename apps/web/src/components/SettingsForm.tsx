@@ -249,6 +249,12 @@ export function SettingsForm({
 
       <div className="flex flex-col divide-y divide-line rounded-xl border border-line bg-ink px-3">
         <Toggle
+          label="Spectators"
+          checked={s.spectators}
+          onChange={(v) => set("spectators", v)}
+          hint="Anyone with the link can watch without a seat"
+        />
+        <Toggle
           label="Rabbit hunt"
           checked={s.rabbitHunt}
           onChange={(v) => set("rabbitHunt", v)}

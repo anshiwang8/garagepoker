@@ -34,6 +34,7 @@ import {
   VARIANTS,
 } from "@garagepoker/engine";
 import type { ClientMessage, TableStatus } from "@garagepoker/protocol";
+import { type FairnessSecret, newSalts } from "./fairness.js";
 
 export const AUTO_START_DELAY_MS = 3_000;
 export const OWNER_OFFLINE_MS = 5 * 60_000;
@@ -140,6 +141,8 @@ export interface TableData {
    * rabbit hunt. Server-only: never put in a view. Overwritten each hand.
    */
   prevHand: HandState | null;
+  /** Salts and hashes for the current (or last) hand's fairness proof. Server-only. */
+  fairness: FairnessSecret | null;
   ledger: LedgerEvent[];
   ownerOfflineSince: number | null;
   emptySince: number | null;
@@ -194,6 +197,7 @@ export function newTableData(
     discardDeadline: null,
     lastHand: null,
     prevHand: null,
+    fairness: null,
     ledger: [],
     ownerOfflineSince: null,
     emptySince: deps.now,
@@ -645,12 +649,21 @@ export class Table {
     const dealt = bombPot ? eligible : admitted ? [...active, admitted] : active;
 
     const variant = VARIANTS[d.settings.variant];
+    const deck = shuffle(makeDeck(variant.deckSize), this.deps.random);
     d.hand = startHand({
       config: handConfigFor(d.settings, bombPot),
       players: dealt.map((x) => ({ seat: x.seat, stack: x.s.stack, postBlind: x.s.postBlind })),
       button,
-      deck: shuffle(makeDeck(variant.deckSize), this.deps.random),
+      deck,
     });
+    // Committed (hashed by TableRoom) before any view of this hand goes out.
+    d.fairness = {
+      hand: d.handNumber + 1,
+      deck,
+      salts: newSalts(deck.length, this.deps.random),
+      leaves: null,
+      commitment: null,
+    };
     for (const x of dealt) {
       x.s.postBlind = false;
       x.s.waitingForBB = false;

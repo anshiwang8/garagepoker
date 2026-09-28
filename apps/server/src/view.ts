@@ -5,6 +5,7 @@
  */
 import { cardToString, handLabel, ledgerRows, legalActions, potTotal, settleUp, splitEven } from "@garagepoker/engine";
 import type { RequestView, SeatView, TableView } from "@garagepoker/protocol";
+import { proofFor } from "./fairness.js";
 import { rabbitAvailable, type SeatRequest, type TableData } from "./table.js";
 
 const cards = (cs: readonly number[]) => cs.map(cardToString);
@@ -28,9 +29,15 @@ export function buildView(
   connected: ReadonlySet<string>,
   now: number,
 ): TableView {
-  const hand = data.hand;
   const viewerSeat = data.seats.findIndex((s) => s?.playerId === viewerId) + 1 || null;
   const isOwner = viewerId === data.ownerId;
+  // SPEC §4: with spectators off, people without a seat (other than the owner)
+  // see who's sitting where, so they can ask for a seat, but not the game.
+  const watchBlocked = !data.settings.spectators && viewerSeat === null && !isOwner;
+  const hand = watchBlocked ? null : data.hand;
+  const lastHand = watchBlocked ? null : data.lastHand;
+  const seatedIds = new Set(data.seats.flatMap((s) => (s ? [s.playerId] : [])));
+  const fairness = data.fairness;
 
   const seats = data.seats.slice(0, data.settings.seats).map((s, i): SeatView | null => {
     if (!s) return null;
@@ -88,6 +95,7 @@ export function buildView(
       // One label per board; in Hi/Lo each shows both halves.
       labels:
         hand && you && !you.folded ? hand.boards.map((b) => handLabel(hand.config.variant, you.hole, b).text) : null,
+      watchBlocked,
     },
     seats,
     hand: hand
@@ -110,15 +118,16 @@ export function buildView(
             hand.ritOffer && data.ritDeadline !== null
               ? { seats: [...hand.ritOffer.seats], accepted: [...hand.ritOffer.accepted], deadline: data.ritDeadline }
               : null,
+          commitment: fairness?.hand === data.handNumber ? fairness.commitment : null,
         }
       : null,
-    lastHand: data.lastHand
+    lastHand: lastHand
       ? {
-          number: data.lastHand.number,
-          bombPot: data.lastHand.bombPot,
-          hiLo: data.lastHand.hiLo,
-          boards: data.lastHand.boards.map(cards),
-          pots: data.lastHand.pots.map((p) => ({
+          number: lastHand.number,
+          bombPot: lastHand.bombPot,
+          hiLo: lastHand.hiLo,
+          boards: lastHand.boards.map(cards),
+          pots: lastHand.pots.map((p) => ({
             amount: p.amount,
             slices: p.slices.map((s) => ({
               // (Hands saved before run it twice have no run.)
@@ -129,23 +138,40 @@ export function buildView(
               winners: s.winners.map((w) => ({ seat: w.seat, amount: w.amount })),
             })),
           })),
-          shown: data.lastHand.shown.map((x) => ({
+          shown: lastHand.shown.map((x) => ({
             seat: x.seat,
             nickname: x.nickname,
             cards: cards(x.cards),
             labels: x.labels,
             secondRunLabels: x.secondRunLabels ?? null,
           })),
-          secondRun: data.lastHand.secondRun?.map(cards) ?? null,
+          secondRun: lastHand.secondRun?.map(cards) ?? null,
           rabbitAvailable: rabbitAvailable(data),
           // Rabbit cards appear only once a seated player asked for them.
-          rabbit: data.lastHand.rabbit
-            ? { boards: data.lastHand.rabbit.boards.map(cards), by: data.lastHand.rabbit.by }
-            : null,
+          rabbit: lastHand.rabbit ? { boards: lastHand.rabbit.boards.map(cards), by: lastHand.rabbit.by } : null,
+          fairness: fairnessProof(data),
         }
       : null,
     requests: isOwner ? data.requests.map(requestView) : null,
-    ledger,
-    settlement: data.status === "ended" ? settleUp(ledger) : null,
+    ledger: watchBlocked ? [] : ledger,
+    settlement: data.status === "ended" && !watchBlocked ? settleUp(ledger) : null,
+    spectators: [...connected].filter((id) => !seatedIds.has(id)).length,
   };
+}
+
+/**
+ * The last hand's fairness proof: every position hash, plus salt and card for
+ * the cards that became public: boards (both runs), showdown hands, and the
+ * rabbit cards once hunted. Folded hands and discards are never revealed.
+ */
+function fairnessProof(data: TableData) {
+  const { fairness, lastHand, prevHand } = data;
+  if (!fairness || !lastHand || !prevHand || fairness.hand !== lastHand.number) return null;
+  const shown = [
+    ...prevHand.boards.flat(),
+    ...(prevHand.secondRun?.flat() ?? []),
+    ...lastHand.shown.flatMap((s) => s.cards),
+    ...(lastHand.rabbit?.boards.flat() ?? []),
+  ];
+  return proofFor(fairness, shown);
 }

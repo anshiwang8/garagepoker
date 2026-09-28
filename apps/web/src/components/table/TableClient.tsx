@@ -1,6 +1,6 @@
 "use client";
 
-import type { TableView } from "@garagepoker/protocol";
+import { shortHash, type TableView } from "@garagepoker/protocol";
 import Link from "next/link";
 import { useState } from "react";
 import { formatChips } from "@/lib/chips";
@@ -25,7 +25,7 @@ type Dialog = { kind: "seat"; seat: number } | { kind: "rebuy" } | { kind: "ledg
  * sends a message and waits for the next view.
  */
 export function TableClient({ tableId }: { tableId: string }) {
-  const { view, connection, send, toasts, dismiss, clockOffset } = useTableSocket(tableId);
+  const { view, connection, send, toasts, dismiss, clockOffset, commitments } = useTableSocket(tableId);
   const [dialog, setDialog] = useState<Dialog>(null);
   const now = useServerNow(clockOffset, !!view?.hand?.toAct || !!view?.hand?.ritOffer || !!view?.hand?.discard);
 
@@ -66,6 +66,16 @@ export function TableClient({ tableId }: { tableId: string }) {
           {view.settings.boards === 2 && " · 2 boards"}
           {view.handNumber > 0 && ` · hand ${view.handNumber}`}
         </div>
+        {view.hand?.commitment && (
+          <span className="shrink-0 font-mono text-[10px] text-muted" title="Deck commitment for this hand; verify it after the hand">
+            deck {shortHash(view.hand.commitment)}
+          </span>
+        )}
+        {view.spectators > 0 && (
+          <span className="text-xs text-muted" title="People watching without a seat">
+            {view.spectators} watching
+          </span>
+        )}
         {connection !== "open" && <span className="rounded bg-danger/20 px-2 py-0.5 text-xs text-danger">Reconnecting…</span>}
         {view.you.isOwner && (
           <Button onClick={() => setDialog({ kind: "owner" })} className="relative">
@@ -123,7 +133,7 @@ export function TableClient({ tableId }: { tableId: string }) {
             </div>
           </div>
         )}
-        {!view.hand && view.lastHand && view.lastHand.number === view.handNumber && <HandResult view={view} send={send} />}
+        {!view.hand && view.lastHand && view.lastHand.number === view.handNumber && <HandResult view={view} send={send} seenCommitment={commitments[view.lastHand.number]} />}
         <RunItTwicePrompt view={view} send={send} now={now} />
         <ActionBar view={view} send={send} countdown={view.hand?.toAct === view.you.seat ? countdown : null} />
       </section>
@@ -195,6 +205,7 @@ function countdownFor(view: TableView, now: number): Countdown | null {
 }
 
 function statusText(view: TableView, canSit: boolean): string | null {
+  if (view.you.watchBlocked) return "Spectating is off at this table. Take a seat to watch.";
   if (view.hand) return null;
   if (view.status === "ended") return "The game has ended.";
   const lastShown = view.lastHand && view.lastHand.number === view.handNumber;

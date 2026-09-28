@@ -27,6 +27,8 @@ export function useTableSocket(tableId: string) {
   const wsRef = useRef<WebSocket | null>(null);
   /** serverNow - Date.now() at the last view, for countdowns. */
   const [clockOffset, setClockOffset] = useState(0);
+  /** Commitments seen at the start of each hand, to verify against afterwards. */
+  const [commitments, setCommitments] = useState<Record<number, string>>({});
   const toastId = useRef(0);
 
   const toast = useCallback((message: string) => {
@@ -64,6 +66,11 @@ export function useTableSocket(tableId: string) {
         }
         if (m.type === "view") {
           setClockOffset(m.view.serverNow - Date.now());
+          const hand = m.view.hand;
+          if (hand?.commitment) {
+            const { number, commitment } = hand;
+            setCommitments((prev) => (prev[number] ? prev : { ...prev, [number]: commitment }));
+          }
           setView((prev) => (prev && prev.rev > m.view.rev ? prev : m.view));
         } else {
           toast(m.message);
@@ -98,7 +105,7 @@ export function useTableSocket(tableId: string) {
 
   const dismiss = useCallback((id: number) => setToasts((t) => t.filter((x) => x.id !== id)), []);
 
-  return { view, connection, send, toasts, dismiss, clockOffset };
+  return { view, connection, send, toasts, dismiss, clockOffset, commitments };
 }
 
 /** Re-renders every `ms` while `active`, returning the server-adjusted time. */

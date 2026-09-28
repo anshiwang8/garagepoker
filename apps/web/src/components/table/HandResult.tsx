@@ -1,5 +1,6 @@
 import type { ClientMessage, LastHandView, SliceView, TableView } from "@garagepoker/protocol";
 import { formatChips } from "@/lib/chips";
+import { VerifyButton } from "./VerifyDialog";
 
 type Send = (m: Exclude<ClientMessage, { type: "hello" }>) => void;
 
@@ -35,7 +36,7 @@ function handFor(label: string | undefined, half: SliceView["half"]): string | u
  * Who won which slice of which pot: "Main pot · Board 1 high · Alice 78 ·
  * Three of a kind". Everything shown comes from the server's last-hand result.
  */
-export function HandResult({ view, send }: { view: TableView; send: Send }) {
+export function HandResult({ view, send, seenCommitment }: { view: TableView; send: Send; seenCommitment?: string }) {
   const last = view.lastHand;
   if (!last) return null;
   const dc = view.settings.displayCents;
@@ -52,6 +53,9 @@ export function HandResult({ view, send }: { view: TableView; send: Send }) {
         <span>
           Hand {last.number} result{last.bombPot ? " · bomb pot" : ""}
           {last.secondRun ? " · ran twice" : ""}
+        </span>
+        <span className="flex items-center gap-2 normal-case tracking-normal">
+          <VerifyButton view={view} seenCommitment={seenCommitment} />
         </span>
         {last.rabbitAvailable && seated && (
           <button
