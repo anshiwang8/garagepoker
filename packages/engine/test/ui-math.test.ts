@@ -45,7 +45,6 @@ describe("cent mode formatting and parsing", () => {
 describe("raise presets", () => {
   const base: RaisePresetInput = {
     unopened: false,
-    postflop: false,
     bigBlind: 20,
     pot: 0,
     currentBet: 0,
@@ -57,25 +56,24 @@ describe("raise presets", () => {
   };
   const labels = (i: Partial<RaisePresetInput>) => raisePresets({ ...base, ...i }).map((p) => `${p.label} ${p.to}`);
 
-  it("unopened preflop: Min, 2 BB, 3 BB, All in (2 BB is the min raise, so it's shown once)", () => {
+  it("unopened preflop: Min raise, 2 BB, 3 BB, All in (2 BB is the min raise, so it's shown once)", () => {
     // UTG facing the blinds (10/20, pot 30): min raise to 40.
     expect(labels({ unopened: true, pot: 30, currentBet: 20, callAmount: 20, minRaiseTo: 40, maxRaiseTo: 1000, allInTo: 1000 })).toEqual([
-      "Min 40",
+      "Min raise 40",
       "3 BB 60",
       "All in 1000",
     ]);
     // With a straddle (current bet 40, min raise to 80), 2 BB and 3 BB are below the min.
     expect(labels({ unopened: true, pot: 70, currentBet: 40, callAmount: 40, minRaiseTo: 80, maxRaiseTo: 1000, allInTo: 1000 })).toEqual([
-      "Min 80",
+      "Min raise 80",
       "All in 1000",
     ]);
   });
 
-  it("preflop facing a raise: Min, ⅓, ½, ¾ pot, Pot, All in (pot after calling)", () => {
+  it("preflop facing a raise: Min raise, ½ pot, ¾ pot, Pot, All in (pot after calling)", () => {
     // Blinds 10/20, UTG raised to 60; the button faces 60: pot 90, call 60 → 150 after calling.
     expect(labels({ pot: 90, currentBet: 60, callAmount: 60, minRaiseTo: 100, maxRaiseTo: 2000, allInTo: 2000 })).toEqual([
-      "Min 100", // 60 + 40 (the last raise)
-      "⅓ pot 110", // 60 + 150 / 3
+      "Min raise 100", // 60 + 40 (the last raise)
       "½ pot 135", // 60 + 75
       "¾ pot 172", // 60 + floor(112.5)
       "Pot 210", // 60 + 150
@@ -83,23 +81,26 @@ describe("raise presets", () => {
     ]);
   });
 
-  it("postflop: ½ pot, ¾ pot, Pot, All in (no Min, no ⅓)", () => {
-    // No bet yet.
-    expect(labels({ postflop: true, pot: 120, minRaiseTo: 20, maxRaiseTo: 500, allInTo: 500 })).toEqual([
+  it("postflop: Min raise, ½ pot, ¾ pot, Pot, All in", () => {
+    // No bet yet: the min bet is the big blind.
+    expect(labels({ pot: 120, minRaiseTo: 20, maxRaiseTo: 500, allInTo: 500 })).toEqual([
+      "Min raise 20",
       "½ pot 60",
       "¾ pot 90",
       "Pot 120",
       "All in 500",
     ]);
     // Facing a bet of 60 into 90 (pot 150 after calling).
-    expect(labels({ postflop: true, pot: 150, currentBet: 60, callAmount: 60, minRaiseTo: 120, maxRaiseTo: 2000, allInTo: 2000 })).toEqual([
+    expect(labels({ pot: 150, currentBet: 60, callAmount: 60, minRaiseTo: 120, maxRaiseTo: 2000, allInTo: 2000 })).toEqual([
+      "Min raise 120",
       "½ pot 165", // 60 + 210 / 2
       "¾ pot 217", // 60 + floor(157.5)
       "Pot 270",
       "All in 2000",
     ]);
     // Pot-limit postflop: Pot and All in land on the same amount, shown once as Pot (max).
-    expect(labels({ postflop: true, pot: 120, minRaiseTo: 20, maxRaiseTo: 120, allInTo: 500, potLimit: true })).toEqual([
+    expect(labels({ pot: 120, minRaiseTo: 20, maxRaiseTo: 120, allInTo: 500, potLimit: true })).toEqual([
+      "Min raise 20",
       "½ pot 60",
       "¾ pot 90",
       "Pot (max) 120",
@@ -109,32 +110,29 @@ describe("raise presets", () => {
   it("pot-limit: everything is capped at the pot-sized raise, labelled Pot (max)", () => {
     // Same spot as "facing a raise" in PLO: max raise is to 210.
     expect(labels({ pot: 90, currentBet: 60, callAmount: 60, minRaiseTo: 100, maxRaiseTo: 210, allInTo: 2000, potLimit: true })).toEqual([
-      "Min 100",
-      "⅓ pot 110",
+      "Min raise 100",
       "½ pot 135",
       "¾ pot 172",
       "Pot (max) 210",
     ]);
     // Unopened PLO preflop, pot 30: max raise to 70, so 3 BB (60) stays and All in is capped.
     expect(labels({ unopened: true, pot: 30, currentBet: 20, callAmount: 20, minRaiseTo: 40, maxRaiseTo: 70, allInTo: 5000, potLimit: true })).toEqual([
-      "Min 40",
+      "Min raise 40",
       "3 BB 60",
       "Pot (max) 70",
     ]);
     // A short stack in PL whose all-in is below the pot limit: plain "All in".
     expect(labels({ pot: 90, currentBet: 60, callAmount: 60, minRaiseTo: 100, maxRaiseTo: 150, allInTo: 150, potLimit: true })).toEqual([
-      "Min 100",
-      "⅓ pot 110",
+      "Min raise 100",
       "½ pot 135",
       "All in 150",
     ]);
   });
 
   it("short stack: presets above the stack are hidden; below the min raise only All in is left", () => {
-    // Stack covers 130: the ¾-pot and pot raises are gone.
+    // Stack covers 130: the pot fractions are gone.
     expect(labels({ pot: 90, currentBet: 60, callAmount: 60, minRaiseTo: 100, maxRaiseTo: 130, allInTo: 130 })).toEqual([
-      "Min 100",
-      "⅓ pot 110",
+      "Min raise 100",
       "All in 130",
     ]);
     // All-in for less than a min raise (the server's min is then the all-in amount).
@@ -146,7 +144,6 @@ describe("raise presets", () => {
       fc.property(
         fc.record({
           unopened: fc.boolean(),
-          postflop: fc.boolean(),
           bigBlind: fc.integer({ min: 1, max: 1000 }),
           pot: fc.integer({ min: 0, max: 1e6 }),
           currentBet: fc.integer({ min: 0, max: 1e5 }),
