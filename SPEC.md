@@ -151,7 +151,7 @@ The owner can change settings at any time, including during a hand. Changes appl
 
 ## 6. Ledger and settle-up
 
-A **Ledger** button at the bottom left opens a table for the current session only.
+**Ledger**, in the Options sheet, opens a table for the current session only.
 
 | Column | Meaning |
 | --- | --- |
@@ -179,31 +179,50 @@ Store one entry per event, so the ledger is an audit log, not just running total
 
 ## 7. UI
 
-- Works in mobile and desktop browsers. The table lays out horizontally or vertically depending on the screen's aspect ratio; design mobile portrait first.
-- **Layout:** top bar, the table, and a bottom toolbar (Ledger, Pause, Last hand, Rebuy, Leave, Away; on phones Last hand, Rebuy and Leave are in a "⋯ More" menu so the toolbar fits 390 px). There is no side panel: the table uses the full width, and your cards and hand label are at your seat. Seats are spread round the table so the bottom corners stay clear for your seat and the action float.
-- There are no chip graphics, only numbers. The total pot is shown in the middle of the table, above the board.
-- A dealer button marker rotates around the table.
-- **Seats:** no box or panel behind a seat: its cards sit on the felt as two large overlapping cards (Omaha variants fan 4–5), face down for opponents, with name and stack as plain text (with a subtle shadow) next to or under them, and the current bet toward the centre. Only the seat whose turn it is gets a thin gold glow. Your own seat is bigger. On a phone, tableside cards are large enough to read; opponents' Omaha fans are a little smaller so a full table fits.
-- **Hero area:** your seat (bottom centre) is reserved: no other seat, bet or button enters it. On narrow screens opponent seats shrink and move toward the rail rather than overlap anything.
-- **Hand-strength tag:** a small coloured tag under the cards names the hand ("PAIR", "TWO PAIR", "FLUSH"; Hi/Lo shows both halves, e.g. "FLUSH" + "8-6 LOW"; double board shows a "B1" and a "B2" row, both always fully visible). Only the card's owner sees it, until showdown. On a phone, opponents' showdown tags use short names ("TRIPS", "QUADS") and leave out "NO LOW".
-- **Dealer button:** shown above the seat that has it.
-- **Action float:** floats over the bottom-right corner of the table, above the toolbar, and never covers your seat or the board.
-  - Your turn: Fold (red), Check or "Call 20" (neutral), Raise/Bet (gold), as large bold buttons (at least 56 px tall on desktop, 48 px on phones, 16–18 px text), with your decision timer as a bar above them. Your seat pulses. No sound.
-  - Otherwise a compact status pill: "Waiting for Bob…", "Your turn in 2" (players still to act before you), or "Hand over" with a Details link that opens the hand result (winners, Verify, Rabbit hunt). Nothing else takes space.
-  - Run it twice, Pineapple discards and "waiting for approval" appear in the same spot.
-  - Raise opens a panel directly above the buttons: presets, then a slider with the editable amount, then Confirm (and Cancel).
-  - Presets: Preflop when nobody has raised yet: Min, 2 BB, 3 BB, All in. Preflop after a raise: Min, ⅓ pot, ½ pot, ¾ pot, Pot, All in. Postflop: ½ pot, ¾ pot, Pot, All in. A pot fraction raises to the current bet plus that share of the pot after calling.
+Phone portrait first (390×844; also 360×740 and 430×932), desktop second (≥ 1024 px wide). GaragePoker branding only: our GP mark, our own card back (deep red with a subtle GP pattern) and a gold accent. No third-party logos, wordmarks or card-back artwork.
+
+- **Layout:** three zones on the page background, top to bottom, with no side panel and no background bars:
+  - **Top icon bar.** Left: Options, Leave seat (two-tap confirm) and Away ("I'm back", in gold, when away), each an icon with a small uppercase label. Right: square icon buttons for Sound on/off (a stored preference; there are no sounds yet) and, for the owner only, Pause/Resume and End game (two-tap confirm). Pause and End take effect after the current hand.
+  - **Felt.** Fills the height in between: a tall rounded rectangle on phones and a stadium (at most ~1200 px wide) on desktop, with a thick dark rail. Seats sit on the rail.
+  - **Bottom action zone.** Holds exactly one thing at a time: the action row, the raise panel, the show-cards bar, a prompt (run it twice, Pineapple discard, waiting for approval) or a status pill. It grows when the raise panel opens, and the felt shrinks rather than being covered. On desktop it's anchored at the bottom right, with a Chat/Log box at the bottom left.
+- **Options sheet:** Ledger, Last hand, Log (this hand's actions), Rebuy (if allowed), Table settings and Players (owner), Copy table link. On phones, Chat and Log live here.
+- **Felt centre**, top to bottom:
+  - A bomb-pot badge on bomb-pot hands.
+  - The pot pill, showing the collected pot, with a small "total X" tag (pot plus this street's bets) while bets are out.
+  - After a hand, a one-line result ("B1 high: Ann 60 · B2 high: Bob 60") with a Details link to the full breakdown (winners, Verify, run twice).
+  - The board: up to 5 cards, as large as fit, with no placeholders for cards not yet dealt. A double board (or run twice) stacks rows labelled "B1"/"B2" (or "R1"/"R2").
+  - Table info: "OWNER: NAME" and "NLH ~ 10 / 20".
+  - When no hand is running (new, paused or waiting for players), the info shows that state ("Waiting for players", "Paused by owner") with a gold **Copy link** button that copies the table URL and briefly shows "Copied".
+- There are no chip graphics, only numbers.
+- **Seats:** you are always at the bottom centre; the others go clockwise round the rail. Empty seats show a "Sit" circle only to people without a seat. Each seat is a name plate (name, with ★ for the owner; stack) with its cards above it and no box around them:
+  - Opponents: face-down GP card backs fanned above the plate (Omaha and Pineapple fans are smaller). Folded players have no cards and a dimmed plate; away players have a dimmed plate with an "AWAY" tag.
+  - Your seat: large face-up cards, fanned, over the rail, with your plate under them.
+  - On narrow screens or full tables, opponent plates and cards shrink rather than overlap anything.
+- **Hero area:** no opponent plate, card, bet or button ever overlaps your cards, tags or plate.
+- **Hand-strength tag:** a small coloured, uppercase tag over the bottom edge of the cards, coloured by strength: grey-blue for high card and pair, teal for two pair and trips, purple for straight, flush and full house, red for quads and better. Hi/Lo shows both halves ("FLUSH · 8-6 LOW"); a double board shows two tags ("B1 PAIR", "B2 TWO PAIR"). Only the card's owner sees it, until showdown. Opponents' showdown tags use short names ("TRIPS", "QUADS").
+- **Dealer button:** a white "D" disc beside the dealer's plate, on the felt side.
+- **Bets:** each street's bet (blinds and antes included) is a bright chip-coloured pill on the felt between the player and the pot.
+- **Whose turn:** that player's plate turns white with a soft glow, and a thin timer bar along its bottom edge shrinks from green to yellow to red. In the time bank the bar turns purple, and an "EXTRA TIME" banner shows beside the plate for 2 s. No sound.
+- **Action row (your turn):** three large outlined buttons in one row, right-aligned: Raise (Bet when there's no bet yet), Check or "Call 40", and Fold, in that order. Raise and Check/Call are green; Fold is red. They're at least 56 px tall with 16 px uppercase text. An unavailable action stays visible but dimmed. A call that puts you all in reads "Call all in 430".
+- **Otherwise,** a status pill: "Waiting for Bob…", "Your turn in 2" (players still to act before you) or "Hand over". The owner gets Start game here while the game is paused.
+- **Raise panel:** it replaces the action row.
+  - On the left, "Your bet" in a big editable amount box (decimal keypad in cent mode) with a gold tag showing its size in big blinds ("7.5BB").
+  - Under it, a row of presets, then a slider between − and + buttons. The slider runs from the min raise to the max; − and + step by one big blind.
+  - On the right, Back (returns without acting) and Raise, which reads Bet when there's no bet yet and All in at your whole stack.
+  - Typed amounts are checked against the min and max, and an invalid one says why.
+- **Presets:**
+  - Preflop when nobody has raised yet: Min raise, 2 BB, 3 BB, All in.
+  - Otherwise: Min raise, ½ pot, ¾ pot, Pot, All in.
+  - A pot fraction raises to the current bet plus that share of the pot after calling.
   - In pot-limit games every preset is capped at the maximum pot-sized raise, and a capped All in is labelled "Pot (max)".
-  - Presets below the min raise or above the player's stack are hidden; presets that land on the same amount are shown once.
-- **Phones (portrait):** no background bars: the toolbar buttons and the action float's buttons or pill sit on the page background as separate rounded elements. The action float spans the full width at the bottom, above the toolbar, clear of the safe areas; the table shrinks to fit above it, so nothing overlaps the buttons or your seat. The raise panel opens as a bottom sheet over the table, just above the buttons. The owner's approval popup waits until you've acted.
-- **Show cards after a hand:** from the end of a hand until the next deal, anyone who was dealt in and whose hand wasn't shown down (they folded, or won uncontested) can show it. At their own seat they tap "Show all", or tap cards to pick some (tap again to unpick) and show those. Showing is final. Shown cards appear face up at that seat, with a small "Shown" tag, for everyone including spectators, until the next deal, and are recorded in the last-hand replay and the fairness proof. The server only accepts cards the player held at the end of the hand (never a Pineapple discard) and never sends unshown cards to anyone else.
-- **Run it twice:** a prompt appears when it's eligible and disappears after 5 s; no answer means it runs once.
-- **Pineapple:** a discard picker appears on each discard street.
-- Double board shows two stacked boards, each labeled with its share of the pot.
-- **Away button** ("I'm back" when away), always visible to seated players. The owner's **Pause** button is always visible too; Pause takes effect after the current hand.
-- **Copy link:** when no hand is running (a new table, paused, or waiting for players), a "Copy link" button in the centre of the felt copies the table URL and briefly shows "Copied".
+  - Presets below the min raise or above your stack are hidden; presets that land on the same amount are shown once.
+- **End of hand:** winners' plates glow gold, and every seat that won or lost chips shows its net for the hand beside its stack ("+120" in green, "−60" in red). Hands shown down turn face up at their seats, with tags.
+- **Show cards after a hand:** from the end of a hand until the next deal, anyone who was dealt in and whose hand wasn't shown down (they folded, or won uncontested) gets the show-cards bar: Show all cards, then one button per hole card (rank and suit, in suit colour). Tapping a card shows it to everyone at once. That button then reads "Shown", because showing is final. Shown cards appear face up at that seat for everyone, including spectators, until the next deal, and are recorded in the last-hand replay and the fairness proof. The server only accepts cards the player held at the end of the hand (never a Pineapple discard), and never sends unshown cards to anyone else.
+- **Rabbit hunt:** when it's on and a hand ended before the river, the missing board cards show as face-down GP backs with a "Reveal" strip across them. Any seated player can tap it to show everyone what would have come. It's display only and gone at the next deal.
+- **Run it twice:** a prompt appears in the action zone when it's eligible and disappears after 5 s; no answer means it runs once.
+- **Pineapple:** a discard picker appears in the action zone on each discard street.
+- **Approval popup:** the owner's popup waits until they've acted.
 - **Refresh:** reloading the page mid-game reconnects to the same table, seat and cards, with no re-join prompt.
-- **Ledger button**, bottom left.
 - **Chat panel**, if enabled.
 - **Fairness:** at hand start, show a short deck hash. After the hand, a "Verify" link checks the revealed cards against it in the browser (per-card commitments: see §8).
 
