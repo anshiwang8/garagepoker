@@ -47,100 +47,55 @@ input[type="range"] {
   accent-color: var(--color-gold);
 }
 
-/*
- * Table page (SPEC §7). Portrait (default): top bar, table, action float,
- * toolbar, stacked, so the table shrinks to fit above the actions. Landscape:
- * the table takes the full width and the action float sits over its
- * bottom-right corner, clear of your seat (bottom centre) and the board.
- */
-.table-layout {
-  display: grid;
+/* Table page (SPEC §7): top icon bar, felt, bottom action zone, filling the screen. */
+.table-page {
   height: 100vh;
-  grid-template-areas: "top" "felt" "hand" "util";
-  grid-template-rows: auto minmax(0, 1fr) auto auto;
-  /* Never wider than the screen, whatever the rows contain. */
-  grid-template-columns: minmax(0, 1fr);
-}
-.area-top { grid-area: top; }
-.area-felt { grid-area: felt; }
-.area-hand { grid-area: hand; }
-.area-util { grid-area: util; }
-
-/* No bar behind it: the buttons and pill float over the page as their own rounded elements. */
-.action-float {
-  z-index: 30;
-  padding: 0.25rem max(0.75rem, env(safe-area-inset-right)) 0.25rem max(0.75rem, env(safe-area-inset-left));
-}
-/* Nothing to show (spectating, between games): take no space at all. */
-.action-float:not(:has(> :not(:empty))) {
-  display: none;
 }
 
-/* Portrait: compact buttons so the bottom row fits a 390 px phone. */
-@media not (min-aspect-ratio: 5/4) {
-  .area-util button {
-    padding: 0.375rem 0.5rem;
-    font-size: 0.75rem;
-  }
-}
-.area-util button {
-  white-space: nowrap;
-}
-@media (min-aspect-ratio: 5/4) {
-  .table-layout {
-    grid-template-areas: "top" "felt" "util";
-    grid-template-rows: auto minmax(0, 1fr) auto;
-  }
-  .action-float {
-    grid-area: felt;
-    align-self: end;
-    justify-self: end;
-    /* Leaves room for your seat, pinned at the bottom centre. */
-    width: min(24rem, calc(50% - 10rem));
-    margin: 0.75rem;
-    padding: 0;
-  }
+/* GaragePoker's card back: deep red; the GP monogram is drawn over it (PlayingCard). */
+.card-back {
+  background: linear-gradient(150deg, #a3202f 0%, #7a1422 55%, #5e0f1a 100%);
 }
 
-/* Seats round the table (TableFelt seatPosition): the phone or landscape point, kept on screen. */
-/*
- * The hero area (your seat, bottom centre) is reserved: no other seat comes
- * lower than its top. TableFelt measures --hero-h (your seat's height) and
- * --opp-half (half the tallest other seat, since seats are centred on their point).
- */
-.seat-pos {
-  left: clamp(var(--seat-edge), var(--xp), calc(100% - var(--seat-edge)));
-  top: clamp(4.5rem, var(--yp), calc(100% - var(--hero-h, 9rem) - var(--opp-half, 4.75rem)));
-  transform: translate(-50%, -50%);
-}
-@media (min-aspect-ratio: 5/4) {
-  .seat-pos {
-    left: clamp(var(--seat-edge), var(--xw), calc(100% - var(--seat-edge)));
-    top: clamp(4.5rem, var(--yw), calc(100% - var(--hero-h, 6rem) - var(--opp-half, 3rem)));
-  }
+/* Winners of the last hand: a soft gold glow round the name plate. */
+.winner-glow {
+  box-shadow: 0 0 0 2px #facc15, 0 0 20px 4px rgb(250 204 21 / 0.55);
 }
 
-/* Seat text sits straight on the felt. */
-.text-legible {
-  text-shadow: 0 1px 2px rgb(0 0 0 / 0.9), 0 0 6px rgb(0 0 0 / 0.55);
+/* The raise slider: a big gold thumb on a thin track. */
+.bet-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 28px;
+  background: transparent;
 }
-
-/* The seat whose turn it is: a thin gold glow. Yours pulses (no sound). */
-.seat-turn {
-  box-shadow: 0 0 0 1px rgb(233 185 73 / 0.9), 0 0 12px 1px rgb(233 185 73 / 0.4);
+.bet-slider::-webkit-slider-runnable-track {
+  height: 6px;
+  border-radius: 3px;
+  background: #3a3a3a;
 }
-@keyframes turn-glow {
-  0%, 100% { box-shadow: 0 0 0 1px rgb(233 185 73 / 0.9), 0 0 8px 1px rgb(233 185 73 / 0.3); }
-  50% { box-shadow: 0 0 0 1.5px rgb(233 185 73), 0 0 20px 5px rgb(233 185 73 / 0.5); }
+.bet-slider::-moz-range-track {
+  height: 6px;
+  border-radius: 3px;
+  background: #3a3a3a;
 }
-.turn-glow {
-  animation: turn-glow 1.2s ease-in-out infinite;
+.bet-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 28px;
+  height: 28px;
+  margin-top: -11px;
+  border-radius: 50%;
+  background: var(--color-gold);
+  border: 2px solid #fff3;
+  box-shadow: 0 2px 6px rgb(0 0 0 / 0.5);
 }
-@media (prefers-reduced-motion: reduce) {
-  .turn-glow {
-    animation: none;
-    box-shadow: 0 0 0 1.5px rgb(233 185 73), 0 0 14px 3px rgb(233 185 73 / 0.45);
-  }
+.bet-slider::-moz-range-thumb {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--color-gold);
+  border: 2px solid #fff3;
+  box-shadow: 0 2px 6px rgb(0 0 0 / 0.5);
 }
 
 .max-h-sheet {
@@ -153,7 +108,7 @@ input[type="range"] {
  * minifier merges duplicate declarations and would drop the vh fallback.
  */
 @supports (height: 100dvh) {
-  .table-layout {
+  .table-page {
     height: 100dvh;
   }
   .max-h-sheet {

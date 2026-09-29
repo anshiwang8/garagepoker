@@ -1,6 +1,6 @@
 import type { SeatView } from "@garagepoker/protocol";
+import type { CSSProperties } from "react";
 import { formatChips } from "@/lib/chips";
-import { PlayingCard } from "./PlayingCard";
 
 export function actionText(a: NonNullable<SeatView["lastAction"]>, displayCents: boolean): string {
   const amt = (n: number) => formatChips(n, displayCents);
@@ -41,291 +41,213 @@ export interface Countdown {
   fraction: number;
   seconds: number;
   inBank: boolean;
+  /** Ms since the time bank started (0 before). */
+  bankElapsed: number;
 }
 
-
-/** Tag colour by hand strength, from the label text (e.g. "Top pair", "Flush / 8-6 low"). */
-function tagClass(label: string): string {
-  const l = label.toLowerCase();
-  if (l.includes("low")) return "bg-sky-700 text-white";
-  if (l.includes("straight flush") || l.includes("royal")) return "bg-gold text-ink";
-  if (l.includes("four of a kind")) return "bg-rose-600 text-white";
-  if (l.includes("full house")) return "bg-fuchsia-600 text-white";
-  if (l.includes("flush")) return "bg-emerald-600 text-white";
-  if (l.includes("straight")) return "bg-orange-500 text-white";
-  if (l.includes("three of a kind")) return "bg-violet-600 text-white";
-  if (l.includes("two pair")) return "bg-teal-600 text-white";
-  if (l.includes("pair")) return "bg-blue-600 text-white";
-  return "bg-zinc-600 text-white";
+/** SPEC §7 tag colours by strength tier, from the high half of a label like "Flush / 8-6 low". */
+export function tagColor(label: string): string {
+  const l = label.split(" / ")[0]!.toLowerCase();
+  if (/four of a kind|straight flush|royal/.test(l)) return "bg-[#dc2626] text-white";
+  if (/straight|flush|full house/.test(l)) return "bg-[#7c3aed] text-white";
+  if (/two pair|three of a kind/.test(l)) return "bg-[#0d9488] text-white";
+  return "bg-[#475569] text-white";
 }
 
-/**
- * Shorter names for opponents' tags on a phone, where a full table has little
- * room: "Trips", "Quads", and a low as just "7-6" (its colour says it's a low).
- */
-function shortLabel(label: string): string {
+/** Shorter names for opponents' tags on a phone: "Trips", "Quads"; no "no low". */
+export function shortLabel(label: string): string {
   return label
     .replace(/three of a kind/i, "Trips")
     .replace(/four of a kind/i, "Quads")
     .replace(/straight flush/i, "Str. flush")
-    .replace(/^(\d[\d-]*) low$/i, "$1");
+    .replace(/ \/ no low$/i, "");
+}
+
+/** "Flush / 8-6 low" → "FLUSH · 8-6 LOW" (uppercased by CSS). */
+const tagText = (label: string) => label.replace(" / ", " · ");
+
+/**
+ * Hand-strength tags, one per board: "B1 PAIR" over "B2 TWO PAIR" with a
+ * double board. Only ever given your own labels, or hands shown at showdown.
+ */
+export function HandTags({ labels, font, short = false }: { labels: string[]; font: number; short?: boolean }) {
+  return (
+    <div className="flex flex-col items-center" style={{ gap: font * 0.2 }} data-box="tags">
+      {labels.map((raw, b) => {
+        const label = short ? shortLabel(raw) : raw;
+        return (
+          <span
+            key={b}
+            className={`whitespace-nowrap rounded font-bold uppercase leading-none tracking-wide shadow-[0_1px_4px_rgba(0,0,0,.5)] ${tagColor(label)}`}
+            style={{ fontSize: font, padding: `${font * 0.3}px ${font * 0.5}px` }}
+          >
+            {labels.length > 1 && <span className="opacity-75">B{b + 1} </span>}
+            {tagText(label)}
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
+/** Timer colour: green, then yellow, then red; purple in the time bank. */
+function timerColor(c: Countdown): string {
+  if (c.inBank) return "#a855f7";
+  if (c.fraction > 0.5) return "#22c55e";
+  if (c.fraction > 0.2) return "#eab308";
+  return "#ef4444";
 }
 
 /**
- * Hand-strength tags: one row per board, and in Hi/Lo a tag per half
- * ("FLUSH" + "8-6 LOW"). Only ever passed for your own seat, or for hands
- * shown at showdown. `compact` (other seats): on phones the tags wrap within
- * the seat's width, with short names, so full tables don't overlap.
+ * A seat's name plate: name (★ owner) and stack. White with a glow while it's
+ * their turn, with the timer along the bottom edge; a gold glow for winners.
  */
-function HandTags({ labels, compact }: { labels: string[]; compact: boolean }) {
-  return (
-    <div className={`mt-1 flex flex-col items-center gap-0.5 ${compact ? "max-w-[7rem] wide:max-w-none" : ""}`}>
-      {labels.map((label, b) => (
-        <div key={b} className="flex flex-wrap items-center justify-center gap-0.5">
-          {labels.length > 1 && <span className="text-[8px] font-bold text-text/70">B{b + 1}</span>}
-          {label.split(" / ").map((half) => (
-            <span
-              key={half}
-              // Opponents on a phone: "no low" says nothing worth the room it takes.
-              data-nolow={compact && /^no low$/i.test(half) ? "" : undefined}
-              className={`whitespace-nowrap rounded px-1 py-px font-bold uppercase leading-tight tracking-wide data-nolow:hidden wide:data-nolow:inline ${
-                compact ? "text-[8px] wide:text-[9px]" : "text-[9px]"
-              } ${tagClass(half)}`}
-            >
-              {compact ? (
-                <>
-                  <span className="wide:hidden" title={half}>
-                    {shortLabel(half)}
-                  </span>
-                  <span className="hidden wide:inline">{half}</span>
-                </>
-              ) : (
-                half
-              )}
-            </span>
-          ))}
-        </div>
-      ))}
-    </div>
-  );
-}
-
-const SUIT_SYMBOLS: Record<string, string> = { s: "♠", h: "♥", d: "♦", c: "♣" };
-/** "Kh" → "K♥", "Tc" → "10♣". */
-const prettyCard = (card: string) => `${card[0] === "T" ? "10" : card[0]}${SUIT_SYMBOLS[card[1]!]}`;
-
-export interface ShowPicker {
-  /** Your cards you may still show. */
-  showable: string[];
-  picked: string[];
-  toggle: (card: string) => void;
-  showAll: () => void;
-  showPicked: () => void;
-}
-
-/** Cards overlapping, like a hand held in real life; Omaha fans 4-5 cards. */
-function HeldCards({ cards, big, dim, picker }: { cards: (string | null)[]; big: boolean; dim: boolean; picker?: ShowPicker }) {
-  const n = cards.length;
-  const fan = n > 2;
-  // How far each card slides under the previous one.
-  // Opponents' Omaha fans are narrower on phones, so a full table fits without
-  // seats overlapping; face-down cards can overlap more (there's no rank to read).
-  const faceDown = cards.every((c) => c === null);
-  const overlap = big
-    ? fan ? "-ml-9 wide:-ml-7" : "-ml-6 wide:-ml-4"
-    : fan ? (faceDown ? "-ml-8 wide:-ml-6" : "-ml-7 wide:-ml-6") : "-ml-5 wide:-ml-4";
-  const size = big ? "seatYou" : fan ? "seatFan" : "seat";
-  // Rotated cards stick out past their layout box: pad a fan so it never covers
-  // the name panel or runs off the screen edge.
-  return (
-    // --fan-step: degrees between cards; opponents' fans are flatter on phones.
-    <div
-      className={`flex items-end pt-1 ${
-        fan ? (big ? "px-4 [--fan-step:6deg] wide:px-2.5" : "px-1.5 [--fan-step:3.5deg] wide:px-2.5 wide:[--fan-step:6deg]") : "pl-1"
-      }`}
-    >
-      {cards.map((c, i) => (
-        <div
-          key={i}
-          className={i === 0 ? "" : overlap}
-          style={fan ? { transform: `rotate(calc(var(--fan-step) * ${i - (n - 1) / 2}))`, transformOrigin: "50% 120%" } : undefined}
-        >
-          {picker && c && picker.showable.includes(c) ? (
-            // Tap to pick (again to unpick). Picked cards lift.
-            <button
-              type="button"
-              aria-pressed={picker.picked.includes(c)}
-              aria-label={`Pick ${c} to show`}
-              onClick={() => picker.toggle(c)}
-              className={`block rounded-lg transition-transform ${picker.picked.includes(c) ? "-translate-y-2 ring-2 ring-gold" : ""}`}
-            >
-              <PlayingCard card={c} size={size} corner />
-            </button>
-          ) : (
-            <PlayingCard card={c} size={size} corner dim={dim} />
-          )}
-        </div>
-      ))}
-    </div>
-  );
-}
-
-export function Seat({
+export function NamePlate({
   seat,
-  number,
-  isYou,
-  isButton,
-  toAct,
-  countdown,
+  w,
+  h,
+  nameFont,
+  stackFont,
   displayCents,
-  labels,
-  shown,
-  showed,
-  picker,
-  won,
-  canSit,
-  onSit,
+  countdown,
+  winner,
+  net,
+  dim,
+  tag,
+  bannerSide = "right",
+  style,
 }: {
-  seat: SeatView | null;
-  number: number;
-  isYou: boolean;
-  isButton: boolean;
-  toAct: boolean;
-  countdown: Countdown | null;
+  seat: SeatView;
+  w: number;
+  h: number;
+  nameFont: number;
+  stackFont: number;
   displayCents: boolean;
-  /** Your own hand-strength labels (one per board); never someone else's. */
-  labels: string[] | null;
-  /** Cards and labels shown at the last showdown, while the result is up. */
-  shown?: { cards: string[]; labels: string[] };
-  /** Cards this player chose to show after the hand. */
-  showed?: string[];
-  /** Your seat, after a hand you may show cards from: pick cards, or show all. */
-  picker?: ShowPicker;
-  won?: number;
-  canSit: boolean;
-  onSit: () => void;
+  /** Set while it's this seat's turn. */
+  countdown: Countdown | null;
+  winner: boolean;
+  /** Net for the last hand (shown after it). */
+  net: number | null;
+  dim: boolean;
+  /** A small uppercase tag on the top-right corner: "AWAY", "ALL IN", "CHECK"… */
+  tag: { text: string; tone: "danger" | "muted" | "info" } | null;
+  /** Which side of the plate the "EXTRA TIME" banner goes (towards the felt). */
+  bannerSide?: "left" | "right";
+  style?: CSSProperties;
 }) {
-  if (!seat) {
-    return canSit ? (
-      <button
-        type="button"
-        onClick={onSit}
-        className="flex h-12 w-16 items-center justify-center rounded-xl border border-dashed border-gold/60 bg-black/30 text-xs font-semibold text-gold hover:bg-gold/10"
-        aria-label={`Sit in seat ${number}`}
-      >
-        Sit
-      </button>
-    ) : (
-      <div className="flex h-10 w-14 items-center justify-center rounded-xl border border-dashed border-white/10 text-[10px] text-white/30">
-        {number}
-      </div>
-    );
-  }
-
-  const tags: string[] = [];
-  if (!seat.connected) tags.push("Offline");
-  if (seat.away) tags.push("Away");
-  if (seat.waitingForBB) tags.push("Waiting for BB");
-  if (seat.leaving) tags.push("Leaving");
-
-  const cards = picker
-    ? [...(showed ?? []), ...picker.showable]
-    : (shown?.cards ?? showed ?? (seat.inHand && (!seat.folded || isYou) ? seat.cards : null));
-  const tagLabels = shown?.labels ?? (isYou && seat.inHand && !seat.folded ? labels : null);
-
+  const active = !!countdown;
+  // Narrow plates (full tables on a phone): the net goes on the top-left corner instead.
+  const netCorner = w < 110;
+  const netText = net !== null && net !== 0 ? `${net > 0 ? "+" : "−"}${formatChips(Math.abs(net), displayCents)}` : null;
+  const extraTime = countdown?.inBank && countdown.bankElapsed < 2000;
   return (
-    <div className={`flex flex-col items-center ${seat.away ? "opacity-55" : ""}`} data-seat={number}>
-      {/* Dealer button above the seat that has it (and, on phones, your bet). */}
-      <div className="flex h-5 items-end gap-1">
-        {isYou && seat.bet > 0 && <BetChip amount={seat.bet} displayCents={displayCents} />}
-        {isButton && (
+    <div
+      data-box="plate"
+      data-seat={seat.seat}
+      className={`absolute flex flex-col justify-center rounded-lg border ${
+        active
+          ? "border-white bg-white text-[#141414] shadow-[0_0_18px_4px_rgba(255,255,255,.45)]"
+          : "border-white/10 bg-[#2b2b2b] text-white shadow-[0_2px_8px_rgba(0,0,0,.5)]"
+      } ${winner && !active ? "winner-glow" : ""}`}
+      style={{ width: w, height: h, padding: `0 ${Math.max(6, w * 0.07)}px`, opacity: dim ? 0.5 : 1, ...style }}
+    >
+      <div className="truncate font-medium leading-tight" style={{ fontSize: nameFont }} title={seat.nickname}>
+        {seat.isOwner && <span aria-label="Table owner">★ </span>}
+        {seat.nickname}
+      </div>
+      <div className="flex min-w-0 items-center gap-1 leading-tight">
+        <span className="tabular shrink-0 font-semibold" style={{ fontSize: stackFont }}>
+          {formatChips(seat.stack, displayCents)}
+        </span>
+        {netText && !netCorner && net !== null && (
           <span
-            className="mb-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-white text-[9px] font-black text-ink shadow"
-            aria-label="Dealer button"
+            data-box="net"
+            className={`tabular min-w-0 truncate font-bold ${net > 0 ? (active ? "text-[#15803d]" : "text-[#4ade80]") : active ? "text-[#b91c1c]" : "text-[#f87171]"}`}
+            style={{ fontSize: Math.max(10, stackFont * 0.76) }}
           >
-            D
+            {netText}
           </span>
         )}
       </div>
-      {/* No box: cards sit on the felt, name and stack are plain text. Only the
-          seat to act gets an outline (a thin gold glow; yours pulses). */}
-      <div
-        className={`relative flex flex-col items-center rounded-xl px-1 pb-1.5 pt-0.5 ${
-          toAct ? (isYou ? "turn-glow" : "seat-turn") : ""
-        }`}
-      >
-        {/* Phones: other seats put the name under the cards so they stay narrow and
-            clear of the board; your seat, and every seat in landscape, has it beside. */}
-        <div className={`flex gap-1.5 ${isYou ? "flex-row items-center" : "flex-col items-center wide:flex-row wide:items-center"}`}>
-          {cards && <HeldCards cards={cards} big={isYou} dim={seat.folded && !shown && !picker} picker={picker} />}
+      {netText && netCorner && net !== null && (
+        <span
+          data-box="net"
+          className={`tabular absolute whitespace-nowrap rounded px-1 font-bold leading-[1.4] shadow ${net > 0 ? "bg-[#16a34a] text-white" : "bg-[#dc2626] text-white"}`}
+          style={{ fontSize: Math.max(9, nameFont * 0.8), left: -4, top: -Math.max(7, nameFont * 0.6) }}
+        >
+          {netText}
+        </span>
+      )}
+      {tag && (
+        <span
+          className={`absolute whitespace-nowrap rounded px-1 font-bold uppercase leading-[1.4] tracking-wide shadow ${
+            tag.tone === "danger" ? "bg-[#dc2626] text-white" : tag.tone === "info" ? "bg-[#e5e7eb] text-[#141414]" : "bg-[#52525b] text-white"
+          }`}
+          style={{ fontSize: Math.max(9, nameFont * 0.72), right: -4, top: -Math.max(7, nameFont * 0.55) }}
+        >
+          {tag.text}
+        </span>
+      )}
+      {countdown && (
+        <div className="absolute inset-x-0 bottom-0 h-1 overflow-hidden rounded-b-lg bg-black/15" aria-label={`${countdown.seconds} seconds left`}>
           <div
-            className={`text-legible flex min-w-[3.75rem] max-w-[6.5rem] flex-col ${cards ? "" : "px-1 text-center"} ${
-              isYou ? "" : "items-center text-center wide:items-start wide:text-left"
-            }`}
-          >
-            <div className="truncate text-xs font-semibold" title={seat.nickname}>
-              {seat.isOwner && <span title="Table owner">★ </span>}
-              {seat.nickname}
-            </div>
-            <div className="tabular text-sm font-bold text-gold">{formatChips(seat.stack, displayCents)}</div>
-            {seat.allIn && !shown ? (
-              <span className="self-start rounded bg-danger px-1 text-[9px] font-bold uppercase text-white [text-shadow:none]">All in</span>
-            ) : seat.folded && seat.inHand && !shown ? (
-              <div className="text-[10px] text-text/70">Folded</div>
-            ) : seat.lastAction && seat.inHand && !shown ? (
-              <div className="truncate text-[10px] text-text/70">{actionText(seat.lastAction, displayCents)}</div>
-            ) : tags.length > 0 ? (
-              <div className="truncate text-[10px] text-text/70">{tags.join(" · ")}</div>
-            ) : null}
-            {won ? <div className="tabular text-[11px] font-bold text-ok">+{formatChips(won, displayCents)}</div> : null}
-          </div>
+            className="h-full transition-[width] duration-200 ease-linear"
+            style={{ width: `${Math.max(0, Math.min(1, countdown.fraction)) * 100}%`, background: timerColor(countdown) }}
+          />
         </div>
-        {tagLabels && tagLabels.length > 0 && <HandTags labels={tagLabels} compact={!isYou} />}
-        {showed && !shown && (
-          <span className="mt-1 rounded bg-white/85 px-1 py-px text-[9px] font-bold leading-tight tracking-wide text-ink">
-            {/* On your seat, say which: the rest of your cards are there too, visible only to you. */}
-            SHOWN{picker ? ` ${showed.map(prettyCard).join(" ")}` : ""}
-          </span>
-        )}
-        {picker && (
-          <div className="mt-1.5 flex gap-1.5" role="group" aria-label="Show your cards">
-            <button type="button" onClick={picker.showAll} className="rounded-md bg-gold px-2.5 py-1 text-xs font-bold text-ink shadow">
-              Show all
-            </button>
-            <button
-              type="button"
-              disabled={picker.picked.length === 0}
-              onClick={picker.showPicked}
-              className="rounded-md border border-line bg-panel-2 px-2.5 py-1 text-xs font-semibold shadow disabled:text-muted"
-            >
-              {picker.picked.length === 0 ? "Tap cards to pick" : `Show ${picker.picked.length}`}
-            </button>
-          </div>
-        )}
-        {toAct && countdown && (
-          <div className="absolute inset-x-1 bottom-0 h-1 overflow-hidden rounded bg-black/50" aria-label={`${countdown.seconds} seconds left`}>
-            <div
-              className={`h-full transition-[width] duration-200 ${countdown.inBank ? "bg-danger" : "bg-gold"}`}
-              style={{ width: `${Math.max(0, Math.min(1, countdown.fraction)) * 100}%` }}
-            />
-          </div>
-        )}
-      </div>
-      {/* Phones: the bet sits with the seat (there's no room between a side seat and the board). */}
-      {!isYou && seat.bet > 0 && (
-        <div className="mt-0.5">
-          <BetChip amount={seat.bet} displayCents={displayCents} />
-        </div>
+      )}
+      {extraTime && (
+        <span
+          className={`absolute top-1/2 -translate-y-1/2 whitespace-nowrap rounded bg-[#a855f7] px-1.5 font-bold uppercase leading-[1.5] tracking-wide text-white shadow ${
+            bannerSide === "right" ? "left-[calc(100%+6px)]" : "right-[calc(100%+6px)]"
+          }`}
+          style={{ fontSize: Math.max(9, nameFont * 0.72) }}
+        >
+          Extra time
+        </span>
       )}
     </div>
   );
 }
 
-/** The current bet as a chip; only on phones (landscape shows bets on the felt). */
-function BetChip({ amount, displayCents }: { amount: number; displayCents: boolean }) {
+/** This street's bet, on the felt between the player and the pot. */
+export function BetChip({ amount, displayCents, h, font, style }: { amount: number; displayCents: boolean; h: number; font: number; style?: CSSProperties }) {
   return (
-    <span className="rounded-full bg-black/60 px-1.5 py-px text-[11px] font-semibold tabular text-gold wide:hidden">
+    <span
+      data-box="bet"
+      className="tabular absolute flex items-center whitespace-nowrap rounded-full bg-[#d9f99d] font-semibold text-[#1a2e05] shadow-[0_2px_6px_rgba(0,0,0,.45)]"
+      style={{ height: h, fontSize: font, padding: `0 ${h * 0.4}px`, ...style }}
+    >
       {formatChips(amount, displayCents)}
     </span>
+  );
+}
+
+export function DealerButton({ size, style }: { size: number; style?: CSSProperties }) {
+  return (
+    <span
+      data-box="dealer"
+      aria-label="Dealer button"
+      className="absolute flex items-center justify-center rounded-full bg-white font-black text-[#141414] shadow-[0_1px_4px_rgba(0,0,0,.6)]"
+      style={{ width: size, height: size, fontSize: size * 0.5, ...style }}
+    >
+      D
+    </span>
+  );
+}
+
+/** An empty seat, for people without one: a dashed "Sit" circle. */
+export function SitButton({ number, size, onSit, style }: { number: number; size: number; onSit: () => void; style?: CSSProperties }) {
+  return (
+    <button
+      type="button"
+      onClick={onSit}
+      data-box="sit"
+      aria-label={`Sit in seat ${number}`}
+      className="absolute flex items-center justify-center rounded-full border-2 border-dashed border-gold/70 bg-black/35 font-semibold text-gold hover:bg-gold/10"
+      style={{ width: size, height: size, fontSize: Math.max(12, size * 0.26), ...style }}
+    >
+      Sit
+    </button>
   );
 }

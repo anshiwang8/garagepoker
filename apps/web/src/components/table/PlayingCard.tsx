@@ -1,77 +1,125 @@
-const SUITS: Record<string, { symbol: string; color: string }> = {
-  s: { symbol: "♠", color: "text-spade" },
-  h: { symbol: "♥", color: "text-heart" },
-  d: { symbol: "♦", color: "text-diamond" },
-  c: { symbol: "♣", color: "text-club" },
+import type { CSSProperties } from "react";
+
+export const SUITS: Record<string, { symbol: string; color: string }> = {
+  s: { symbol: "♠", color: "var(--color-spade)" },
+  h: { symbol: "♥", color: "var(--color-heart)" },
+  d: { symbol: "♦", color: "var(--color-diamond)" },
+  c: { symbol: "♣", color: "var(--color-club)" },
 };
 
-const SIZES = {
-  xs: "h-8 w-6 text-[11px] rounded",
-  sm: "h-11 w-8 text-sm rounded-md",
-  md: "h-14 w-10 text-base rounded-md",
-  lg: "h-20 w-14 text-2xl rounded-lg",
-  /** Other players' seats: large on phones, smaller in the landscape layout. */
-  seat: "h-16 w-11 text-xl rounded-md wide:h-11 wide:w-8 wide:text-sm",
-  /** Other players' 4-5 card fans: a little smaller on phones so a full table fits. */
-  seatFan: "h-14 w-10 text-lg rounded-md wide:h-11 wide:w-8 wide:text-sm",
-  /** Your own seat: bigger still. */
-  seatYou: "h-[5.5rem] w-16 text-2xl rounded-lg wide:h-14 wide:w-10 wide:text-base",
-};
+/** "Kh" → "K", "Tc" → "10". */
+export const rankText = (card: string) => (card[0] === "T" ? "10" : card[0]!);
+const RANK_ORDER = "23456789TJQKA";
+/** High to low: a stable order for cards shown after a hand. */
+export const byRank = (a: string, b: string) => RANK_ORDER.indexOf(b[0]!) - RANK_ORDER.indexOf(a[0]!) || a[1]!.localeCompare(b[1]!);
 
-export type CardSize = keyof typeof SIZES;
+/** "Kh" → "K♥". */
+export const prettyCard = (card: string) => `${rankText(card)}${SUITS[card[1]!]!.symbol}`;
 
 /**
- * A card from the server: "As", or null for a face-down card. `corner` puts
- * the rank and suit in the top-left corner, so cards stay readable when they
- * overlap at a seat. Dimmed (folded) corner cards darken but stay opaque, so the
- * card underneath never shows through.
+ * GaragePoker's own card back: deep red, a thin light border and a faint
+ * repeating GP monogram.
  */
-export function PlayingCard({
-  card,
-  size = "md",
-  dim = false,
-  corner = false,
-}: {
-  card: string | null;
-  size?: CardSize;
-  dim?: boolean;
-  corner?: boolean;
-}) {
-  if (!card) {
-    return (
-      <div
-        aria-label="Face-down card"
-        className={`${SIZES[size]} shrink-0 border border-white/25 bg-[repeating-linear-gradient(45deg,#7a2530_0_4px,#5c1a24_4px_8px)] shadow-md`}
-      />
-    );
-  }
-  const rank = card[0] === "T" ? "10" : card[0]!;
-  const suit = SUITS[card[1]!]!;
-  if (corner) {
-    return (
-      <div
-        aria-label={card}
-        className={`${SIZES[size]} ${suit.color} ${dim ? "brightness-50 grayscale" : ""} relative shrink-0 border border-black/10 bg-white font-bold leading-none shadow-md`}
-      >
-        <span className="absolute left-[0.18em] top-[0.12em] flex flex-col items-center leading-[0.95]">
-          <span className="tracking-tighter">{rank}</span>
-          <span>{suit.symbol}</span>
-        </span>
-        <span className="absolute bottom-[0.1em] right-[0.15em] text-[1.3em] leading-none opacity-80">{suit.symbol}</span>
-      </div>
-    );
-  }
+const GP_PATTERN =
+  "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='18' height='18'%3E%3Ctext x='9' y='12' text-anchor='middle' font-family='Arial,sans-serif' font-weight='800' font-size='8' fill='%23ffffff' fill-opacity='0.08'%3EGP%3C/text%3E%3C/svg%3E\")";
+
+export function CardBack({ w, h, style }: { w: number; h: number; style?: CSSProperties }) {
+  const r = Math.max(3, w * 0.1);
   return (
     <div
-      aria-label={card}
-      className={`${SIZES[size]} ${suit.color} ${dim ? "opacity-40" : ""} flex shrink-0 flex-col items-center justify-center bg-white font-bold leading-none shadow`}
+      aria-label="Face-down card"
+      className="card-back relative shrink-0 shadow-[0_2px_6px_rgba(0,0,0,.45)]"
+      style={{ width: w, height: h, borderRadius: r, ...style }}
     >
-      <span className="tracking-tighter">{rank}</span>
-      <span>{suit.symbol}</span>
+      <div
+        className="absolute rounded-[inherit] border border-white/35"
+        style={{ inset: Math.max(2, w * 0.07), backgroundImage: GP_PATTERN, backgroundSize: `${Math.max(10, w * 0.36)}px` }}
+      />
     </div>
   );
 }
 
-export function CardSlot({ size = "md" }: { size?: CardSize }) {
-  return <div className={`${SIZES[size]} shrink-0 border border-dashed border-white/15`} />;
+/**
+ * A face-up card: rank and suit in the top-left corner (readable when cards
+ * overlap), and a large suit in the lower right. `card` null is a card back.
+ */
+export function PlayingCard({
+  card,
+  w,
+  h,
+  dim = false,
+  style,
+}: {
+  card: string | null;
+  w: number;
+  h: number;
+  dim?: boolean;
+  style?: CSSProperties;
+}) {
+  if (!card) return <CardBack w={w} h={h} style={style} />;
+  const suit = SUITS[card[1]!]!;
+  const rank = rankText(card);
+  const r = Math.max(3, w * 0.1);
+  return (
+    <div
+      aria-label={card}
+      className={`relative shrink-0 overflow-hidden bg-white font-bold leading-none shadow-[0_2px_6px_rgba(0,0,0,.45)] ${dim ? "brightness-[.55]" : ""}`}
+      style={{ width: w, height: h, borderRadius: r, color: suit.color, ...style }}
+    >
+      <span
+        className="absolute flex flex-col items-center"
+        style={{ left: w * 0.07, top: w * 0.06, fontSize: w * (rank.length > 1 ? 0.36 : 0.42), lineHeight: 0.95 }}
+      >
+        <span className={rank.length > 1 ? "tracking-[-0.08em]" : ""}>{rank}</span>
+        <span style={{ fontSize: w * 0.36 }}>{suit.symbol}</span>
+      </span>
+      <span className="absolute leading-none" style={{ right: w * 0.06, bottom: w * 0.02, fontSize: w * 0.62 }}>
+        {suit.symbol}
+      </span>
+    </div>
+  );
+}
+
+/**
+ * Cards held at a seat: overlapping and fanned about their bottom centre.
+ * `step` is how far each card sits right of the previous one.
+ */
+export function CardFan({
+  cards,
+  w,
+  h,
+  step,
+  spread,
+  dim = false,
+}: {
+  cards: (string | null)[];
+  w: number;
+  h: number;
+  step: number;
+  /** Degrees between neighbouring cards. */
+  spread: number;
+  dim?: boolean;
+}) {
+  const n = cards.length;
+  const width = w + step * Math.max(0, n - 1);
+  return (
+    <div className="relative" style={{ width, height: h }}>
+      {cards.map((c, i) => (
+        <PlayingCard
+          key={i}
+          card={c}
+          w={w}
+          h={h}
+          dim={dim}
+          style={{
+            position: "absolute",
+            left: i * step,
+            top: 0,
+            transform: `rotate(${(i - (n - 1) / 2) * spread}deg)`,
+            transformOrigin: "50% 100%",
+          }}
+        />
+      ))}
+    </div>
+  );
 }

@@ -4,7 +4,7 @@ import type { ReplayEvent, ReplayView } from "@garagepoker/protocol";
 import { useEffect, useState } from "react";
 import { formatChips } from "@/lib/chips";
 import { Button, Modal } from "../ui";
-import { CardSlot, PlayingCard } from "./PlayingCard";
+import { PlayingCard } from "./PlayingCard";
 import { actionText } from "./Seat";
 
 const STREET_NAMES: Record<string, string> = { flop: "Flop", turn: "Turn", river: "River" };
@@ -85,7 +85,7 @@ export function ReplayDialog({ replay, displayCents, onClose }: { replay: Replay
                 </span>
               )}
               {Array.from({ length: 5 }, (_, i) =>
-                cards[i] ? <PlayingCard key={i} card={cards[i]!} size="xs" /> : <CardSlot key={i} size="xs" />,
+                cards[i] ? <PlayingCard key={i} card={cards[i]!} w={24} h={34} /> : <div key={i} className="h-[34px] w-6 rounded border border-dashed border-white/15" />,
               )}
             </div>
           ))}
@@ -97,7 +97,7 @@ export function ReplayDialog({ replay, displayCents, onClose }: { replay: Replay
               <span className="w-24 truncate font-semibold">{s.nickname}</span>
               <span className="flex gap-0.5">
                 {s.cards.map((c, i) => (
-                  <PlayingCard key={i} card={c} size="xs" />
+                  <PlayingCard key={i} card={c} w={24} h={34} />
                 ))}
               </span>
               <span className="ml-auto text-right tabular">

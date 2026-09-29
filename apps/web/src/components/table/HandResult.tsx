@@ -48,7 +48,7 @@ export function HandResult({ view, send, seenCommitment }: { view: TableView; se
   const seated = view.you.seat !== null;
 
   return (
-    <div className="max-h-44 overflow-y-auto rounded-xl border border-line bg-ink px-3 py-2 text-sm wide:max-h-none" aria-label="Hand result">
+    <div className="text-sm" aria-label="Hand result">
       <div className="mb-1 flex items-center justify-between text-xs uppercase tracking-wide text-muted">
         <span>
           Hand {last.number} result{last.bombPot ? " · bomb pot" : ""}

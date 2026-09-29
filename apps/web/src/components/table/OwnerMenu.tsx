@@ -7,84 +7,29 @@ import { SettingsForm } from "../SettingsForm";
 import { Button, ChipInput, ConfirmButton, Modal } from "../ui";
 
 type Send = (m: Exclude<ClientMessage, { type: "hello" }>) => void;
-type Tab = "game" | "settings" | "players";
+export type OwnerTab = "settings" | "players";
 
-export function OwnerMenu({ view, send, onClose }: { view: TableView; send: Send; onClose: () => void }) {
-  const [tab, setTab] = useState<Tab>("game");
+export function OwnerMenu({ view, send, onClose, tab: initialTab }: { view: TableView; send: Send; onClose: () => void; tab: OwnerTab }) {
+  const [tab, setTab] = useState<OwnerTab>(initialTab);
   return (
     <Modal title="Owner menu" onClose={onClose} wide>
-      <div className="mb-4 grid grid-cols-3 gap-1 rounded-xl bg-ink p-1" role="tablist">
-        {(["game", "settings", "players"] as const).map((t) => (
+      <div className="mb-4 grid grid-cols-2 gap-1 rounded-xl bg-ink p-1" role="tablist">
+        {(["settings", "players"] as const).map((t) => (
           <button
             key={t}
             type="button"
             role="tab"
             aria-selected={tab === t}
             onClick={() => setTab(t)}
-            className={`rounded-lg py-2 text-sm capitalize ${tab === t ? "bg-panel-2 font-semibold" : "text-muted"}`}
+            className={`rounded-lg py-2 text-sm ${tab === t ? "bg-panel-2 font-semibold" : "text-muted"}`}
           >
-            {t}
+            {t === "settings" ? "Table settings" : "Players"}
           </button>
         ))}
       </div>
-      {tab === "game" && <GameTab view={view} send={send} />}
       {tab === "settings" && <SettingsTab view={view} send={send} />}
       {tab === "players" && <PlayersTab view={view} send={send} />}
     </Modal>
-  );
-}
-
-function GameTab({ view, send }: { view: TableView; send: Send }) {
-  const [copied, setCopied] = useState(false);
-  const inHand = !!view.hand;
-  const status =
-    view.status === "ended"
-      ? "The game has ended."
-      : view.endRequested
-        ? "Ending after this hand."
-        : view.pauseRequested
-          ? "Pausing after this hand."
-          : view.status === "paused"
-            ? "Paused."
-            : "Running.";
-  return (
-    <div className="flex flex-col gap-4">
-      <p className="text-sm text-muted">{status}</p>
-      {view.status !== "ended" && (
-        <div className="flex flex-wrap gap-2">
-          {(view.status === "paused" || view.pauseRequested) && (
-            <Button variant="primary" className="flex-1 py-3" onClick={() => send({ type: "startGame" })}>
-              {view.handNumber === 0 ? "Start game" : "Resume"}
-            </Button>
-          )}
-          {view.status === "running" && !view.pauseRequested && (
-            <Button className="flex-1 py-3" onClick={() => send({ type: "pauseGame" })}>
-              Pause{inHand ? " after this hand" : ""}
-            </Button>
-          )}
-          {!view.endRequested && (
-            <ConfirmButton label={inHand ? "End after this hand" : "End game"} confirm="Tap again to end" onConfirm={() => send({ type: "endGame" })} />
-          )}
-        </div>
-      )}
-      <div className="flex flex-col gap-1">
-        <span className="text-xs font-medium uppercase tracking-wide text-muted">Invite link</span>
-        <div className="flex gap-2">
-          <code className="flex-1 truncate rounded-lg border border-line bg-ink px-3 py-2 text-xs">
-            {typeof window !== "undefined" ? window.location.href : ""}
-          </code>
-          <Button
-            onClick={async () => {
-              await navigator.clipboard?.writeText(window.location.href);
-              setCopied(true);
-              setTimeout(() => setCopied(false), 1500);
-            }}
-          >
-            {copied ? "Copied" : "Copy"}
-          </Button>
-        </div>
-      </div>
-    </div>
   );
 }
 
