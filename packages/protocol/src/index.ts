@@ -249,6 +249,18 @@ export interface SeatView {
   lastAction: { type: LogType; amount: number; to?: number } | null;
 }
 
+/** One line of a hand's action log. Public: a discard never says which card. */
+export interface LogEntryView {
+  street: Street;
+  seat: number;
+  type: LogType;
+  /** Chips moved: out of the stack, or back into it for "uncalled". */
+  amount: number;
+  /** For bet / raise: the player's total bet on the street. */
+  to?: number;
+  allIn?: boolean;
+}
+
 export interface HandView {
   number: number;
   street: Street;
@@ -279,6 +291,8 @@ export interface HandView {
    * FairnessProof). Null for a moment while the server computes it.
    */
   commitment: string | null;
+  /** Every action so far this hand, in order. */
+  log: LogEntryView[];
 }
 
 /** One share of a pot: a board (0-based) and a half; both null for an uncontested pot. */
@@ -318,6 +332,10 @@ export interface LastHandView {
   rabbit: { boards: string[][]; by: string } | null;
   /** Everything needed to check this hand's cards against its commitment. */
   fairness: FairnessProof | null;
+  /** Each dealt-in seat's result for the hand: chips won minus chips put in (negative for a loss). */
+  nets: { seat: number; net: number }[];
+  /** Every action in the hand, in order. */
+  log: LogEntryView[];
 }
 
 export interface RequestView {

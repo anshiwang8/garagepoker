@@ -4,11 +4,30 @@
  * other players' hole cards can't leak by accident.
  */
 import { cardToString, handLabel, ledgerRows, legalActions, potTotal, settleUp, splitEven } from "@garagepoker/engine";
-import type { RequestView, SeatView, TableView } from "@garagepoker/protocol";
+import type { HandState, LogEntry } from "@garagepoker/engine";
+import type { LogEntryView, RequestView, SeatView, TableView } from "@garagepoker/protocol";
 import { proofFor } from "./fairness.js";
 import { rabbitAvailable, type SeatRequest, showableCards, type TableData } from "./table.js";
 
 const cards = (cs: readonly number[]) => cs.map(cardToString);
+
+/** Field by field, like everything else in a view. The log never holds a card. */
+function logView(log: readonly LogEntry[]): LogEntryView[] {
+  return log.map((e) => ({
+    street: e.street,
+    seat: e.seat,
+    type: e.type,
+    amount: e.amount,
+    ...(e.to !== undefined && { to: e.to }),
+    ...(e.allIn !== undefined && { allIn: e.allIn }),
+  }));
+}
+
+/** Each dealt-in seat's net for a finished hand: won minus put in (uncalled bets are already returned). */
+function netsOf(hand: HandState): { seat: number; net: number }[] {
+  const won = new Map((hand.result?.payouts ?? []).map((p) => [p.seat, p.amount]));
+  return hand.players.map((p) => ({ seat: p.seat, net: (won.get(p.seat) ?? 0) - p.committed }));
+}
 
 function requestView(r: SeatRequest): RequestView {
   return {
@@ -125,6 +144,7 @@ export function buildView(
               ? { seats: [...hand.ritOffer.seats], accepted: [...hand.ritOffer.accepted], deadline: data.ritDeadline }
               : null,
           commitment: fairness?.hand === data.handNumber ? fairness.commitment : null,
+          log: logView(hand.log),
         }
       : null,
     lastHand: lastHand
@@ -158,6 +178,9 @@ export function buildView(
           // Rabbit cards appear only once a seated player asked for them.
           rabbit: lastHand.rabbit ? { boards: lastHand.rabbit.boards.map(cards), by: lastHand.rabbit.by } : null,
           fairness: fairnessProof(data),
+          // prevHand is the same hand's final state (it's replaced together with lastHand).
+          nets: data.prevHand ? netsOf(data.prevHand) : [],
+          log: data.prevHand ? logView(data.prevHand.log) : [],
         }
       : null,
     requests: isOwner ? data.requests.map(requestView) : null,

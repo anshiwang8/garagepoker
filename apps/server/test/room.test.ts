@@ -112,6 +112,12 @@ describe("playing hands over WebSockets", () => {
 		await act(bob, { type: "check" });
 		expect(alice.view.hand).toMatchObject({ street: "flop", toAct: 2 });
 		expect(alice.view.hand!.boards[0]).toHaveLength(3);
+		expect(bob.view.hand!.log.map((e) => [e.street, e.seat, e.type, e.amount])).toEqual([
+			["preflop", 1, "smallBlind", 1000],
+			["preflop", 2, "bigBlind", 2000],
+			["preflop", 1, "call", 1000],
+			["preflop", 2, "check", 0],
+		]);
 		await act(bob, { type: "check" });
 		await act(alice, { type: "check" });
 		await act(bob, { type: "raise", to: 4000 });
@@ -126,6 +132,17 @@ describe("playing hands over WebSockets", () => {
 		expect(alice.view.hand).toBeNull();
 		expect(alice.view.lastHand).toMatchObject({ number: 1, shown: [] });
 		expect(alice.view.seats.slice(0, 2).map((s) => s!.stack)).toEqual([106_000, 54_000]);
+		// Each seat's net for the hand, for the +/- badges: they sum to zero.
+		expect(bob.view.lastHand!.nets).toEqual([
+			{ seat: 1, net: 6_000 },
+			{ seat: 2, net: -6_000 },
+		]);
+		// The whole hand's log, the returned bet included; it never names a card.
+		const log = bob.view.lastHand!.log;
+		expect(log.map((e) => e.type)).toEqual([
+			"smallBlind", "bigBlind", "call", "check", "check", "check", "bet", "call", "check", "bet", "fold", "uncalled",
+		]);
+		expect(log.at(-1)).toEqual({ street: "river", seat: 1, type: "uncalled", amount: 10_000 });
 		const nets = alice.view.ledger.map((r) => [r.nickname, r.buyIn, r.stack, r.net]);
 		expect(nets).toEqual([
 			["Alice", 100_000, 106_000, 6_000],
