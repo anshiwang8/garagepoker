@@ -290,7 +290,8 @@ function seatResult(view: TableView, seat: number) {
   const showed = result.showed.filter((s) => s.seat === seat).flatMap((s) => s.cards);
   return {
     won: (wonBySeat(result).get(seat) ?? 0) > 0,
-    net: result.nets.find((n) => n.seat === seat)?.net ?? null,
+    // (A server older than this page sends no nets or log.)
+    net: result.nets?.find((n) => n.seat === seat)?.net ?? null,
     shown,
     showed: showed.length ? showed : undefined,
   };

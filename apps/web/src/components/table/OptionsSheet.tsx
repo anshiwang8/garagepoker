@@ -63,8 +63,8 @@ const STREETS: Record<string, string> = { preflop: "Preflop", flop: "Flop", turn
 
 /** This hand's actions (or the last hand's, until the next deal), one per line with a line per street. */
 export function handLog(view: TableView): { number: number; log: LogEntryView[] } | null {
-  if (view.hand) return { number: view.handNumber, log: view.hand.log };
-  if (showingResult(view)) return { number: view.lastHand.number, log: view.lastHand.log };
+  if (view.hand) return { number: view.handNumber, log: view.hand.log ?? [] };
+  if (showingResult(view)) return { number: view.lastHand.number, log: view.lastHand.log ?? [] };
   return null;
 }
 
