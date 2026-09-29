@@ -1,5 +1,5 @@
 import type { NextConfig } from "next";
-import { PHASE_PRODUCTION_BUILD } from "next/constants";
+import { PHASE_DEVELOPMENT_SERVER, PHASE_PRODUCTION_BUILD } from "next/constants";
 
 /**
  * NEXT_PUBLIC_SERVER_URL is inlined into the client at build time, so a
@@ -27,5 +27,10 @@ function requireServerUrl(): void {
 
 export default function config(phase: string): NextConfig {
   if (phase === PHASE_PRODUCTION_BUILD) requireServerUrl();
-  return {};
+  return {
+    // The dev tools badge sits over the action zone; keep screenshots of /dev/table-states clean.
+    devIndicators: false,
+    // `page.dev.tsx` files (e.g. /dev/table-states) are pages only under `next dev`.
+    pageExtensions: phase === PHASE_DEVELOPMENT_SERVER ? ["dev.tsx", "tsx", "ts", "jsx", "js"] : ["tsx", "ts", "jsx", "js"],
+  };
 }
