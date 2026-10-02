@@ -28,7 +28,7 @@ export function CardBack({ w, h, style }: { w: number; h: number; style?: CSSPro
   return (
     <div
       aria-label="Face-down card"
-      className="card-back relative shrink-0 shadow-[0_2px_6px_rgba(0,0,0,.45)]"
+      className="card-back relative shrink-0"
       style={{ width: w, height: h, borderRadius: r, ...style }}
     >
       <div
@@ -63,7 +63,7 @@ export function PlayingCard({
   return (
     <div
       aria-label={card}
-      className={`relative shrink-0 overflow-hidden bg-white font-bold leading-none shadow-[0_2px_6px_rgba(0,0,0,.45)] ${dim ? "brightness-[.55]" : ""}`}
+      className={`relative shrink-0 card-face overflow-hidden font-bold leading-none ${dim ? "brightness-[.55]" : ""}`}
       style={{ width: w, height: h, borderRadius: r, color: suit.color, ...style }}
     >
       <span

@@ -59,7 +59,7 @@ export function TableScreen({
   const canSit = view.you.seat === null && !view.you.request && view.status !== "ended";
 
   return (
-    <div className="table-page flex flex-col overflow-hidden bg-ink">
+    <div className="table-page table-room flex flex-col overflow-hidden">
       <TopBar view={view} send={send} onOptions={() => setDialog({ kind: "options" })} />
 
       {/* Felt: fills the height between the bars and shrinks when the raise panel opens. */}

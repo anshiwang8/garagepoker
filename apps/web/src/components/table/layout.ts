@@ -219,7 +219,8 @@ function phoneLayout(inp: LayoutInput, s: number): FeltLayout | null {
   const g = 6 * s;
   const [leftN, topN, rightN] = PHONE_SLOTS[Math.min(8, Math.max(0, k))]!;
   const { plateW: pw, plateH: ph } = z;
-  const chipW = 58 * s;
+  // A typical bet pill, chip disc included.
+  const chipW = 76 * s;
 
   const bottom = inp.seats.length > 0 ? bottomSeat(inp, z, m) : null;
   const bottomTop = bottom ? bottom.top : h;

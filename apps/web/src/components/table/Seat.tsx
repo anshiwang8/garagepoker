@@ -215,9 +215,10 @@ export function BetChip({ amount, displayCents, h, font, style }: { amount: numb
   return (
     <span
       data-box="bet"
-      className="tabular absolute flex items-center whitespace-nowrap rounded-full bg-[#d9f99d] font-semibold text-[#1a2e05] shadow-[0_2px_6px_rgba(0,0,0,.45)]"
-      style={{ height: h, fontSize: font, padding: `0 ${h * 0.4}px`, ...style }}
+      className="tabular absolute flex items-center whitespace-nowrap rounded-full bg-[#d9f99d] font-semibold text-[#1a2e05] shadow-[0_2px_6px_rgba(0,0,0,.45),inset_0_-1px_0_rgba(0,0,0,.18)]"
+      style={{ height: h, fontSize: font, padding: `0 ${h * 0.4}px 0 ${h * 0.12}px`, gap: h * 0.22, ...style }}
     >
+      <span aria-hidden className="poker-chip shrink-0 rounded-full" style={{ width: h * 0.76, height: h * 0.76 }} />
       {formatChips(amount, displayCents)}
     </span>
   );
@@ -228,7 +229,7 @@ export function DealerButton({ size, style }: { size: number; style?: CSSPropert
     <span
       data-box="dealer"
       aria-label="Dealer button"
-      className="absolute flex items-center justify-center rounded-full bg-white font-black text-[#141414] shadow-[0_1px_4px_rgba(0,0,0,.6)]"
+      className="dealer-button absolute flex items-center justify-center rounded-full font-black text-[#141414]"
       style={{ width: size, height: size, fontSize: size * 0.5, ...style }}
     >
       D

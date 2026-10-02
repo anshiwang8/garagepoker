@@ -52,9 +52,99 @@ input[type="range"] {
   height: 100vh;
 }
 
+/* The room the table stands in: a lamp-lit pool on a dark floor. */
+.table-room {
+  background: radial-gradient(ellipse 80% 70% at 50% 45%, #1b2622 0%, #0e1513 55%, #070b0a 100%);
+}
+
+/*
+ * The table (Felt.tsx): a padded black leather rail with stitching, a thin
+ * wood trim where it meets the cloth, and felt with a woven texture lit from
+ * above. The rail element sets --rail (thickness), --trim and --radius.
+ */
+.table-rail {
+  /* Keep the felt's z-index (over the trim) inside the table. */
+  isolation: isolate;
+  background:
+    radial-gradient(ellipse 70% 40% at 50% 0%, rgb(255 255 255 / 0.1), transparent 70%),
+    linear-gradient(180deg, #34302d 0%, #1c1917 38%, #0d0b0a 100%);
+  box-shadow:
+    0 28px 60px -12px rgb(0 0 0 / 0.8),
+    0 10px 22px rgb(0 0 0 / 0.5),
+    inset 0 2px 1px rgb(255 255 255 / 0.13),
+    inset 0 -4px 8px rgb(0 0 0 / 0.65);
+}
+/* Stitching round the middle of the padding. */
+.table-rail::before {
+  content: "";
+  position: absolute;
+  inset: calc(var(--rail) * 0.4);
+  border: 1px dashed rgb(255 255 255 / 0.13);
+  border-radius: calc(var(--radius) - var(--rail) * 0.4);
+  pointer-events: none;
+}
+/* Wood trim, showing as a ring just outside the felt. */
+.table-rail::after {
+  content: "";
+  position: absolute;
+  inset: calc(var(--rail) - var(--trim));
+  border-radius: calc(var(--radius) - var(--rail) + var(--trim));
+  background: linear-gradient(135deg, #7a4a24 0%, #9a6334 25%, #5c3518 50%, #8a5a2e 75%, #5a3417 100%);
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 0.6);
+  pointer-events: none;
+}
+.table-felt {
+  z-index: 1;
+  background-color: #16633d;
+  background-image:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 .55 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.32'/%3E%3C/svg%3E"),
+    radial-gradient(ellipse 60% 55% at 50% 42%, rgb(255 255 255 / 0.09) 0%, transparent 70%),
+    radial-gradient(ellipse at 50% 50%, #1e7d4d 0%, #166239 55%, #0c4027 100%);
+  box-shadow:
+    inset 0 0 0 1px rgb(0 0 0 / 0.55),
+    inset 0 8px 18px rgb(0 0 0 / 0.5),
+    inset 0 0 70px rgb(0 0 0 / 0.45);
+}
+/* The betting line, a faint racetrack printed on the cloth. */
+.table-bet-line {
+  position: absolute;
+  border: 1.5px solid rgb(255 255 255 / 0.1);
+  pointer-events: none;
+}
+
+/* Card stock: a touch off-white, lit from the top left, with a close and a soft shadow. */
+.card-face {
+  background: linear-gradient(160deg, #ffffff 0%, #f7f5ef 55%, #ebe7dc 100%);
+}
+.card-face,
+.card-back {
+  box-shadow:
+    0 1px 1px rgb(0 0 0 / 0.3),
+    0 3px 8px rgb(0 0 0 / 0.38),
+    inset 0 0 0 1px rgb(0 0 0 / 0.1);
+}
+
 /* GaragePoker's card back: deep red; the GP monogram is drawn over it (PlayingCard). */
 .card-back {
   background: linear-gradient(150deg, #a3202f 0%, #7a1422 55%, #5e0f1a 100%);
+}
+
+/* A poker chip: red with the white edge spots of a real chip. */
+.poker-chip {
+  background:
+    radial-gradient(circle, #c62828 0 52%, transparent 53%),
+    repeating-conic-gradient(#f5f5f5 0 22.5deg, #c62828 22.5deg 45deg);
+  box-shadow:
+    0 1px 2px rgb(0 0 0 / 0.5),
+    inset 0 0 0 1px rgb(0 0 0 / 0.25);
+}
+
+/* The dealer button: a thick white puck. */
+.dealer-button {
+  background: radial-gradient(circle at 40% 35%, #ffffff 0%, #ececec 60%, #d4d4d4 100%);
+  box-shadow:
+    0 2px 0 #a3a3a3,
+    0 4px 8px rgb(0 0 0 / 0.6);
 }
 
 /* Winners of the last hand: a soft gold glow round the name plate. */

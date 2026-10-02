@@ -97,17 +97,29 @@ export function Felt({
 
 function Rail({ layout }: { layout: FeltLayout }) {
   const { felt, radius, z } = layout;
-  const rail = Math.max(9, 14 * z.s);
+  const rail = Math.max(11, 18 * z.s);
+  const trim = Math.max(2, 3.5 * z.s);
+  const feltRadius = Math.max(0, radius - rail);
+  // The betting line sits a little in from the rail.
+  const line = Math.max(12, 24 * z.s);
   return (
     <div
       aria-hidden
-      className="absolute bg-[linear-gradient(180deg,#2c2c2c,#161616)] shadow-[0_10px_30px_rgba(0,0,0,.55)]"
-      style={{ left: felt.x, top: felt.y, width: felt.w, height: felt.h, borderRadius: radius }}
+      className="table-rail absolute"
+      style={{
+        left: felt.x,
+        top: felt.y,
+        width: felt.w,
+        height: felt.h,
+        borderRadius: radius,
+        ["--rail" as string]: `${rail}px`,
+        ["--trim" as string]: `${trim}px`,
+        ["--radius" as string]: `${radius}px`,
+      }}
     >
-      <div
-        className="absolute bg-[radial-gradient(ellipse_at_50%_45%,#1f8a55_0%,#176b43_45%,#0f4a2e_100%)] shadow-[inset_0_0_24px_rgba(0,0,0,.65)]"
-        style={{ inset: rail, borderRadius: Math.max(0, radius - rail) }}
-      />
+      <div className="table-felt absolute" style={{ inset: rail, borderRadius: feltRadius }}>
+        <div className="table-bet-line" style={{ inset: line, borderRadius: Math.max(0, feltRadius - line) }} />
+      </div>
     </div>
   );
 }
