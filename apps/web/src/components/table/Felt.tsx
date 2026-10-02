@@ -8,7 +8,7 @@ import { formatChips } from "@/lib/chips";
 import { CopyLinkButton } from "../ui";
 import { wonBySeat } from "./HandResult";
 import { type FeltLayout, fanStep, layoutFelt, type SeatSlot } from "./layout";
-import { byRank, CardBack, CardFan, PlayingCard } from "./PlayingCard";
+import { byRank, CardBack, CardFan, type Deal, PlayingCard } from "./PlayingCard";
 import { BetChip, type Countdown, DealerButton, HandTags, NamePlate, SitButton } from "./Seat";
 import { resultSummary, showingResult, tableStateText, VARIANT_SHORT } from "./tableText";
 
@@ -28,6 +28,24 @@ function seatOrder(view: TableView): { seats: number[]; heroSeated: boolean } {
   const all = Array.from({ length: n }, (_, i) => ((anchor - 1 + i) % n) + 1);
   // Seated: only occupied seats are drawn, so they spread round the whole rail.
   return me !== null ? { seats: all.filter((s) => s === me || view.seats[s - 1]), heroSeated: true } : { seats: all, heroSeated: false };
+}
+
+/** The deal for a seat's cards, given the fan's top left on the felt. */
+type Dealer = (seat: number, fan: { x: number; y: number }) => Deal;
+
+/** Cards go round from the button's left, one per player per round, from the middle of the felt. */
+function dealerFor(view: TableView, layout: FeltLayout): Dealer {
+  const n = view.settings.seats;
+  const button = view.buttonSeat ?? 0;
+  const fromButton = (s: number) => (s - button - 1 + n) % n;
+  const dealt = view.seats.flatMap((s) => (s?.inHand ? [s.seat] : [])).sort((a, b) => fromButton(a) - fromButton(b));
+  const rounds = VARIANTS[view.settings.variant].holeCards;
+  // About a second for the whole deal, however many cards.
+  const gap = Math.min(70, 1000 / Math.max(1, dealt.length * rounds));
+  const { felt } = layout;
+  const x = felt.x + felt.w / 2;
+  const y = felt.y + felt.h / 2;
+  return (seat, fan) => ({ x: x - fan.x, y: y - fan.y, slot: Math.max(0, dealt.indexOf(seat)), players: dealt.length, gap });
 }
 
 export function Felt({
@@ -68,6 +86,9 @@ export function Felt({
   const layout = size
     ? layoutFelt({ ...size, seats: order, heroSeated, holeCards: VARIANTS[settings.variant].holeCards, boardRows, infoExtra })
     : null;
+  // Hands dealt while you watch fly in; one already running when the page opened just appears.
+  const [openedOn] = useState(() => (view.hand ? view.handNumber : null));
+  const dealer = layout && hand && view.handNumber !== openedOn ? dealerFor(view, layout) : null;
 
   return (
     <div ref={ref} className="absolute inset-0 select-none overflow-hidden" data-mode={layout?.mode}>
@@ -76,7 +97,7 @@ export function Felt({
           <Rail layout={layout} />
           <Center view={view} layout={layout} info={info} onRabbit={onRabbit} onDetails={onDetails} />
           {layout.hero && (
-            <Hero view={view} slot={layout.hero} layout={layout} countdown={countdown} />
+            <Hero view={view} slot={layout.hero} layout={layout} countdown={countdown} dealer={dealer} />
           )}
           {layout.seats.map((slot) => (
             <Opponent
@@ -85,6 +106,7 @@ export function Felt({
               slot={slot}
               layout={layout}
               countdown={hand?.toAct === slot.seat ? countdown : null}
+              dealer={dealer}
               canSit={canSit}
               onSit={() => onSit(slot.seat)}
             />
@@ -225,9 +247,7 @@ function Center({
               </span>
             )}
             <div className="relative flex" style={{ gap: z.boardGap }}>
-              {cards.map((c, j) => (
-                <PlayingCard key={j} card={c} w={z.boardCardW} h={z.boardCardH} />
-              ))}
+              <BoardCards cards={cards} w={z.boardCardW} h={z.boardCardH} />
               {/* Rabbit cards: what would have come. Display only. */}
               {hunted.map((c, j) => (
                 <PlayingCard key={`r${j}`} card={c} w={z.boardCardW} h={z.boardCardH} dim />
@@ -282,6 +302,24 @@ function Center({
   );
 }
 
+/**
+ * A board's dealt cards. New ones (a flop, then a turn) slide in one after
+ * another; cards already out when the row first drew just appear.
+ */
+function BoardCards({ cards, w, h }: { cards: string[]; w: number; h: number }) {
+  const [seen, setSeen] = useState({ n: cards.length, from: cards.length });
+  let from = seen.from;
+  if (seen.n !== cards.length) {
+    from = cards.length < seen.n ? 0 : seen.n;
+    setSeen({ n: cards.length, from });
+  }
+  return cards.map((c, j) => (
+    <div key={j} className={j >= from ? "board-in shrink-0" : "shrink-0"} style={j >= from ? { animationDelay: `${(j - from) * 130}ms` } : undefined}>
+      <PlayingCard card={c} w={w} h={h} />
+    </div>
+  ));
+}
+
 /** A plate's corner tag: the seat's state, or what they did this street. */
 function plateTag(seat: SeatView, view: TableView): { text: string; tone: "danger" | "muted" | "info" } | null {
   if (seat.away) return { text: "Away", tone: "muted" };
@@ -316,6 +354,7 @@ function Opponent({
   countdown,
   canSit,
   onSit,
+  dealer,
 }: {
   view: TableView;
   slot: SeatSlot;
@@ -323,6 +362,7 @@ function Opponent({
   countdown: Countdown | null;
   canSit: boolean;
   onSit: () => void;
+  dealer: Dealer | null;
 }) {
   const seat = view.seats[slot.seat - 1];
   const { z } = layout;
@@ -340,15 +380,24 @@ function Opponent({
   const fanW = z.cardW + step * Math.max(0, n - 1);
   const dim = seat.away || (!!hand && (!seat.inHand || seat.folded));
   const tagFont = 10 * z.s;
+  const fan = { x: plate.x + (plate.w - fanW) / 2, y: plate.y + 8 * z.s - z.cardH };
   return (
     <div data-opp={slot.seat}>
       {cards && n > 0 && (
         <div
           data-box="cards"
           className="absolute"
-          style={{ left: plate.x + (plate.w - fanW) / 2, top: plate.y + 8 * z.s - z.cardH, width: fanW, height: z.cardH }}
+          style={{ left: fan.x, top: fan.y, width: fanW, height: z.cardH }}
         >
-          <CardFan cards={cards} w={z.cardW} h={z.cardH} step={step} spread={n === 2 ? 10 : 6} />
+          <CardFan
+            key={view.handNumber}
+            cards={cards}
+            w={z.cardW}
+            h={z.cardH}
+            step={step}
+            spread={n === 2 ? 10 : 6}
+            deal={dealer?.(slot.seat, fan)}
+          />
         </div>
       )}
       {/* Showdown tags just under the plate (the layout keeps that room free); the bottom seat's go over its cards. */}
@@ -401,7 +450,19 @@ function SeatExtras({ view, seat, slot, layout }: { view: TableView; seat: SeatV
 }
 
 /** Your seat: big face-up cards over the rail, your plate under them. */
-function Hero({ view, slot, layout, countdown }: { view: TableView; slot: SeatSlot & { cards: import("./layout").Box }; layout: FeltLayout; countdown: Countdown | null }) {
+function Hero({
+  view,
+  slot,
+  layout,
+  countdown,
+  dealer,
+}: {
+  view: TableView;
+  slot: SeatSlot & { cards: import("./layout").Box };
+  layout: FeltLayout;
+  countdown: Countdown | null;
+  dealer: Dealer | null;
+}) {
   const seat = view.seats[slot.seat - 1];
   if (!seat) return null;
   const { z } = layout;
@@ -418,15 +479,25 @@ function Hero({ view, slot, layout, countdown }: { view: TableView; slot: SeatSl
   const folded = !!hand && seat.folded;
   const dim = seat.away || folded;
   const { plate } = slot;
+  const fan = { x: slot.cards.x + (slot.cards.w - fanW) / 2, y: slot.cards.y + (slot.cards.h - z.heroCardH) };
   return (
     <div data-hero>
       {cards && n > 0 && (
         <div
           data-box="hero-cards"
           className="absolute"
-          style={{ left: slot.cards.x + (slot.cards.w - fanW) / 2, top: slot.cards.y + (slot.cards.h - z.heroCardH), width: fanW, height: z.heroCardH }}
+          style={{ left: fan.x, top: fan.y, width: fanW, height: z.heroCardH }}
         >
-          <CardFan cards={cards} w={z.heroCardW} h={z.heroCardH} step={step} spread={n === 2 ? 12 : 5} dim={folded} />
+          <CardFan
+            key={view.handNumber}
+            cards={cards}
+            w={z.heroCardW}
+            h={z.heroCardH}
+            step={step}
+            spread={n === 2 ? 12 : 5}
+            dim={folded}
+            deal={dealer?.(slot.seat, fan)}
+          />
           {labels && labels.length > 0 && (
             <div className="absolute inset-x-0 z-10 flex justify-center" style={{ bottom: -4 * z.s }}>
               <HandTags labels={labels} font={Math.max(10, 11.5 * z.s)} />

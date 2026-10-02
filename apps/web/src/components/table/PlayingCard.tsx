@@ -81,8 +81,16 @@ export function PlayingCard({
 }
 
 /**
+ * How a seat's cards are dealt: from (x, y), relative to the fan's top left,
+ * one card per player per round, starting with the seat `slot` places left of
+ * the button's left.
+ */
+export type Deal = { x: number; y: number; slot: number; players: number; gap: number };
+
+/**
  * Cards held at a seat: overlapping and fanned about their bottom centre.
- * `step` is how far each card sits right of the previous one.
+ * `step` is how far each card sits right of the previous one. With `deal`,
+ * the cards fly in from the dealer when they mount.
  */
 export function CardFan({
   cards,
@@ -91,6 +99,7 @@ export function CardFan({
   step,
   spread,
   dim = false,
+  deal,
 }: {
   cards: (string | null)[];
   w: number;
@@ -99,26 +108,37 @@ export function CardFan({
   /** Degrees between neighbouring cards. */
   spread: number;
   dim?: boolean;
+  deal?: Deal | null;
 }) {
   const n = cards.length;
   const width = w + step * Math.max(0, n - 1);
   return (
     <div className="relative" style={{ width, height: h }}>
       {cards.map((c, i) => (
-        <PlayingCard
+        <div
           key={i}
-          card={c}
-          w={w}
-          h={h}
-          dim={dim}
+          className={deal ? "deal-in" : undefined}
           style={{
             position: "absolute",
             left: i * step,
             top: 0,
-            transform: `rotate(${(i - (n - 1) / 2) * spread}deg)`,
-            transformOrigin: "50% 100%",
+            width: w,
+            height: h,
+            ...(deal && {
+              "--deal-dx": `${deal.x - (i * step + w / 2)}px`,
+              "--deal-dy": `${deal.y - h / 2}px`,
+              animationDelay: `${(i * deal.players + deal.slot) * deal.gap}ms`,
+            }),
           }}
-        />
+        >
+          <PlayingCard
+            card={c}
+            w={w}
+            h={h}
+            dim={dim}
+            style={{ transform: `rotate(${(i - (n - 1) / 2) * spread}deg)`, transformOrigin: "50% 100%" }}
+          />
+        </div>
       ))}
     </div>
   );
