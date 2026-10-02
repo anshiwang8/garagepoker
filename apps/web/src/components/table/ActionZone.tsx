@@ -3,7 +3,7 @@
 import { raisePresets, VARIANTS } from "@garagepoker/engine";
 import type { ClientMessage, TableView } from "@garagepoker/protocol";
 import { Minus, Plus } from "lucide-react";
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import { chipsToInput, formatChips, parseChips } from "@/lib/chips";
 import { DiscardPicker } from "./DiscardPicker";
 import { byRank, rankText } from "./PlayingCard";
@@ -48,34 +48,14 @@ export function ActionZone({
 
   if (hand && legal && me) {
     const open = raising.open && raising.hand === view.handNumber && legal.canRaise;
-    const act = (action: Extract<ClientMessage, { type: "act" }>["action"]) => {
+    const act: Act = (action) => {
       setRaising({ hand: view.handNumber, open: false });
       send({ type: "act", hand: view.handNumber, action });
     };
     if (open) {
       return <RaisePanel view={view} onBack={() => setRaising({ hand: view.handNumber, open: false })} onRaise={(to) => act({ type: "raise", to })} />;
     }
-    const dc = view.settings.displayCents;
-    const callAllIn = legal.callAmount > 0 && legal.callAmount >= me.stack;
-    return (
-      <div className="ml-auto flex w-[80%] max-w-[34rem] gap-2" role="group" aria-label="Your turn">
-        <ActButton tone="green" disabled={!legal.canRaise} onClick={() => setRaising({ hand: view.handNumber, open: true })}>
-          {hand.currentBet === 0 ? "Bet" : "Raise"}
-        </ActButton>
-        {legal.canCheck ? (
-          <ActButton tone="green" onClick={() => act({ type: "check" })}>
-            Check
-          </ActButton>
-        ) : (
-          <ActButton tone="green" onClick={() => act({ type: "call" })} sub={formatChips(legal.callAmount, dc)}>
-            {callAllIn ? "Call all in" : "Call"}
-          </ActButton>
-        )}
-        <ActButton tone="red" onClick={() => act({ type: "fold" })}>
-          Fold
-        </ActButton>
-      </div>
-    );
+    return <ActionRow view={view} onRaise={() => setRaising({ hand: view.handNumber, open: true })} act={act} />;
   }
 
   if (showingResult(view) && me && canShowCards(view)) return <ShowCardsBar view={view} send={send} />;
@@ -102,6 +82,64 @@ export function ActionZone({
   return text ? <Pill>{text}</Pill> : null;
 }
 
+type Act = (action: Extract<ClientMessage, { type: "act" }>["action"]) => void;
+
+/** Keys aren't shortcuts while typing, with a modifier held, or under a dialog. */
+function shortcutBlocked(e: KeyboardEvent): boolean {
+  if (e.repeat || e.ctrlKey || e.metaKey || e.altKey) return true;
+  const t = e.target as HTMLElement | null;
+  if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return true;
+  return !!document.querySelector('[role="dialog"]');
+}
+
+/** Single-key shortcuts for the action row: k check, c call, r raise, f fold. */
+function useShortcuts(keys: Record<string, (() => void) | null>) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (shortcutBlocked(e)) return;
+      const run = keys[e.key.toLowerCase()];
+      if (!run) return;
+      e.preventDefault();
+      run();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
+}
+
+function ActionRow({ view, onRaise, act }: { view: TableView; onRaise: () => void; act: Act }) {
+  const hand = view.hand!;
+  const legal = view.you.legal!;
+  const me = view.seats[view.you.seat! - 1]!;
+  const dc = view.settings.displayCents;
+  const callAllIn = legal.callAmount > 0 && legal.callAmount >= me.stack;
+  useShortcuts({
+    k: legal.canCheck ? () => act({ type: "check" }) : null,
+    c: legal.canCheck ? null : () => act({ type: "call" }),
+    r: legal.canRaise ? onRaise : null,
+    f: () => act({ type: "fold" }),
+  });
+  return (
+    <div className="ml-auto flex w-[80%] max-w-[34rem] gap-2" role="group" aria-label="Your turn">
+      <ActButton tone="green" disabled={!legal.canRaise} onClick={onRaise} hotkey="R">
+        {hand.currentBet === 0 ? "Bet" : "Raise"}
+      </ActButton>
+      {legal.canCheck ? (
+        <ActButton tone="green" onClick={() => act({ type: "check" })} hotkey="K">
+          Check
+        </ActButton>
+      ) : (
+        <ActButton tone="green" onClick={() => act({ type: "call" })} sub={formatChips(legal.callAmount, dc)} hotkey="C">
+          {callAllIn ? "Call all in" : "Call"}
+        </ActButton>
+      )}
+      <ActButton tone="red" onClick={() => act({ type: "fold" })} hotkey="F">
+        Fold
+      </ActButton>
+    </div>
+  );
+}
+
 function Pill({ children }: { children: ReactNode }) {
   return (
     <div className="flex justify-center lg:justify-end">
@@ -120,20 +158,29 @@ const TONES = {
   greenFilled: "border-[#22c55e] bg-[#22c55e] text-[#052e16] active:bg-[#16a34a]",
 };
 
+const HOTKEY_LABEL: Record<string, string> = { Escape: "Esc", Enter: "↵" };
+
 /** A big outlined action button; pressed, it fills. Disabled stays visible, dimmed. */
 function ActButton({
   tone,
   sub,
+  hotkey,
   className = "",
   children,
   ...props
-}: React.ButtonHTMLAttributes<HTMLButtonElement> & { tone: keyof typeof TONES; sub?: string }) {
+}: React.ButtonHTMLAttributes<HTMLButtonElement> & { tone: keyof typeof TONES; sub?: string; hotkey?: string }) {
   return (
     <button
       type="button"
-      className={`flex min-h-14 min-w-0 flex-1 flex-col items-center justify-center rounded-lg border-[1.5px] px-1.5 font-semibold uppercase leading-tight tracking-wide transition-colors disabled:pointer-events-none disabled:opacity-30 ${TONES[tone]} ${className}`}
+      aria-keyshortcuts={hotkey}
+      className={`relative flex min-h-14 min-w-0 flex-1 flex-col items-center justify-center rounded-lg border-[1.5px] px-1.5 font-semibold uppercase leading-tight tracking-wide transition-colors disabled:pointer-events-none disabled:opacity-30 ${TONES[tone]} ${className}`}
       {...props}
     >
+      {hotkey && (
+        <kbd aria-hidden className="hotkey-hint absolute right-1.5 top-1 font-sans text-[10px] font-semibold leading-none opacity-50">
+          {HOTKEY_LABEL[hotkey] ?? hotkey}
+        </kbd>
+      )}
       <span className="text-base">{children}</span>
       {sub && <span className="tabular text-[15px]">{sub}</span>}
     </button>
@@ -192,6 +239,20 @@ function RaisePanel({ view, onBack, onRaise }: { view: TableView; onBack: () => 
           : `You can bet at most ${formatChips(max, dc)}`
         : null;
   const verb = amount === allInTo ? "All in" : hand.currentBet === 0 ? "Bet" : "Raise";
+
+  // Enter bets (also from the amount box), Escape goes back.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.repeat || e.ctrlKey || e.metaKey || e.altKey || document.querySelector('[role="dialog"]')) return;
+      if (e.key === "Escape") onBack();
+      else if (e.key === "Enter" && !(e.target instanceof HTMLButtonElement)) {
+        e.preventDefault();
+        if (!error) onRaise(amount);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
 
   return (
     <div className="ml-auto flex w-full max-w-[35rem] gap-3" role="group" aria-label="Raise">
@@ -258,10 +319,10 @@ function RaisePanel({ view, onBack, onRaise }: { view: TableView; onBack: () => 
         </div>
       </div>
       <div className="flex w-[6.5rem] shrink-0 flex-col gap-2">
-        <ActButton tone="grey" className="flex-none" onClick={onBack}>
+        <ActButton tone="grey" className="flex-none" onClick={onBack} hotkey="Escape">
           Back
         </ActButton>
-        <ActButton tone="greenFilled" disabled={!!error} onClick={() => onRaise(amount)} sub={formatChips(amount, dc)}>
+        <ActButton tone="greenFilled" disabled={!!error} onClick={() => onRaise(amount)} sub={formatChips(amount, dc)} hotkey="Enter">
           {verb}
         </ActButton>
       </div>

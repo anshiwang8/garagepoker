@@ -204,6 +204,7 @@ Phone portrait first (390×844; also 360×740 and 430×932), desktop second (≥
 - **Bets:** each street's bet (blinds and antes included) is a bright chip-coloured pill on the felt between the player and the pot.
 - **Whose turn:** that player's plate turns white with a soft glow, and a thin timer bar along its bottom edge shrinks from green to yellow to red. In the time bank the bar turns purple, and an "EXTRA TIME" banner shows beside the plate for 2 s. No sound.
 - **Action row (your turn):** three large outlined buttons in one row, right-aligned: Raise (Bet when there's no bet yet), Check or "Call 40", and Fold, in that order. Raise and Check/Call are green; Fold is red. They're at least 56 px tall with 16 px uppercase text. An unavailable action stays visible but dimmed. A call that puts you all in reads "Call all in 430".
+  - Keyboard shortcuts: K check, C call, R opens the raise panel, F fold; in the raise panel Enter bets and Escape goes back. They're ignored while typing or under a dialog, and each button shows its key in a corner on devices with a keyboard.
 - **Otherwise,** a status pill: "Waiting for Bob…", "Your turn in 2" (players still to act before you) or "Hand over". The owner gets Start game here while the game is paused.
 - **Raise panel:** it replaces the action row.
   - On the left, "Your bet" in a big editable amount box (decimal keypad in cent mode) with a gold tag showing its size in big blinds ("7.5BB").

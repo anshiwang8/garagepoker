@@ -102,6 +102,16 @@ input[type="range"] {
   max-height: 90vh;
 }
 
+/* Keyboard shortcut hints on the action buttons: only where there's a keyboard. */
+.hotkey-hint {
+  display: none;
+}
+@media (hover: hover) and (pointer: fine) {
+  .hotkey-hint {
+    display: block;
+  }
+}
+
 /*
  * dvh (iOS 15.4+) tracks the visible viewport as the browser toolbar moves.
  * It's in @supports rather than a second declaration because the CSS
