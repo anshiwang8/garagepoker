@@ -15,7 +15,8 @@ import {
 	streetOfPosition,
 } from "@garagepoker/engine";
 import type { ReplayEvent, ReplayFrame, ReplayView } from "@garagepoker/protocol";
-import type { TableData } from "./table.js";
+import type { StoredHand } from "./session.js";
+import { isBlocked, needsCode, type TableData } from "./table.js";
 
 const cards = (cs: readonly number[]) => cs.map(cardToString);
 
@@ -35,19 +36,29 @@ function dealEvents(layout: BoardLayout, before: Card2D | null, after: Card2D, r
 }
 type Card2D = readonly (readonly number[])[];
 
-export function buildReplay(data: TableData, viewerId: string): ReplayView | null {
-	const rec = data.prevRecord;
+/** Whether this viewer may see the table's hands at all (same rule as views). */
+export function canReview(data: TableData, viewerId: string): boolean {
+	if (viewerId === data.ownerId) return true;
+	if (isBlocked(data, viewerId) || needsCode(data, viewerId)) return false;
+	return data.settings.spectators || data.seats.some((s) => s?.playerId === viewerId);
+}
+
+/**
+ * A viewer's replay of a finished hand: the last one (from the table record)
+ * or an earlier one loaded from storage (`stored`).
+ */
+export function buildReplay(data: TableData, viewerId: string, stored?: StoredHand | null): ReplayView | null {
+	const rec = stored ?? data.prevRecord;
 	if (!rec) return null;
-	const seated = data.seats.some((s) => s?.playerId === viewerId);
-	if (!data.settings.spectators && !seated && viewerId !== data.ownerId) return null;
+	if (!canReview(data, viewerId)) return null;
 
 	const states = replayHand(rec.record);
 	const final = states[states.length - 1]!;
 	const mySeat = rec.players.find((p) => p.playerId === viewerId)?.seat ?? null;
 	const names = new Map(rec.players.map((p) => [p.seat, p.nickname]));
 	const shownSeats = new Set(final.result?.showdown.map((h) => h.seat) ?? []);
-	// Cards players chose to show after the hand (only while it's still the last hand).
-	const showed = data.lastHand?.number === rec.hand ? (data.lastHand.showed ?? []) : [];
+	// Cards players chose to show after the hand: saved with stored hands, or the last hand's so far.
+	const showed = stored ? stored.showed : data.lastHand?.number === rec.hand ? (data.lastHand.showed ?? []) : [];
 	const showedCards = new Set(showed.flatMap((s) => s.cards));
 
 	const frames = states.map((st: HandState, i): ReplayFrame => {
@@ -114,4 +125,60 @@ export function buildReplay(data: TableData, viewerId: string): ReplayView | nul
 			})),
 		})),
 	};
+}
+
+// ---------------------------------------------------------------------------
+// Text export: the viewer's permitted history, one block per hand.
+// ---------------------------------------------------------------------------
+
+const STREET_TITLES: Record<string, string> = { flop: "Flop", turn: "Turn", river: "River" };
+
+/** "1980" or, in cent mode, "19.80". */
+function chips(amount: number, cents: boolean): string {
+	return cents ? (amount / 100).toFixed(2) : String(amount);
+}
+
+function actionLine(type: string, amount: number, to: number | undefined, cents: boolean): string {
+	switch (type) {
+		case "fold":
+		case "check":
+			return type === "fold" ? "folds" : "checks";
+		case "raise":
+		case "bet":
+			return `${type === "raise" ? "raises" : "bets"} to ${chips(to ?? amount, cents)}`;
+		case "ritAccept":
+			return "agrees to run it twice";
+		case "ritDecline":
+			return "runs it once";
+		case "discard":
+			return "discards";
+		case "uncalled":
+			return `gets ${chips(amount, cents)} back (uncalled)`;
+		default:
+			return `${type.replace(/([A-Z])/g, " $1").toLowerCase()} ${chips(amount, cents)}`;
+	}
+}
+
+/** One hand as text, from the viewer's replay: only cards they were allowed to see. */
+export function replayText(replay: ReplayView, meta: { variant: string; endedAt: number; cents: boolean; viewerSeat: number | null }): string {
+	const first = replay.frames[0]!;
+	const last = replay.frames[replay.frames.length - 1]!;
+	const names = new Map(first.seats.map((s) => [s.seat, s.nickname]));
+	const name = (seat: number) => names.get(seat) ?? `Seat ${seat}`;
+	const lines = [`Hand #${replay.hand} · ${meta.variant} · ${new Date(meta.endedAt).toISOString().replace("T", " ").slice(0, 16)} UTC`];
+	lines.push(`Seats: ${first.seats.map((s) => `${s.seat} ${s.nickname} (${chips(s.stack + s.bet, meta.cents)})`).join(" · ")}`);
+	const mine = meta.viewerSeat !== null ? first.seats.find((s) => s.seat === meta.viewerSeat) : undefined;
+	if (mine && mine.cards.every(Boolean)) lines.push(`Your cards: ${mine.cards.join(" ")}`);
+	lines.push("Preflop:");
+	for (const f of replay.frames) {
+		for (const e of f.events) {
+			if (e.kind === "action") lines.push(`  ${name(e.seat)} ${actionLine(e.type, e.amount, e.to, meta.cents)}${e.allIn ? " (all in)" : ""}`);
+			else if (e.kind === "deal") lines.push(`${STREET_TITLES[e.street] ?? e.street}${e.run ? ` (run ${e.run + 1})` : ""}${e.board ? ` (board ${e.board + 1})` : ""}: ${e.cards.join(" ")}`);
+			else if (e.kind === "showdown") lines.push(`  ${name(e.seat)} shows ${e.cards.join(" ")} (${e.labels.join(" | ")})`);
+			else if (e.kind === "win") lines.push(`  ${name(e.seat)} wins ${chips(e.amount, meta.cents)}`);
+			else if (e.kind === "show") lines.push(`  ${name(e.seat)} shows ${e.cards.join(" ")}`);
+		}
+	}
+	if (last.boards.some((b) => b.length > 0)) lines.push(`Board: ${last.boards.map((b) => b.join(" ")).join(" / ")}`);
+	return lines.join("\n");
 }

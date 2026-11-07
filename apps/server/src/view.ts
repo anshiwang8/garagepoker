@@ -7,6 +7,7 @@ import { cardToString, handLabel, ledgerRows, legalActions, potTotal, settleUp, 
 import type { HandState, LogEntry } from "@garagepoker/engine";
 import type { LogEntryView, RequestView, SeatView, TableView } from "@garagepoker/protocol";
 import { proofFor } from "./fairness.js";
+import { sessionView } from "./session.js";
 import { isBlocked, needsCode, rabbitAvailable, type SeatRequest, showableCards, type TableData } from "./table.js";
 
 /** Chat messages sent in each view. */
@@ -216,6 +217,7 @@ export function buildView(
           })),
     blocked: isOwner ? (data.blocked ?? []).map((b) => ({ playerId: b.playerId, nickname: b.nickname })) : null,
     joinCode: isOwner ? (data.joinCode ?? null) : null,
+    session: watchBlocked ? null : sessionView(data),
   };
 }
 

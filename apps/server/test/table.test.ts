@@ -1,8 +1,19 @@
-import { assertLedgerBalanced, cardToString, DEFAULT_SETTINGS, ledgerRows, legalActions, rabbitCards } from "@garagepoker/engine";
+import {
+	assertLedgerBalanced,
+	cardToString,
+	Category,
+	DEFAULT_SETTINGS,
+	handValue,
+	ledgerRows,
+	legalActions,
+	makeDeck,
+	rabbitCards,
+} from "@garagepoker/engine";
 import { clientMessageSchema, STALE_ACTION } from "@garagepoker/protocol";
 import { describe, expect, it } from "vitest";
 import { ALARM_CLAMP_MS, scheduleAlarm } from "../src/limits.js";
 import { buildReplay } from "../src/replay.js";
+import { noteShownCards, sessionView } from "../src/session.js";
 import {
 	AUTO_START_DELAY_MS,
 	DISCONNECT_GRACE_MS,
@@ -1086,5 +1097,102 @@ describe("blocking and join codes", () => {
 		const eve = h.join("eve");
 		for (let i = 0; i < 10; i++) expect(() => h.send(eve, { type: "enterJoinCode", code: `x${i}xx` })).toThrow(/isn't right/);
 		expect(() => h.send(eve, { type: "enterJoinCode", code: "Fri9" })).toThrow(/Too many/);
+	});
+});
+
+describe("session history and statistics", () => {
+	it("indexes every hand, queues earlier hands' records for storage, and counts statistics", () => {
+		const { h, owner, bob } = headsUp();
+		h.send(owner, { type: "startGame" });
+		// Hand 1: the owner (button, small blind) raises; Bob folds.
+		h.act({ type: "raise", to: 6_000 });
+		h.act({ type: "fold" });
+		h.send(owner, { type: "startGame" });
+		// Hand 2: Bob is the button: he calls, the owner checks it down.
+		h.act({ type: "call" });
+		while (h.data.hand) h.act({ type: "check" });
+		h.send(owner, { type: "startGame" });
+		// Hand 3: the owner folds the small blind.
+		h.act({ type: "fold" });
+
+		const s = h.data.session!;
+		expect(s.history.map((x) => x.hand)).toEqual([1, 2, 3]);
+		// Hands 1 and 2 left "the last hand" and wait to be written to storage; 3 is still prevRecord.
+		expect(s.outbox.map((x) => x.hand)).toEqual([1, 2]);
+		expect(h.data.prevRecord!.hand).toBe(3);
+		// The uncalled 4,000 of the raise went back: the pot was the two blinds' worth, 4,000.
+		expect(s.history[0]).toMatchObject({ hand: 1, pot: 4_000, winners: ["owner"], variant: "NLH" });
+
+		const ownerStats = s.stats[owner]!;
+		const bobStats = s.stats[bob]!;
+		expect(ownerStats).toMatchObject({ hands: 3, preflopHands: 3, vpip: 1, pfr: 1, potsWon: 1 + (s.history[1]!.winners.includes("owner") ? 1 : 0) });
+		expect(bobStats).toMatchObject({ hands: 3, vpip: 1, pfr: 0 });
+		expect(bobStats.showdowns).toBe(1);
+		// Nets over the session match the ledger.
+		const ledger = Object.fromEntries(ledgerRows(h.data.ledger, h.table().stacksByPlayer()).map((r) => [r.playerId, r.net]));
+		expect(ownerStats.net).toBe(ledger[owner]);
+		expect(bobStats.net).toBe(ledger[bob]);
+
+		const view = h.view(bob).session!;
+		expect(view.hands).toBe(3);
+		expect(view.stats.map((r) => r.nickname).sort()).toEqual(["bob", "owner"]);
+		expect(view.stats.find((r) => r.nickname === "owner")).toMatchObject({ vpip: 33, pfr: 33 });
+		expect(view.highlights.find((x) => x.kind === "biggestPot")).toMatchObject({ title: "Biggest pot" });
+		// People who can't watch get no session view.
+		h.send(owner, { type: "updateSettings", settings: { ...h.data.settings, spectators: false } });
+		expect(h.view(h.join("carol")).session).toBeNull();
+	});
+
+	it("replays an earlier hand from its stored record, with cards shown after it", () => {
+		const { h, owner, bob } = headsUp();
+		h.send(owner, { type: "startGame" });
+		h.act({ type: "raise", to: 6_000 });
+		h.act({ type: "fold" });
+		const ownerHole = h.data.prevHand!.players.find((p) => p.seat === 1)!.hole.map(cardToString);
+		h.send(owner, { type: "showCards", hand: 1, cards: [ownerHole[0]!] });
+		h.send(owner, { type: "startGame" });
+		h.act({ type: "fold" });
+		const stored = h.data.session!.outbox.find((x) => x.hand === 1)!;
+		expect(stored.showed).toEqual([{ seat: 1, cards: [h.data.session!.outbox[0]!.showed[0]!.cards[0]!] }]);
+		const mine = buildReplay(h.data, owner, stored)!;
+		const theirs = buildReplay(h.data, bob, stored)!;
+		expect(mine.hand).toBe(1);
+		const lastOf = (r: typeof mine) => r.frames[r.frames.length - 1]!.seats.find((x) => x.seat === 1)!.cards;
+		expect(lastOf(mine)).toEqual(ownerHole);
+		// Bob sees only the card the owner chose to show.
+		expect(lastOf(theirs)).toEqual([ownerHole[0], null]);
+	});
+
+	it("counts a bluff only when the winner shows every card and it's high card", () => {
+		const hl = (d: Parameters<typeof sessionView>[0]) => sessionView(d).highlights.filter((x) => x.kind === "shownBluff");
+		const { h, owner } = headsUp();
+		h.send(owner, { type: "startGame" });
+		h.act({ type: "call" });
+		h.act({ type: "check" }); // to the flop
+		h.act({ type: "raise", to: 4_000 }); // Bob bets
+		h.act({ type: "fold" });
+		const d = h.data;
+		const held = d.prevHand!.players.find((p) => p.seat === 2)!.hole;
+		const variant = d.prevHand!.config.variant;
+		// A flop where Bob's two cards make nothing: high card only.
+		const rest = makeDeck(52).filter((c) => !held.includes(c));
+		let miss: number[] | null = null;
+		for (let i = 0; i < rest.length && !miss; i++)
+			for (let j = i + 1; j < rest.length && !miss; j++)
+				for (let k = j + 1; k < rest.length && !miss; k++) {
+					const board = [rest[i]!, rest[j]!, rest[k]!];
+					if (handValue(variant, held, board).category === Category.HighCard) miss = board;
+				}
+		d.lastHand!.boards = [miss!];
+		// Showing one card isn't evidence; showing after losing isn't either.
+		noteShownCards(d, "bob", held, held.slice(0, 1), true);
+		noteShownCards(d, "bob", held, held, false);
+		expect(hl(d)).toHaveLength(0);
+		noteShownCards(d, "bob", held, held, true);
+		expect(hl(d)).toEqual([expect.objectContaining({ hand: 1, title: "Bluff shown" })]);
+		// A made hand shown isn't a bluff.
+		d.lastHand!.boards = [[held[0]! ^ 1, rest[0]!, rest[1]!]]; // pairs Bob's first card (same rank, another suit)
+		noteShownCards(d, "carl", held, held, true);
+		expect(hl(d)).toHaveLength(1);
 	});
 });

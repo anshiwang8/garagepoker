@@ -7,7 +7,7 @@ import { copyText, Modal } from "../ui";
 import { actionText } from "./Seat";
 import { showingResult } from "./tableText";
 
-export type OptionsItem = "chat" | "ledger" | "replay" | "log" | "rebuy" | "settings" | "players";
+export type OptionsItem = "chat" | "ledger" | "replay" | "hands" | "stats" | "log" | "rebuy" | "settings" | "players";
 
 /** The Options sheet (SPEC §7): everything that isn't on the table itself. */
 export function OptionsSheet({
@@ -42,6 +42,8 @@ export function OptionsSheet({
         )}
         <Row onClick={() => onPick("ledger")}>Ledger</Row>
         {view.handNumber > 0 && !view.you.watchBlocked && <Row onClick={() => onPick("replay")}>Last hand</Row>}
+        {view.handNumber > 0 && !view.you.watchBlocked && <Row onClick={() => onPick("hands")}>Hand history</Row>}
+        {view.session && view.session.hands > 0 && <Row onClick={() => onPick("stats")}>Session stats</Row>}
         {!view.you.watchBlocked && <Row onClick={() => onPick("log")}>Log</Row>}
         {me && live && view.settings.rebuys && <Row onClick={() => onPick("rebuy")}>Rebuy</Row>}
         {view.you.isOwner && live && <Row onClick={() => onPick("settings")}>Table settings</Row>}

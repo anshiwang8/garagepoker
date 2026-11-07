@@ -8,6 +8,20 @@ import type { HandView, LastHandView, LogEntryView, SeatView, TableView } from "
 
 export const DEV_NOW = 1_800_000_000_000;
 
+const DEV_SESSION: TableView["session"] = {
+  hands: 11,
+  stats: [
+    { nickname: "anshi", hands: 11, vpip: 36, pfr: 18, showdowns: 3, showdownWins: 2, potsWon: 4, biggestPot: 840, net: 420 },
+    { nickname: "Richard", hands: 11, vpip: 45, pfr: 9, showdowns: 4, showdownWins: 1, potsWon: 3, biggestPot: 360, net: -120 },
+    { nickname: "Maya", hands: 9, vpip: 22, pfr: 11, showdowns: 1, showdownWins: 1, potsWon: 2, biggestPot: 300, net: -300 },
+  ],
+  highlights: [
+    { kind: "biggestPot", hand: 9, title: "Biggest pot", detail: "anshi won it", amount: 840 },
+    { kind: "bestHand", hand: 9, title: "Best hand shown", detail: "anshi: Full house", amount: null },
+    { kind: "comeback", hand: 11, title: "Biggest comeback", detail: "Richard climbed back", amount: 480 },
+  ],
+};
+
 const DEV_CHAT: TableView["chat"] = [
   { id: 1, at: DEV_NOW - 90_000, name: "Richard", seat: 2, text: "who's bringing snacks next week", mine: false },
   { id: 2, at: DEV_NOW - 60_000, name: "anshi", seat: 1, text: "me. gl all", mine: true },
@@ -114,6 +128,7 @@ function table(seats: (SeatView | null)[], over: Partial<Omit<TableView, "settin
     chat: DEV_CHAT,
     blocked: null,
     joinCode: null,
+    session: DEV_SESSION,
     ...rest,
     settings,
   };

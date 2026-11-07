@@ -1,14 +1,15 @@
 "use client";
 
-import type { ClientMessage, ReplayView, TableView } from "@garagepoker/protocol";
+import type { ClientMessage, HistoryEntryView, ReplayView, TableView } from "@garagepoker/protocol";
 import { MessageSquare, PanelRightClose } from "lucide-react";
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useMediaQuery } from "@/lib/useMediaQuery";
 import type { Connection, Toast } from "@/lib/useTableSocket";
 import { Button, inputClass, Modal } from "../ui";
 import { ActionZone } from "./ActionZone";
 import { ChatPanel, unreadCount } from "./Chat";
+import { downloadText, HandsPanel, RecapDialog, StatsPanel } from "./Session";
 import { Felt } from "./Felt";
 import { HandResult } from "./HandResult";
 import { LedgerDialog } from "./LedgerDialog";
@@ -26,6 +27,7 @@ type Dialog =
   | { kind: "options" }
   | { kind: "details" }
   | { kind: Exclude<OptionsItem, "replay"> }
+  | { kind: "recap" }
   | null;
 
 /**
@@ -42,6 +44,9 @@ export function TableScreen({
   seenCommitment,
   replay = null,
   closeReplay = () => {},
+  history = null,
+  historyExport = null,
+  clearExport = () => {},
   initialRaising,
 }: {
   view: TableView;
@@ -54,6 +59,11 @@ export function TableScreen({
   seenCommitment?: string;
   replay?: ReplayView | null;
   closeReplay?: () => void;
+  /** The session's hands, once fetched. */
+  history?: HistoryEntryView[] | null;
+  /** A history export waiting to be saved as a file. */
+  historyExport?: string | null;
+  clearExport?: () => void;
   /** Dev states only. */
   initialRaising?: boolean;
 }) {
@@ -83,6 +93,13 @@ export function TableScreen({
     if (dialog?.kind === "chat") markRead();
     setDialog(null);
   };
+
+  // A requested history export arrived: save it as a text file.
+  useEffect(() => {
+    if (!historyExport) return;
+    downloadText(`garagepoker-${view.tableId}-hands.txt`, historyExport);
+    clearExport();
+  }, [historyExport, clearExport, view.tableId]);
 
   return (
     <div className="table-page table-room flex flex-col overflow-hidden">
@@ -156,6 +173,10 @@ export function TableScreen({
               ) : (
                 <p className="text-sm text-muted">{view.settings.chat ? "Chat isn't available to you here." : "The owner turned chat off."}</p>
               )
+            ) : tab === "hands" ? (
+              <HandsPanel view={view} send={send} history={history} />
+            ) : tab === "stats" ? (
+              <StatsPanel view={view} send={send} onRecap={() => setDialog({ kind: "recap" })} />
             ) : (
               <div className="min-h-0 flex-1 overflow-y-auto">
                 <LogLines view={view} compact />
@@ -194,6 +215,19 @@ export function TableScreen({
       {dialog?.kind === "rebuy" && <RebuyDialog view={view} send={send} onClose={close} />}
       {dialog?.kind === "ledger" && <LedgerDialog view={view} onClose={close} />}
       {dialog?.kind === "log" && <LogDialog view={view} onClose={close} />}
+      {dialog?.kind === "hands" && (
+        <Modal title="Hand history" onClose={close}>
+          <div className="flex h-[min(65dvh,32rem)] flex-col">
+            <HandsPanel view={view} send={send} history={history} />
+          </div>
+        </Modal>
+      )}
+      {dialog?.kind === "stats" && (
+        <Modal title="Session stats" onClose={close}>
+          <StatsPanel view={view} send={send} onRecap={() => setDialog({ kind: "recap" })} />
+        </Modal>
+      )}
+      {dialog?.kind === "recap" && <RecapDialog view={view} onClose={close} />}
       {dialog?.kind === "chat" && (
         <Modal title="Chat" onClose={close}>
           <div className="flex h-[min(60dvh,28rem)] flex-col">
@@ -221,7 +255,7 @@ export function TableScreen({
       {/* Never over the action row: requests wait until you've acted. */}
       {view.you.isOwner && dialog?.kind !== "players" && !view.you.legal && <ApprovalPopup view={view} send={send} />}
       {view.status === "ended" && !dialog && !replay && !finalLedgerClosed && (
-        <LedgerDialog view={view} onClose={() => setFinalLedgerClosed(true)} />
+        <LedgerDialog view={view} onClose={() => setFinalLedgerClosed(true)} onRecap={() => setDialog({ kind: "recap" })} />
       )}
       {replay && <ReplayDialog key={replay.hand} replay={replay} displayCents={view.settings.displayCents} onClose={closeReplay} />}
 
@@ -252,10 +286,12 @@ export function TableScreen({
   );
 }
 
-type SideTab = "chat" | "log";
+type SideTab = "chat" | "log" | "hands" | "stats";
 const SIDE_TABS: { id: SideTab; label: string }[] = [
   { id: "chat", label: "Chat" },
   { id: "log", label: "Log" },
+  { id: "hands", label: "Hands" },
+  { id: "stats", label: "Stats" },
 ];
 
 const SIDEBAR_KEY = "gp.sidebar";

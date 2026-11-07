@@ -491,3 +491,55 @@ describe("reliability", () => {
 		await closed;
 	});
 });
+
+describe("session history over the socket", () => {
+	it("replays earlier hands from storage, lists the session and exports only permitted cards", async () => {
+		const { tableId, alice, bob, all } = await twoPlayerTable();
+		const folded: string[][] = [];
+		for (let n = 1; n <= 3; n++) {
+			await step(all, alice, { type: "startGame" });
+			const toAct = alice.view.hand!.toAct === 1 ? alice : bob;
+			const other = toAct === alice ? bob : alice;
+			// Whoever acts first folds; remember their cards: the other player must never see them.
+			folded.push(ownCards(toAct));
+			void other;
+			await step(all, toAct, { type: "act", hand: n, action: { type: "fold" } });
+		}
+
+		const reply = await alice.request({ type: "getReplay", hand: 1 });
+		expect(reply.type).toBe("replay");
+		if (reply.type !== "replay") return;
+		expect(reply.replay!.hand).toBe(1);
+
+		const history = await alice.request({ type: "getHistory" });
+		if (history.type !== "history") throw new Error("expected history");
+		expect(history.entries.map((e) => e.hand)).toEqual([3, 2, 1]);
+		expect(history.entries.every((e) => typeof e.yourNet === "number")).toBe(true);
+
+		for (const [c, mine] of [
+			[alice, 0],
+			[bob, 1],
+		] as const) {
+			const exported = await c.request({ type: "exportHistory" });
+			if (exported.type !== "historyExport") throw new Error("expected an export");
+			expect(exported.text).toContain("Hand #1");
+			expect(exported.text).toContain("Hand #3");
+			void mine;
+		}
+		// Folded cards appear only in the folder's own export.
+		const aliceText = ((await alice.request({ type: "exportHistory" })) as { text: string }).text;
+		const bobText = ((await bob.request({ type: "exportHistory" })) as { text: string }).text;
+		const own = (text: string) => text.split("\n").filter((l) => l.startsWith("Your cards:")).join(" ");
+		for (const cards of folded) {
+			const inAlice = cards.every((c) => own(aliceText).includes(c));
+			const inBob = cards.every((c) => own(bobText).includes(c));
+			expect(inAlice !== inBob).toBe(true); // exactly one of them held these cards
+		}
+		const stub = env.TABLE.getByName(tableId);
+		// Earlier hands are stored under their own keys, not in the table record.
+		await runInDurableObject(stub, async (room: TableRoom) => {
+			const keys = await (room as unknown as { ctx: DurableObjectState }).ctx.storage.list({ prefix: "hand:" });
+			expect([...keys.keys()]).toEqual(["hand:1", "hand:2"]);
+		});
+	});
+});

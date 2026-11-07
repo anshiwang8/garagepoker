@@ -240,6 +240,9 @@ Phone portrait first (390×844; also 360×740 and 430×932), desktop second (≥
 - **Approval popup:** the owner's popup waits until they've acted.
 - **Refresh:** reloading the page mid-game reconnects to the same table, seat and cards, with no re-join prompt.
 - **Chat** (if enabled): plain text, 200 characters, one message a second per person, the last 100 kept for the session (40 shown). Seated players chat; so do spectators where they can watch. Desktop: the sidebar. Phones: Options → Chat, with a dot on Options for unread messages.
+- **Session history (this session only):** every finished hand (the last 200) is listed newest first in Hands (desktop sidebar; phones: Options → Hand history) and can be replayed. "Download my hand history" saves a text file with your own cards and cards that were shown, nothing else. Earlier hands are stored under their own keys and deleted with the table.
+- **Session stats:** per player, from public actions only: hands, VPIP and PFR (hands with preflop betting), showdowns won/played, pots won, biggest pot, net, each explained in a line. **Highlights** are deterministic: biggest pot, best hand shown (two pair or better), biggest comeback (10 BB or more back from a loss), rare hands (quads or better), and a bluff only when the winner chose to show every card and it was high card.
+- **Session recap:** results, hands played and highlights, downloadable as an image drawn in the browser; the ledger CSV can be downloaded at any time.
 - **Fairness:** at hand start, show a short deck hash. After the hand, a "Verify" link checks the revealed cards against it in the browser (per-card commitments: see §8).
 
 ---

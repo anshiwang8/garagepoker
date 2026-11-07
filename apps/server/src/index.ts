@@ -21,7 +21,8 @@ import {
 	scheduleAlarm,
 	STALE_SOCKET_MS,
 } from "./limits.js";
-import { buildReplay } from "./replay.js";
+import { buildReplay, canReview, replayText } from "./replay.js";
+import { HISTORY_KEEP, handKey, type StoredHand } from "./session.js";
 import { buildView } from "./view.js";
 
 export { RateLimiter } from "./rateLimit.js";
@@ -125,7 +126,15 @@ export class TableRoom extends DurableObject<Env> {
 		const playerId = attachment(ws).playerId;
 		if (!playerId) return send(ws, { type: "error", message: "Send hello first", for: m.type });
 		// Read-only: answered to this socket alone, no state change or broadcast.
-		if (m.type === "getReplay") return send(ws, { type: "replay", replay: buildReplay(this.data, playerId) });
+		if (m.type === "getReplay") {
+			const stored = m.hand !== undefined && m.hand !== this.data.prevRecord?.hand ? await this.storedHand(m.hand) : null;
+			if (m.hand !== undefined && m.hand !== this.data.prevRecord?.hand && !stored) {
+				return send(ws, { type: "replay", replay: null });
+			}
+			return send(ws, { type: "replay", replay: buildReplay(this.data, playerId, stored) });
+		}
+		if (m.type === "getHistory") return send(ws, { type: "history", entries: this.historyFor(playerId) });
+		if (m.type === "exportHistory") return send(ws, { type: "historyExport", text: await this.exportFor(playerId) });
 		await this.mutate(ws, m.type, (table) => table.handle(playerId, m));
 	}
 
@@ -252,7 +261,60 @@ export class TableRoom extends DurableObject<Env> {
 		return table;
 	}
 
+	/** A finished hand's full record from storage (not the last hand: that's in the table record). */
+	private async storedHand(hand: number): Promise<StoredHand | null> {
+		return (await this.ctx.storage.get<StoredHand>(handKey(hand))) ?? null;
+	}
+
+	/** The history list for one viewer, newest first. */
+	private historyFor(playerId: string) {
+		const data = this.data!;
+		if (!canReview(data, playerId)) return [];
+		return [...(data.session?.history ?? [])].reverse().map((h) => ({
+			hand: h.hand,
+			endedAt: h.endedAt,
+			variant: h.variant,
+			pot: h.pot,
+			winners: h.winners,
+			best: h.best?.label ? `${h.best.nickname}: ${h.best.label}` : null,
+			yourNet: h.players.find((p) => p.playerId === playerId)?.net ?? null,
+		}));
+	}
+
+	/** The viewer's permitted history as text, oldest hand first. */
+	private async exportFor(playerId: string): Promise<string> {
+		const data = this.data!;
+		const history = data.session?.history ?? [];
+		if (!canReview(data, playerId) || history.length === 0) return "";
+		const wanted = history.map((h) => h.hand).filter((n) => n !== data.prevRecord?.hand);
+		const loaded = new Map<string, StoredHand>();
+		// storage.get takes at most 128 keys at a time.
+		for (let i = 0; i < wanted.length; i += 128) {
+			const got = await this.ctx.storage.get<StoredHand>(wanted.slice(i, i + 128).map(handKey));
+			for (const [k, v] of got) loaded.set(k, v);
+		}
+		const blocks: string[] = [];
+		for (const h of history) {
+			const stored = h.hand === data.prevRecord?.hand ? null : (loaded.get(handKey(h.hand)) ?? undefined);
+			if (stored === undefined) continue;
+			const replay = buildReplay(data, playerId, stored);
+			if (!replay) continue;
+			const seat = h.players.find((p) => p.playerId === playerId)?.seat ?? null;
+			blocks.push(replayText(replay, { variant: h.variant, endedAt: h.endedAt, cents: data.settings.displayCents, viewerSeat: seat }));
+		}
+		return `GaragePoker table ${data.id}: your hand history (your cards, and cards that were shown)\n\n${blocks.join("\n\n")}\n`;
+	}
+
 	private async persist(table: Table): Promise<void> {
+		// Finished hands go to their own keys (last HISTORY_KEEP), so the table record stays small.
+		const outbox = this.data?.session?.outbox ?? [];
+		if (outbox.length > 0) {
+			for (const h of outbox) {
+				await this.ctx.storage.put(handKey(h.hand), h);
+				if (h.hand > HISTORY_KEEP) await this.ctx.storage.delete(handKey(h.hand - HISTORY_KEEP));
+			}
+			this.data!.session!.outbox = [];
+		}
 		await this.ctx.storage.put("table", this.data);
 		const next = table.nextAlarm();
 		if (next === null) {

@@ -149,8 +149,12 @@ export const clientMessageSchema = z.discriminatedUnion("type", [
   }),
   /** Pineapple: discard one of your cards (face down, everyone at once). */
   msg("discard", { hand: z.number().int().min(1), seq: z.number().int().min(0).optional(), card: z.string().regex(/^[2-9TJQKA][cdhs]$/) }),
-  /** Ask for the last finished hand's replay; answered to you only. */
-  msg("getReplay", {}),
+  /** Ask for a finished hand's replay (the last one if `hand` is left out); answered to you only. */
+  msg("getReplay", { hand: z.number().int().min(1).optional() }),
+  /** The session's hands, newest first; answered to you only. */
+  msg("getHistory", {}),
+  /** Your permitted history of the session as text (your cards, and cards that were shown); answered to you only. */
+  msg("exportHistory", {}),
   /** Table chat (SPEC §5): seated players, and spectators where they can watch. */
   msg("chat", { text: z.string().trim().min(1).max(200) }),
   /** Unlock a table that has a join code. */
@@ -186,6 +190,8 @@ export type ServerMessage =
   | { type: "view"; view: TableView }
   /** Answer to getReplay; null when there's no finished hand to replay. */
   | { type: "replay"; replay: ReplayView | null }
+  | { type: "history"; entries: HistoryEntryView[] }
+  | { type: "historyExport"; text: string }
   | { type: "error"; message: string; for?: ClientMessageType };
 
 export type TableStatus = "paused" | "running" | "ended";
@@ -229,6 +235,51 @@ export interface TableView {
   blocked: { playerId: string; nickname: string }[] | null;
   /** Owner only: the table's join code, if it has one. */
   joinCode: string | null;
+  /** Session statistics and highlights (null if you can't watch). */
+  session: SessionView | null;
+}
+
+export interface SessionView {
+  /** Hands finished this session (up to the last 200). */
+  hands: number;
+  /** One row per player who's been dealt in, best net first. */
+  stats: StatsRowView[];
+  highlights: HighlightView[];
+}
+
+export interface StatsRowView {
+  nickname: string;
+  hands: number;
+  /** Voluntarily put chips in preflop, % of hands with preflop betting (not bomb pots). Null before any. */
+  vpip: number | null;
+  /** Raised preflop, % of the same hands. */
+  pfr: number | null;
+  showdowns: number;
+  showdownWins: number;
+  potsWon: number;
+  biggestPot: number;
+  net: number;
+}
+
+export interface HighlightView {
+  kind: "biggestPot" | "bestHand" | "comeback" | "rareHand" | "shownBluff";
+  hand: number;
+  title: string;
+  detail: string;
+  amount: number | null;
+}
+
+/** One finished hand in the history list. */
+export interface HistoryEntryView {
+  hand: number;
+  endedAt: number;
+  variant: VariantName;
+  pot: number;
+  winners: string[];
+  /** The best hand shown at showdown, if any. */
+  best: string | null;
+  /** Your result, if you were dealt in. */
+  yourNet: number | null;
 }
 
 export interface ChatView {

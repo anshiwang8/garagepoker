@@ -9,7 +9,8 @@ import { TableScreen } from "./TableScreen";
  * never computes game state itself.
  */
 export function TableClient({ tableId }: { tableId: string }) {
-  const { view, connection, send, toasts, dismiss, clockOffset, commitments, replay, closeReplay } = useTableSocket(tableId);
+  const { view, connection, send, toasts, dismiss, clockOffset, commitments, replay, closeReplay, history, historyExport, clearExport } =
+    useTableSocket(tableId);
   const now = useServerNow(clockOffset, !!view?.hand?.toAct || !!view?.hand?.ritOffer || !!view?.hand?.discard);
 
   if (!view) {
@@ -41,6 +42,9 @@ export function TableClient({ tableId }: { tableId: string }) {
       seenCommitment={view.lastHand ? commitments[view.lastHand.number] : undefined}
       replay={replay}
       closeReplay={closeReplay}
+      history={history}
+      historyExport={historyExport}
+      clearExport={clearExport}
     />
   );
 }

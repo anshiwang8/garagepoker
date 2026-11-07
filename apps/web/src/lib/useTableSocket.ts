@@ -1,6 +1,13 @@
 "use client";
 
-import { type ClientMessage, type ReplayView, type ServerMessage, STALE_ACTION, type TableView } from "@garagepoker/protocol";
+import {
+  type ClientMessage,
+  type HistoryEntryView,
+  type ReplayView,
+  type ServerMessage,
+  STALE_ACTION,
+  type TableView,
+} from "@garagepoker/protocol";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { tableSocketUrl } from "./server";
 import { getPlayerToken } from "./token";
@@ -38,6 +45,10 @@ export function useTableSocket(tableId: string) {
   const [commitments, setCommitments] = useState<Record<number, string>>({});
   /** The last replay the server sent: undefined before asking, null if there was no hand. */
   const [replay, setReplay] = useState<{ value: ReplayView | null; at: number } | undefined>(undefined);
+  /** The session's hand list, as last fetched. */
+  const [history, setHistory] = useState<HistoryEntryView[] | null>(null);
+  /** The text of the last history export, waiting to be saved. */
+  const [historyExport, setHistoryExport] = useState<string | null>(null);
   const toastId = useRef(0);
 
   const toast = useCallback((message: string, tone: Toast["tone"] = "error") => {
@@ -119,6 +130,11 @@ export function useTableSocket(tableId: string) {
             setCommitments((prev) => (prev[number] ? prev : { ...prev, [number]: commitment }));
           }
           setView((prev) => (prev && prev.rev > m.view.rev ? prev : m.view));
+        } else if (m.type === "history") {
+          setHistory(m.entries);
+        } else if (m.type === "historyExport") {
+          if (m.text) setHistoryExport(m.text);
+          else toast("There are no finished hands to export yet.", "notice");
         } else if (m.type === "replay") {
           if (m.replay) setReplay({ value: m.replay, at: Date.now() });
           else toast("There's no finished hand to replay yet.", "notice");
@@ -169,8 +185,22 @@ export function useTableSocket(tableId: string) {
   const dismiss = useCallback((id: number) => setToasts((t) => t.filter((x) => x.id !== id)), []);
 
   const closeReplay = useCallback(() => setReplay(undefined), []);
+  const clearExport = useCallback(() => setHistoryExport(null), []);
 
-  return { view, connection, send, toasts, dismiss, clockOffset, commitments, replay: replay?.value ?? null, closeReplay };
+  return {
+    view,
+    connection,
+    send,
+    toasts,
+    dismiss,
+    clockOffset,
+    commitments,
+    replay: replay?.value ?? null,
+    closeReplay,
+    history,
+    historyExport,
+    clearExport,
+  };
 }
 
 /** Re-renders every `ms` while `active`, returning the server-adjusted time. */

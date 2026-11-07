@@ -40,6 +40,7 @@ import {
 } from "@garagepoker/engine";
 import { type ClientMessage, STALE_ACTION, type TableStatus } from "@garagepoker/protocol";
 import { type FairnessSecret, newSalts } from "./fairness.js";
+import { noteShownCards, recordHand, type SessionData } from "./session.js";
 
 export const AUTO_START_DELAY_MS = 3_000;
 /** The gap between hands while someone may still show their cards (SPEC §7). */
@@ -223,6 +224,8 @@ export interface TableData {
   blocked?: { playerId: string; nickname: string }[];
   /** Needed to watch or ask for a seat, when set. Owner only in views. */
   joinCode?: string | null;
+  /** History index, statistics and highlights for the session (see session.ts). */
+  session?: SessionData;
 }
 
 export interface TableDeps {
@@ -966,6 +969,9 @@ export class Table {
     if (chosen.some((c) => !allowed.includes(c))) throw new TableError("You can only show cards you held and haven't shown");
     const who = d.prevRecord!.players.find((p) => p.playerId === playerId)!;
     d.lastHand.showed = [...(d.lastHand.showed ?? []), { seat: who.seat, nickname: who.nickname, cards: chosen }];
+    const held = d.prevHand?.players.find((p) => p.seat === who.seat)?.hole ?? [];
+    const won = (d.prevHand?.result?.payouts ?? []).some((p) => p.seat === who.seat && p.amount > 0);
+    noteShownCards(d, who.nickname, held, d.lastHand.showed.filter((x) => x.seat === who.seat).flatMap((x) => x.cards), won);
     // Nobody left who could show: back to the normal gap between hands.
     if (d.nextHandAt !== null && !anyoneCanShow(d) && d.lastHand.endedAt !== undefined) {
       d.nextHandAt = Math.min(d.nextHandAt, Math.max(this.now, d.lastHand.endedAt + AUTO_START_DELAY_MS));
@@ -1063,6 +1069,8 @@ export class Table {
   private finishHand(hand: HandState) {
     const d = this.data;
     const result = hand.result!;
+    // Before the last hand moves on: history, statistics, and the outgoing hand's record for storage.
+    recordHand(d, hand, d.handRecord, this.now);
     for (const p of hand.players) this.seat(p.seat)!.stack = p.stack;
     d.lastHand = {
       number: d.handNumber,

@@ -11,7 +11,7 @@ export function paymentText(p: Payment, displayCents: boolean): string {
   return `${p.fromName} pays ${p.toName} $${formatChips(p.amount, displayCents)}`;
 }
 
-export function LedgerDialog({ view, onClose }: { view: TableView; onClose?: () => void }) {
+export function LedgerDialog({ view, onClose, onRecap }: { view: TableView; onClose?: () => void; onRecap?: () => void }) {
   const dc = view.settings.displayCents;
   const rows = view.ledger;
   const f = (n: number) => formatChips(n, dc);
@@ -65,14 +65,21 @@ export function LedgerDialog({ view, onClose }: { view: TableView; onClose?: () 
             </ul>
           )}
           <p className="text-xs text-muted">The app never handles real money; it only does the arithmetic.</p>
-          <Button
-            className="self-start"
-            onClick={() => downloadText(`garagepoker-${view.tableId}-ledger.csv`, ledgerCsv(rows, view.settlement, dc))}
-          >
-            Download CSV
-          </Button>
         </section>
       )}
+      <div className="mt-4 flex flex-wrap gap-2">
+        <Button
+          className="min-h-11"
+          onClick={() => downloadText(`garagepoker-${view.tableId}-ledger.csv`, ledgerCsv(rows, view.settlement, dc))}
+        >
+          Download CSV
+        </Button>
+        {onRecap && view.session && view.session.hands > 0 && (
+          <Button variant="primary" className="min-h-11" onClick={onRecap}>
+            Session recap
+          </Button>
+        )}
+      </div>
     </Modal>
   );
 }
