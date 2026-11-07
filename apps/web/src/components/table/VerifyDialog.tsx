@@ -30,7 +30,7 @@ export function VerifyButton({ view, seenCommitment }: { view: TableView; seenCo
 
   return (
     <>
-      <button type="button" onClick={run} className="underline decoration-dotted underline-offset-2 hover:text-text">
+      <button type="button" onClick={run} className="underline decoration-dotted underline-offset-2 hover:text-text relative before:absolute before:-inset-x-2 before:-inset-y-3 before:content-['']">
         Verify
       </button>
       {open && (

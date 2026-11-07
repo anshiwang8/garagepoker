@@ -1,8 +1,7 @@
-import type { ClientMessage, LastHandView, SliceView, TableView } from "@garagepoker/protocol";
+import type { LastHandView, SliceView, TableView } from "@garagepoker/protocol";
 import { formatChips } from "@/lib/chips";
 import { VerifyButton } from "./VerifyDialog";
-
-type Send = (m: Exclude<ClientMessage, { type: "hello" }>) => void;
+import type { Send } from "@/lib/useTableSocket";
 
 /** Total won per seat in the last hand, across every pot slice. */
 export function wonBySeat(last: LastHandView): Map<number, number> {

@@ -1,10 +1,9 @@
 "use client";
 
-import type { ClientMessage, TableView } from "@garagepoker/protocol";
+import type { TableView } from "@garagepoker/protocol";
 import { useSent } from "@/lib/useSent";
 import { Button } from "../ui";
-
-type Send = (m: Exclude<ClientMessage, { type: "hello" }>) => void;
+import type { Send } from "@/lib/useTableSocket";
 
 /**
  * SPEC §2.7: when run it twice is offered, everyone in the pot gets 5 s to

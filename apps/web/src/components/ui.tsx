@@ -122,7 +122,7 @@ export function Field({ label, hint, error, children }: { label: string; hint?: 
     <label className="flex flex-col gap-1">
       <span className="text-xs font-medium uppercase tracking-wide text-muted">{label}</span>
       {children}
-      {error ? <span className="text-xs text-danger">{error}</span> : hint ? <span className="text-xs text-muted">{hint}</span> : null}
+      {error ? <span className="text-xs text-danger-text">{error}</span> : hint ? <span className="text-xs text-muted">{hint}</span> : null}
     </label>
   );
 }
@@ -197,7 +197,7 @@ export function Toggle({
         aria-checked={checked}
         disabled={disabled}
         onClick={() => onChange(!checked)}
-        className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${checked ? "bg-gold" : "bg-line"}`}
+        className={`relative h-6 w-11 shrink-0 rounded-full transition-colors before:absolute before:-inset-x-1 before:-inset-y-2.5 before:content-[''] ${checked ? "bg-gold" : "bg-line"}`}
       >
         <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-all ${checked ? "left-[22px]" : "left-0.5"}`} />
       </button>

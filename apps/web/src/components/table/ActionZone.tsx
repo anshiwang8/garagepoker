@@ -10,8 +10,7 @@ import { DiscardPicker } from "./DiscardPicker";
 import { byRank, rankText } from "./PlayingCard";
 import { RunItTwicePrompt } from "./RunItTwicePrompt";
 import { showingResult, waitingText } from "./tableText";
-
-type Send = (m: Exclude<ClientMessage, { type: "hello" }>) => void;
+import type { Send } from "@/lib/useTableSocket";
 
 /**
  * The bottom action zone (SPEC §7): exactly one of a prompt, the action row,
@@ -41,7 +40,7 @@ export function ActionZone({
     return (
       <Pill>
         Waiting for the owner to approve your {view.you.request.kind === "seat" ? "seat" : "rebuy"}…
-        <button type="button" className="ml-2 font-semibold text-gold" onClick={() => send({ type: "cancelRequest" })}>
+        <button type="button" className="ml-2 font-semibold text-gold relative before:absolute before:-inset-x-2 before:-inset-y-3 before:content-['']" onClick={() => send({ type: "cancelRequest" })}>
           Cancel
         </button>
       </Pill>
@@ -127,19 +126,19 @@ function ActionRow({ view, sent, onRaise, act }: { view: TableView; sent: boolea
   });
   return (
     <div className="ml-auto flex w-[80%] max-w-[34rem] gap-2" role="group" aria-label="Your turn" aria-busy={sent}>
-      <ActButton tone="green" disabled={!legal.canRaise || sent} onClick={onRaise} hotkey="R">
+      <ActButton tone="green" disabled={!legal.canRaise || sent} busy={sent && legal.canRaise} onClick={onRaise} hotkey="R">
         {hand.currentBet === 0 ? "Bet" : "Raise"}
       </ActButton>
       {legal.canCheck ? (
-        <ActButton tone="green" disabled={sent} onClick={() => act({ type: "check" })} hotkey="K">
+        <ActButton tone="green" disabled={sent} busy={sent} onClick={() => act({ type: "check" })} hotkey="K">
           Check
         </ActButton>
       ) : (
-        <ActButton tone="green" disabled={sent} onClick={() => act({ type: "call" })} sub={formatChips(legal.callAmount, dc)} hotkey="C">
+        <ActButton tone="green" disabled={sent} busy={sent} onClick={() => act({ type: "call" })} sub={formatChips(legal.callAmount, dc)} hotkey="C">
           {callAllIn ? "Call all in" : "Call"}
         </ActButton>
       )}
-      <ActButton tone="red" disabled={sent} onClick={() => act({ type: "fold" })} hotkey="F">
+      <ActButton tone="red" disabled={sent} busy={sent} onClick={() => act({ type: "fold" })} hotkey="F">
         Fold
       </ActButton>
     </div>
@@ -149,7 +148,7 @@ function ActionRow({ view, sent, onRaise, act }: { view: TableView; sent: boolea
 function Pill({ children }: { children: ReactNode }) {
   return (
     <div className="flex justify-center lg:justify-end">
-      <div className="flex items-center rounded-full border border-white/12 bg-[#232323] px-4 py-2.5 text-sm text-white/85 shadow-lg" role="status">
+      <div className="flex items-center rounded-full border border-white/12 bg-chrome-2 px-4 py-2.5 text-sm text-white/85 shadow-lg" role="status">
         {children}
       </div>
     </div>
@@ -157,11 +156,11 @@ function Pill({ children }: { children: ReactNode }) {
 }
 
 const TONES = {
-  green: "bg-transparent border-[#22c55e] text-[#4ade80] active:bg-[#22c55e] active:text-[#052e16]",
-  red: "bg-transparent border-[#ef4444] text-[#f87171] active:bg-[#ef4444] active:text-white",
+  green: "bg-transparent border-act text-act-text active:bg-act active:text-act-ink",
+  red: "bg-transparent border-danger text-danger-text active:bg-danger active:text-white",
   gold: "bg-transparent border-gold text-gold active:bg-gold active:text-ink",
   grey: "bg-transparent border-white/25 text-white/80 active:bg-white/20",
-  greenFilled: "border-[#22c55e] bg-[#22c55e] text-[#052e16] active:bg-[#16a34a]",
+  greenFilled: "border-act bg-act text-act-ink active:bg-act-press",
 };
 
 const HOTKEY_LABEL: Record<string, string> = { Escape: "Esc", Enter: "↵" };
@@ -173,13 +172,14 @@ function ActButton({
   hotkey,
   className = "",
   children,
+  busy = false,
   ...props
-}: React.ButtonHTMLAttributes<HTMLButtonElement> & { tone: keyof typeof TONES; sub?: string; hotkey?: string }) {
+}: React.ButtonHTMLAttributes<HTMLButtonElement> & { tone: keyof typeof TONES; sub?: string; hotkey?: string; busy?: boolean }) {
   return (
     <button
       type="button"
       aria-keyshortcuts={hotkey}
-      className={`relative flex min-h-14 min-w-0 flex-1 flex-col items-center justify-center rounded-lg border-[1.5px] px-1.5 font-semibold uppercase leading-tight tracking-wide transition-colors disabled:pointer-events-none disabled:opacity-30 ${TONES[tone]} ${className}`}
+      className={`relative flex min-h-14 min-w-0 flex-1 flex-col items-center justify-center rounded-lg border-[1.5px] px-1.5 font-semibold uppercase leading-tight tracking-wide transition-colors disabled:pointer-events-none ${busy ? "disabled:opacity-60" : "disabled:opacity-30"} ${TONES[tone]} ${className}`}
       {...props}
     >
       {hotkey && (
@@ -265,7 +265,7 @@ function RaisePanel({ view, onBack, onRaise }: { view: TableView; onBack: () => 
       <div className="flex min-w-0 flex-1 flex-col gap-2">
         <label className="flex flex-col gap-1">
           <span className="text-[13px] text-white/55">Your bet</span>
-          <span className={`relative flex h-14 items-center rounded-lg border bg-[#1c1c1c] px-3 ${error ? "border-[#ef4444]" : "border-white/12"}`}>
+          <span className={`relative flex h-14 items-center rounded-lg border bg-chrome px-3 ${error ? "border-danger" : "border-white/12"}`}>
             <input
               inputMode={dc ? "decimal" : "numeric"}
               autoComplete="off"
@@ -287,7 +287,7 @@ function RaisePanel({ view, onBack, onRaise }: { view: TableView; onBack: () => 
           </span>
         </label>
         {error && (
-          <p className="-mt-1 text-xs text-[#f87171]" role="alert">
+          <p className="-mt-1 text-xs text-danger-text" role="alert">
             {error}
           </p>
         )}
@@ -297,8 +297,8 @@ function RaisePanel({ view, onBack, onRaise }: { view: TableView; onBack: () => 
               key={p.label}
               type="button"
               onClick={() => choose(p.to)}
-              className={`min-h-9 rounded-md border px-0.5 text-[10.5px] font-semibold uppercase leading-tight tracking-wide ${
-                amount === p.to ? "border-gold bg-gold/15 text-gold" : "border-white/15 bg-[#232323] text-white/85"
+              className={`min-h-11 rounded-md border px-0.5 text-[11px] font-semibold uppercase leading-tight tracking-wide ${
+                amount === p.to ? "border-gold bg-gold/15 text-gold" : "border-white/15 bg-chrome-2 text-white/85"
               }`}
             >
               {p.label}
@@ -316,12 +316,19 @@ function RaisePanel({ view, onBack, onRaise }: { view: TableView; onBack: () => 
             max={max}
             step={1}
             value={clamp(amount)}
-            aria-label="Bet amount"
+            aria-label="Bet amount slider"
+            aria-valuetext={formatChips(clamp(amount), dc)}
             onChange={(e) => choose(Number(e.target.value))}
           />
           <StepButton label="More" onClick={() => choose(amount + step)} disabled={amount >= max}>
             <Plus size={18} />
           </StepButton>
+        </div>
+        <div className="tabular -mt-1 flex justify-between text-[11px] text-white/60">
+          <span>Min {formatChips(min, dc)}</span>
+          <span>
+            {potLimit && max < allInTo ? "Pot max" : "Max"} {formatChips(max, dc)}
+          </span>
         </div>
       </div>
       <div className="flex w-[6.5rem] shrink-0 flex-col gap-2">
@@ -343,7 +350,7 @@ function StepButton({ label, onClick, disabled, children }: { label: string; onC
       aria-label={label}
       onClick={onClick}
       disabled={disabled}
-      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-white/15 bg-[#232323] text-white active:bg-white/20 disabled:opacity-30"
+      className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md border border-white/15 bg-chrome-2 text-white active:bg-white/20 disabled:opacity-30"
     >
       {children}
     </button>
@@ -352,10 +359,10 @@ function StepButton({ label, onClick, disabled, children }: { label: string; onC
 
 /** Suit colours that read on the dark action zone. */
 const LIGHT_SUIT: Record<string, { symbol: string; color: string }> = {
-  s: { symbol: "♠", color: "#f4f4f5" },
-  h: { symbol: "♥", color: "#f87171" },
-  d: { symbol: "♦", color: "#60a5fa" },
-  c: { symbol: "♣", color: "#4ade80" },
+  s: { symbol: "♠", color: "var(--color-spade-light)" },
+  h: { symbol: "♥", color: "var(--color-heart-light)" },
+  d: { symbol: "♦", color: "var(--color-diamond-light)" },
+  c: { symbol: "♣", color: "var(--color-club-light)" },
 };
 
 const myShown = (view: TableView) => view.lastHand!.showed.filter((s) => s.seat === view.you.seat).flatMap((s) => s.cards);

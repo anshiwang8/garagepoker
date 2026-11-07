@@ -22,6 +22,8 @@ export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover",
+  // The on-screen keyboard shrinks the page instead of covering the bet box.
+  interactiveWidget: "resizes-content",
   themeColor: "#0b1210",
 };
 

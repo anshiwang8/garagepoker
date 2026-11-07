@@ -1,11 +1,10 @@
 "use client";
 
-import type { ClientMessage, TableView } from "@garagepoker/protocol";
+import type { TableView } from "@garagepoker/protocol";
 import { LogOut, Menu, Pause, PersonStanding, Play, Square, Volume2, VolumeX } from "lucide-react";
 import Link from "next/link";
 import { type ReactNode, useEffect, useState, useSyncExternalStore } from "react";
-
-type Send = (m: Exclude<ClientMessage, { type: "hello" }>) => void;
+import type { Send } from "@/lib/useTableSocket";
 
 const SOUND_KEY = "gp.sound";
 
@@ -76,7 +75,7 @@ function LabeledIcon({
   pressed?: boolean;
   onBlur?: () => void;
 }) {
-  const color = tone === "gold" ? "text-gold" : tone === "danger" ? "text-[#f87171]" : "text-white/85";
+  const color = tone === "gold" ? "text-gold" : tone === "danger" ? "text-danger-text" : "text-white/85";
   return (
     <button
       type="button"
@@ -86,8 +85,13 @@ function LabeledIcon({
       className={`relative flex h-14 min-w-14 flex-col items-center justify-center gap-1 rounded-lg px-1 hover:bg-white/5 ${color}`}
     >
       {icon}
-      <span className={`whitespace-nowrap text-[10px] font-semibold uppercase leading-none tracking-wide ${tone === "default" ? "text-white/55" : ""}`}>{label}</span>
-      {badge && <span className="absolute right-2 top-1.5 h-2.5 w-2.5 rounded-full bg-[#ef4444]" aria-label="Pending requests" />}
+      <span className={`whitespace-nowrap text-[10px] font-semibold uppercase leading-none tracking-wide ${tone === "default" ? "text-white/70" : ""}`}>{label}</span>
+      {badge && (
+        <>
+          <span className="absolute right-2 top-1.5 h-2.5 w-2.5 rounded-full bg-danger" aria-hidden />
+          <span className="sr-only">(requests waiting)</span>
+        </>
+      )}
     </button>
   );
 }
@@ -106,7 +110,7 @@ function SquareIcon({
   children: ReactNode;
 }) {
   const color =
-    tone === "gold" ? "border-gold/70 text-gold" : tone === "danger" ? "border-[#ef4444] bg-[#ef4444]/15 text-[#f87171]" : "border-white/20 text-white/85";
+    tone === "gold" ? "border-gold/70 text-gold" : tone === "danger" ? "border-danger bg-danger/15 text-danger-text" : "border-white/20 text-white/85";
   return (
     <button
       type="button"
@@ -114,7 +118,7 @@ function SquareIcon({
       title={label}
       onClick={onClick}
       onBlur={onBlur}
-      className={`flex h-10 min-w-10 items-center justify-center gap-1 rounded-md border px-2 text-xs font-semibold uppercase hover:bg-white/5 ${color}`}
+      className={`flex h-11 min-w-11 items-center justify-center gap-1 rounded-md border px-2 text-xs font-semibold uppercase hover:bg-white/5 ${color}`}
     >
       {children}
     </button>
@@ -153,7 +157,7 @@ export function TopBar({ view, send, onOptions }: { view: TableView; send: Send;
         )}
       </nav>
       <div className="hidden min-w-0 flex-1 justify-center overflow-hidden min-[400px]:flex">
-        <Link href="/" className="text-lg font-black tracking-tight text-white/90" aria-label="GaragePoker home">
+        <Link href="/" className="flex h-11 min-w-11 items-center justify-center text-lg font-black tracking-tight text-white/90" aria-label="GaragePoker home">
           G<span className="text-gold">P</span>
         </Link>
       </div>

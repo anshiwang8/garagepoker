@@ -1,12 +1,11 @@
 "use client";
 
-import type { ClientMessage, RequestView, TableView } from "@garagepoker/protocol";
+import type { RequestView, TableView } from "@garagepoker/protocol";
 import { useState } from "react";
 import { chipsToInput, formatChips } from "@/lib/chips";
 import { saveNickname, savedNickname } from "@/lib/token";
 import { Button, ChipInput, Field, inputClass, Modal } from "../ui";
-
-type Send = (m: Exclude<ClientMessage, { type: "hello" }>) => void;
+import type { Send } from "@/lib/useTableSocket";
 
 /** Tap an empty seat: pick a name and buy-in, then wait for the owner. */
 export function SeatRequestDialog({
@@ -28,7 +27,8 @@ export function SeatRequestDialog({
   const [postBlind, setPostBlind] = useState(false);
   const started = view.handNumber > 0;
   const name = nickname.trim();
-  const valid = name.length >= 1 && name.length <= 20 && !/[<>]/.test(name) && !!buyIn && buyIn > 0;
+  const badName = /[<>]/.test(name);
+  const valid = name.length >= 1 && name.length <= 20 && !badName && !!buyIn && buyIn > 0;
 
   return (
     <Modal title={`Sit in seat ${seat}`} onClose={onClose}>
@@ -42,7 +42,7 @@ export function SeatRequestDialog({
           onClose();
         }}
       >
-        <Field label="Your name">
+        <Field label="Your name" error={badName ? "Names can't contain < or >" : undefined}>
           <input
             className={inputClass}
             value={nickname}

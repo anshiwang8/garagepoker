@@ -208,7 +208,7 @@ function Center({
           <div className={`relative flex items-end gap-2 ${showPill ? "justify-between" : "justify-center"}`} style={{ minWidth: 140 * z.s, height: z.tagH }}>
             {bombPot ? (
               <span
-                className="rounded-full bg-[#dc2626] px-2 font-bold uppercase leading-none tracking-widest text-white"
+                className="rounded-full bg-alert px-2 font-bold uppercase leading-none tracking-widest text-white"
                 style={{ fontSize: 10 * z.s, paddingBlock: 3 * z.s }}
               >
                 Bomb pot
@@ -217,7 +217,7 @@ function Center({
               <span />
             ) : null}
             {hand && bets > 0 && (
-              <span className="tabular whitespace-nowrap text-[#bbf7d0]" style={{ fontSize: 11 * z.s }}>
+              <span className="tabular whitespace-nowrap text-felt-text" style={{ fontSize: 11 * z.s }}>
                 total {formatChips(hand.pot, dc)}
               </span>
             )}
@@ -228,7 +228,7 @@ function Center({
         <div style={line(center.pillTop, z.pillH)} className="flex justify-center">
           <div
             data-box="pot"
-            className="tabular flex items-center rounded-full border border-[#3f9d6c] bg-[#0f3f28] font-semibold text-white shadow-[inset_0_1px_0_rgba(255,255,255,.08)]"
+            className="tabular flex items-center rounded-full border border-pot-line bg-pot font-semibold text-white shadow-[inset_0_1px_0_rgba(255,255,255,.08)]"
             style={{ height: z.pillH, fontSize: z.pillFont, paddingInline: 22 * z.s, minWidth: 110 * z.s, justifyContent: "center" }}
           >
             {formatChips(pot, dc)}
@@ -237,11 +237,11 @@ function Center({
       )}
       {result && (
         <div style={line(center.resultTop, z.resultH)} className="flex justify-center px-3">
-          <div className="flex min-w-0 max-w-full items-center gap-1.5 text-[#e5e7eb]" style={{ fontSize: 11.5 * z.s }}>
+          <div className="flex min-w-0 max-w-full items-center gap-1.5 text-paper" style={{ fontSize: 11.5 * z.s }}>
             <span className="truncate" data-box="result">
               {resultSummary(view, result)}
             </span>
-            <button type="button" onClick={onDetails} className="shrink-0 font-semibold text-gold underline-offset-2 hover:underline">
+            <button type="button" onClick={onDetails} className="shrink-0 font-semibold text-gold underline-offset-2 hover:underline relative before:absolute before:-inset-x-2 before:-inset-y-3 before:content-['']">
               Details
             </button>
           </div>
@@ -317,7 +317,7 @@ function Center({
       {/* Table info, or the table's state when nothing's running. */}
       <div className="absolute inset-x-0 flex flex-col items-center px-4 text-center" style={{ top: center.infoTop }} data-box="info">
         {info.owner && (
-          <div className="font-semibold uppercase tracking-[0.12em] text-[#86c9a3]/80" style={{ fontSize: 11 * z.s, lineHeight: 1.3 }}>
+          <div className="font-semibold uppercase tracking-[0.12em] text-felt-muted/80" style={{ fontSize: 11 * z.s, lineHeight: 1.3 }}>
             Owner: {info.owner}
           </div>
         )}

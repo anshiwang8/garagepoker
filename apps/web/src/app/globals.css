@@ -15,8 +15,56 @@
   --color-rail: #3b2a1c;
   --color-gold: #e9b949;
   --color-gold-dark: #b8892a;
-  --color-danger: #e5484d;
   --color-ok: #46a758;
+
+  /* Actions (SPEC §7): green for Raise/Check/Call, red for Fold and errors. */
+  --color-act: #22c55e;
+  --color-act-text: #4ade80;
+  --color-act-ink: #052e16;
+  --color-act-press: #16a34a;
+  --color-danger: #ef4444;
+  --color-danger-text: #f87171;
+  /* Filled badges with white text (bomb pot, all in, reconnecting): 4.8:1. */
+  --color-alert: #dc2626;
+  /* Red and green text on the light (active) name plate. */
+  --color-alert-deep: #b91c1c;
+  --color-ok-deep: #15803d;
+
+  /* Table chrome: neutral greys for name plates, pills and the log. */
+  --color-chrome: #1c1c1c;
+  --color-chrome-2: #232323;
+  --color-chrome-3: #2b2b2b;
+  --color-chrome-4: #52525b;
+  --color-paper: #e5e7eb;
+  --color-on-light: #141414;
+
+  /* Hand-strength tags by tier (SPEC §7), all 4.5:1 or better with white text. */
+  --color-tier-1: #475569;
+  --color-tier-2: #0f766e;
+  --color-tier-3: #7c3aed;
+  --color-tier-4: #dc2626;
+
+  /* Timers: the bar runs green, yellow, red; purple in the time bank. */
+  --color-timer-ok: #22c55e;
+  --color-timer-warn: #eab308;
+  --color-timer-low: #ef4444;
+  --color-bank: #a855f7;
+  --color-bank-deep: #7e22ce;
+
+  /* On the felt: bet chips, the pot pill, felt-coloured text. */
+  --color-chip: #d9f99d;
+  --color-chip-ink: #1a2e05;
+  --color-pot: #0f3f28;
+  --color-pot-line: #3f9d6c;
+  --color-felt-text: #bbf7d0;
+  --color-felt-muted: #86c9a3;
+  --color-winner: #facc15;
+
+  /* Suits on dark buttons (show cards). */
+  --color-spade-light: #f4f4f5;
+  --color-heart-light: #f87171;
+  --color-diamond-light: #60a5fa;
+  --color-club-light: #4ade80;
   /* Four-colour deck: easy to tell suits apart on a phone. */
   --color-spade: #1b1f24;
   --color-heart: #d8323c;
@@ -166,6 +214,21 @@ input[type="range"] {
   .board-in {
     animation: none;
   }
+  /* Everything else too: no slides or fades, just the end state. */
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Keyboard focus: a gold ring on anything focusable (not on mouse or touch). */
+:focus-visible {
+  outline: 2px solid var(--color-gold);
+  outline-offset: 2px;
 }
 
 /* GaragePoker's card back: deep red; the GP monogram is drawn over it (PlayingCard). */
@@ -193,7 +256,7 @@ input[type="range"] {
 
 /* Winners of the last hand: a soft gold glow round the name plate. */
 .winner-glow {
-  box-shadow: 0 0 0 2px #facc15, 0 0 20px 4px rgb(250 204 21 / 0.55);
+  box-shadow: 0 0 0 2px var(--color-winner), 0 0 20px 4px rgb(250 204 21 / 0.55);
 }
 
 /* The raise slider: a big gold thumb on a thin track. */
@@ -251,6 +314,12 @@ input[type="range"] {
  * It's in @supports rather than a second declaration because the CSS
  * minifier merges duplicate declarations and would drop the vh fallback.
  */
+/* Landscape phones: keep controls clear of the notch and rounded corners. */
+.table-page {
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+}
+
 @supports (height: 100dvh) {
   .table-page {
     height: 100dvh;

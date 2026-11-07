@@ -1,11 +1,10 @@
 "use client";
 
-import type { ClientMessage, TableView } from "@garagepoker/protocol";
+import type { TableView } from "@garagepoker/protocol";
 import { useState } from "react";
 import { useSent } from "@/lib/useSent";
 import { PlayingCard } from "./PlayingCard";
-
-type Send = (m: Exclude<ClientMessage, { type: "hello" }>) => void;
+import type { Send } from "@/lib/useTableSocket";
 
 /**
  * Pineapple: on the preflop, flop and turn everyone discards one card face
@@ -48,7 +47,7 @@ export function DiscardPicker({ view, send, now }: { view: TableView; send: Send
                 aria-pressed={choice === card}
                 aria-label={`Discard ${card}`}
                 onClick={() => setPicked(card)}
-                className={`rounded-md transition-transform ${choice === card ? "-translate-y-1.5 ring-2 ring-[#ef4444]" : ""}`}
+                className={`rounded-md transition-transform ${choice === card ? "-translate-y-1.5 ring-2 ring-danger" : ""}`}
               >
                 <PlayingCard card={card} w={40} h={56} dim={choice !== null && choice !== card} />
               </button>
@@ -64,7 +63,7 @@ export function DiscardPicker({ view, send, now }: { view: TableView; send: Send
             send({ type: "discard", hand: view.handNumber, seq, card: choice });
             setPicked(null);
           }}
-          className="min-h-14 w-28 shrink-0 rounded-lg border-[1.5px] border-[#ef4444] font-semibold uppercase tracking-wide text-[#f87171] active:bg-[#ef4444] active:text-white disabled:opacity-30"
+          className="min-h-14 w-28 shrink-0 rounded-lg border-[1.5px] border-danger font-semibold uppercase tracking-wide text-danger-text active:bg-danger active:text-white disabled:opacity-30"
         >
           Discard
         </button>

@@ -1,12 +1,12 @@
 "use client";
 
-import type { ClientMessage, SeatView, TableView } from "@garagepoker/protocol";
+import type { SeatView, TableView } from "@garagepoker/protocol";
 import { useState } from "react";
 import { chipsToInput, formatChips } from "@/lib/chips";
 import { SettingsForm } from "../SettingsForm";
 import { Button, ChipInput, ConfirmButton, Modal } from "../ui";
+import type { Send } from "@/lib/useTableSocket";
 
-type Send = (m: Exclude<ClientMessage, { type: "hello" }>) => void;
 export type OwnerTab = "settings" | "players";
 
 export function OwnerMenu({ view, send, onClose, tab: initialTab }: { view: TableView; send: Send; onClose: () => void; tab: OwnerTab }) {

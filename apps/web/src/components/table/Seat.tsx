@@ -48,10 +48,10 @@ export interface Countdown {
 /** SPEC §7 tag colours by strength tier, from the high half of a label like "Flush / 8-6 low". */
 export function tagColor(label: string): string {
   const l = label.split(" / ")[0]!.toLowerCase();
-  if (/four of a kind|straight flush|royal/.test(l)) return "bg-[#dc2626] text-white";
-  if (/straight|flush|full house/.test(l)) return "bg-[#7c3aed] text-white";
-  if (/two pair|three of a kind/.test(l)) return "bg-[#0d9488] text-white";
-  return "bg-[#475569] text-white";
+  if (/four of a kind|straight flush|royal/.test(l)) return "bg-tier-4 text-white";
+  if (/straight|flush|full house/.test(l)) return "bg-tier-3 text-white";
+  if (/two pair|three of a kind/.test(l)) return "bg-tier-2 text-white";
+  return "bg-tier-1 text-white";
 }
 
 /** Shorter names for opponents' tags on a phone: "Trips", "Quads"; no "no low". */
@@ -92,10 +92,10 @@ export function HandTags({ labels, font, short = false }: { labels: string[]; fo
 
 /** Timer colour: green, then yellow, then red; purple in the time bank. */
 function timerColor(c: Countdown): string {
-  if (c.inBank) return "#a855f7";
-  if (c.fraction > 0.5) return "#22c55e";
-  if (c.fraction > 0.2) return "#eab308";
-  return "#ef4444";
+  if (c.inBank) return "var(--color-bank)";
+  if (c.fraction > 0.5) return "var(--color-timer-ok)";
+  if (c.fraction > 0.2) return "var(--color-timer-warn)";
+  return "var(--color-timer-low)";
 }
 
 /**
@@ -146,8 +146,8 @@ export function NamePlate({
       data-seat={seat.seat}
       className={`absolute flex flex-col justify-center rounded-lg border ${
         active
-          ? "border-white bg-white text-[#141414] shadow-[0_0_18px_4px_rgba(255,255,255,.45)]"
-          : "border-white/10 bg-[#2b2b2b] text-white shadow-[0_2px_8px_rgba(0,0,0,.5)]"
+          ? "border-white bg-white text-on-light shadow-[0_0_18px_4px_rgba(255,255,255,.45)]"
+          : "border-white/10 bg-chrome-3 text-white shadow-[0_2px_8px_rgba(0,0,0,.5)]"
       } ${winner && !active ? "winner-glow" : ""}`}
       style={{ width: w, height: h, padding: `0 ${Math.max(6, w * 0.07)}px`, opacity: dim ? 0.5 : 1, ...style }}
     >
@@ -162,7 +162,7 @@ export function NamePlate({
         {netText && !netCorner && net !== null && (
           <span
             data-box="net"
-            className={`tabular min-w-0 truncate font-bold ${net > 0 ? (active ? "text-[#15803d]" : "text-[#4ade80]") : active ? "text-[#b91c1c]" : "text-[#f87171]"}`}
+            className={`tabular min-w-0 truncate font-bold ${net > 0 ? (active ? "text-ok-deep" : "text-act-text") : active ? "text-alert-deep" : "text-danger-text"}`}
             style={{ fontSize: Math.max(10, stackFont * 0.76) }}
           >
             {netText}
@@ -172,7 +172,7 @@ export function NamePlate({
       {netText && netCorner && net !== null && (
         <span
           data-box="net"
-          className={`tabular absolute whitespace-nowrap rounded px-1 font-bold leading-[1.4] shadow ${net > 0 ? "bg-[#16a34a] text-white" : "bg-[#dc2626] text-white"}`}
+          className={`tabular absolute whitespace-nowrap rounded px-1 font-bold leading-[1.4] shadow ${net > 0 ? "bg-act-press text-white" : "bg-alert text-white"}`}
           style={{ fontSize: Math.max(9, nameFont * 0.8), left: -4, top: -Math.max(7, nameFont * 0.6) }}
         >
           {netText}
@@ -181,7 +181,7 @@ export function NamePlate({
       {tag && (
         <span
           className={`absolute whitespace-nowrap rounded px-1 font-bold uppercase leading-[1.4] tracking-wide shadow ${
-            tag.tone === "danger" ? "bg-[#dc2626] text-white" : tag.tone === "info" ? "bg-[#e5e7eb] text-[#141414]" : "bg-[#52525b] text-white"
+            tag.tone === "danger" ? "bg-alert text-white" : tag.tone === "info" ? "bg-paper text-on-light" : "bg-chrome-4 text-white"
           }`}
           style={{ fontSize: Math.max(9, nameFont * 0.72), right: -4, top: -Math.max(7, nameFont * 0.55) }}
         >
@@ -198,7 +198,7 @@ export function NamePlate({
       )}
       {extraTime && (
         <span
-          className={`absolute top-1/2 -translate-y-1/2 whitespace-nowrap rounded bg-[#a855f7] px-1.5 font-bold uppercase leading-[1.5] tracking-wide text-white shadow ${
+          className={`absolute top-1/2 -translate-y-1/2 whitespace-nowrap rounded bg-bank-deep px-1.5 font-bold uppercase leading-[1.5] tracking-wide text-white shadow ${
             bannerSide === "right" ? "left-[calc(100%+6px)]" : "right-[calc(100%+6px)]"
           }`}
           style={{ fontSize: Math.max(9, nameFont * 0.72) }}
@@ -215,7 +215,7 @@ export function BetChip({ amount, displayCents, h, font, style }: { amount: numb
   return (
     <span
       data-box="bet"
-      className="tabular absolute flex items-center whitespace-nowrap rounded-full bg-[#d9f99d] font-semibold text-[#1a2e05] shadow-[0_2px_6px_rgba(0,0,0,.45),inset_0_-1px_0_rgba(0,0,0,.18)]"
+      className="tabular absolute flex items-center whitespace-nowrap rounded-full bg-chip font-semibold text-chip-ink shadow-[0_2px_6px_rgba(0,0,0,.45),inset_0_-1px_0_rgba(0,0,0,.18)]"
       style={{ height: h, fontSize: font, padding: `0 ${h * 0.4}px 0 ${h * 0.12}px`, gap: h * 0.22, ...style }}
     >
       <span aria-hidden className="poker-chip shrink-0 rounded-full" style={{ width: h * 0.76, height: h * 0.76 }} />
@@ -229,7 +229,7 @@ export function DealerButton({ size, style }: { size: number; style?: CSSPropert
     <span
       data-box="dealer"
       aria-label="Dealer button"
-      className="dealer-button absolute flex items-center justify-center rounded-full font-black text-[#141414]"
+      className="dealer-button absolute flex items-center justify-center rounded-full font-black text-on-light"
       style={{ width: size, height: size, fontSize: size * 0.5, ...style }}
     >
       D

@@ -76,7 +76,7 @@ export function TableScreen({
         />
         {connection !== "open" && (
           <div className="pointer-events-none absolute inset-x-0 top-1 flex justify-center">
-            <span className="rounded-full bg-[#dc2626]/90 px-3 py-0.5 text-xs font-semibold text-white">Reconnecting…</span>
+            <span className="rounded-full bg-alert/90 px-3 py-0.5 text-xs font-semibold text-white">Reconnecting…</span>
           </div>
         )}
       </main>
@@ -86,8 +86,8 @@ export function TableScreen({
         className="flex shrink-0 items-end gap-4 px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] min-h-[6.25rem] lg:px-6"
         aria-label="Actions"
       >
-        <div className="hidden h-[5.5rem] w-80 shrink-0 overflow-y-auto rounded-lg border border-white/10 bg-[#1c1c1c] px-3 py-2 lg:block" aria-label="Log">
-          <div className="sticky -top-2 -mt-2 bg-[#1c1c1c] pb-0.5 pt-2 text-[10px] font-semibold uppercase tracking-wide text-muted">Log</div>
+        <div className="hidden h-[5.5rem] w-80 shrink-0 overflow-y-auto rounded-lg border border-white/10 bg-chrome px-3 py-2 lg:block" aria-label="Log">
+          <div className="sticky -top-2 -mt-2 bg-chrome pb-0.5 pt-2 text-[10px] font-semibold uppercase tracking-wide text-muted">Log</div>
           <LogLines view={view} compact />
         </div>
         <div className="min-w-0 flex-1">
@@ -126,8 +126,12 @@ export function TableScreen({
       )}
       {replay && <ReplayDialog key={replay.hand} replay={replay} displayCents={view.settings.displayCents} onClose={closeReplay} />}
 
-      {/* Toasts: server errors and notices */}
-      <div className="pointer-events-none fixed inset-x-0 top-[calc(4.5rem+env(safe-area-inset-top))] z-50 flex flex-col items-center gap-2 px-3">
+      {/* Toasts: server errors and notices, announced to screen readers. */}
+      <div
+        className="pointer-events-none fixed inset-x-0 top-[calc(4.5rem+env(safe-area-inset-top))] z-50 flex flex-col items-center gap-2 px-3"
+        role="status"
+        aria-live="polite"
+      >
         {view.you.notice && (
           <div className="pointer-events-auto rounded-xl border border-gold/40 bg-panel px-4 py-2 text-sm shadow-xl">{view.you.notice}</div>
         )}
@@ -136,8 +140,11 @@ export function TableScreen({
             key={t.id}
             type="button"
             onClick={() => dismiss(t.id)}
-            className="pointer-events-auto rounded-xl border border-danger/50 bg-panel px-4 py-2 text-sm text-text shadow-xl"
+            className={`pointer-events-auto min-h-11 rounded-xl border bg-panel px-4 py-2 text-sm text-text shadow-xl ${
+              t.tone === "error" ? "border-danger/60" : "border-line"
+            }`}
           >
+            {t.tone === "error" && <span className="sr-only">Error: </span>}
             {t.message}
           </button>
         ))}

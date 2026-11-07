@@ -146,7 +146,7 @@ export function SettingsForm({
                 title={reason}
                 aria-label={reason ? `${n} seats: ${reason}` : `${n} seats`}
                 onClick={() => set("seats", n)}
-                className={`rounded-lg border py-2 text-sm tabular disabled:opacity-30 disabled:line-through ${
+                className={`min-h-11 rounded-lg border text-sm tabular disabled:opacity-30 disabled:line-through ${
                   s.seats === n ? "border-gold bg-gold/15 font-semibold" : "border-line bg-ink"
                 }`}
               >
@@ -322,7 +322,7 @@ function Segmented<T extends string | number>({
           aria-label={o.reason ? `${o.label}: ${o.reason}` : o.label}
           aria-pressed={value === o.value}
           onClick={() => onChange(o.value)}
-          className={`rounded-lg border px-2 py-2 text-sm disabled:opacity-35 disabled:line-through ${
+          className={`min-h-11 rounded-lg border px-2 py-1.5 text-sm disabled:opacity-35 disabled:line-through ${
             value === o.value ? "border-gold bg-gold/15 font-semibold" : "border-line bg-ink"
           }`}
         >

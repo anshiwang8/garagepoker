@@ -7,9 +7,14 @@ import { getPlayerToken } from "./token";
 
 export type Connection = "connecting" | "open" | "reconnecting" | "unreachable";
 
+/** Sends a message to the table (anything but hello, which the socket sends itself). */
+export type Send = (m: Exclude<ClientMessage, { type: "hello" }>) => void;
+
 export interface Toast {
   id: number;
   message: string;
+  /** "error": something you tried was refused; "notice": information. */
+  tone: "error" | "notice";
 }
 
 const PING_MS = 25_000;
@@ -35,9 +40,9 @@ export function useTableSocket(tableId: string) {
   const [replay, setReplay] = useState<{ value: ReplayView | null; at: number } | undefined>(undefined);
   const toastId = useRef(0);
 
-  const toast = useCallback((message: string) => {
+  const toast = useCallback((message: string, tone: Toast["tone"] = "error") => {
     const id = ++toastId.current;
-    setToasts((t) => [...t.slice(-2), { id, message }]);
+    setToasts((t) => [...t.slice(-2), { id, message, tone }]);
     setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 4_000);
   }, []);
 
@@ -116,7 +121,7 @@ export function useTableSocket(tableId: string) {
           setView((prev) => (prev && prev.rev > m.view.rev ? prev : m.view));
         } else if (m.type === "replay") {
           if (m.replay) setReplay({ value: m.replay, at: Date.now() });
-          else toast("There's no finished hand to replay yet.");
+          else toast("There's no finished hand to replay yet.", "notice");
         } else if (m.message !== STALE_ACTION) {
           // (A stale action is a double tap the server ignored: nothing to tell the player.)
           toast(m.message);
@@ -156,7 +161,7 @@ export function useTableSocket(tableId: string) {
     (m: Exclude<ClientMessage, { type: "hello" }>) => {
       const ws = wsRef.current;
       if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify(m));
-      else toast("Not connected. Reconnecting…");
+      else toast("Not connected. Reconnecting…", "notice");
     },
     [toast],
   );
