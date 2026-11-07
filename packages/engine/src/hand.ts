@@ -1,3 +1,4 @@
+import { type BoardLayout, boardSize, cardsOnStreet, ROW_BOARD, streetWithDealt } from "./board";
 import { type Card, isCard } from "./cards";
 import { type DeckSize, makeDeck } from "./deck";
 import {
@@ -32,18 +33,20 @@ export interface Variant {
    * time, before betting on the preflop, flop and turn, holding 2 on the river.
    */
   discard: boolean;
+  /** How the board is dealt and laid out (SPEC §1): a row of 5, or a grid. */
+  board: BoardLayout;
 }
 
 /** SPEC §1 presets. A new variant is a new row, not new code. */
 export const VARIANTS = {
-  NLH: { holeCards: 2, deckSize: 52, betting: "NL", handRule: "any", split: "high", discard: false },
-  PLO: { holeCards: 4, deckSize: 52, betting: "PL", handRule: "omaha", split: "high", discard: false },
-  PLO5: { holeCards: 5, deckSize: 52, betting: "PL", handRule: "omaha", split: "high", discard: false },
-  PLOHL: { holeCards: 4, deckSize: 52, betting: "PL", handRule: "omaha", split: "hilo", discard: false },
-  PLO5HL: { holeCards: 5, deckSize: 52, betting: "PL", handRule: "omaha", split: "hilo", discard: false },
-  PINEAPPLE: { holeCards: 5, deckSize: 52, betting: "NL", handRule: "any", split: "high", discard: true },
+  NLH: { holeCards: 2, deckSize: 52, betting: "NL", handRule: "any", split: "high", discard: false, board: ROW_BOARD },
+  PLO: { holeCards: 4, deckSize: 52, betting: "PL", handRule: "omaha", split: "high", discard: false, board: ROW_BOARD },
+  PLO5: { holeCards: 5, deckSize: 52, betting: "PL", handRule: "omaha", split: "high", discard: false, board: ROW_BOARD },
+  PLOHL: { holeCards: 4, deckSize: 52, betting: "PL", handRule: "omaha", split: "hilo", discard: false, board: ROW_BOARD },
+  PLO5HL: { holeCards: 5, deckSize: 52, betting: "PL", handRule: "omaha", split: "hilo", discard: false, board: ROW_BOARD },
+  PINEAPPLE: { holeCards: 5, deckSize: 52, betting: "NL", handRule: "any", split: "high", discard: true, board: ROW_BOARD },
   /** 36 cards, 6 to A; Triton rankings (flush > full house, trips > straight). */
-  SHORT: { holeCards: 2, deckSize: 36, betting: "NL", handRule: "any", split: "high", discard: false },
+  SHORT: { holeCards: 2, deckSize: 36, betting: "NL", handRule: "any", split: "high", discard: false, board: ROW_BOARD },
 } as const satisfies Record<string, Variant>;
 
 export interface HandConfig {
@@ -271,8 +274,8 @@ export function startHand(input: StartHandInput): HandState {
 
   const holeCards = config.variant.holeCards;
   const boardCount = config.boards ?? 1;
-  // SPEC §3 deck math for one run: seats × hole cards + boards × 5, no burns.
-  validateDeck(input.deck, config.variant.deckSize, n * holeCards + boardCount * 5);
+  // SPEC §3 deck math for one run: seats × hole cards + boards × board cards, no burns.
+  validateDeck(input.deck, config.variant.deckSize, n * holeCards + boardCount * boardSize(config.variant.board));
 
   /** Index k seats to the left of the button. */
   const at = (k: number) => (btn + k) % n;
@@ -676,7 +679,8 @@ function canRunTwice(s: HandState): boolean {
   // Pineapple: each run would need its own discards, so only once the turn
   // discard is done (just the river to come).
   if (s.config.variant.discard && s.street !== "turn") return false;
-  const missing = s.boards.reduce((sum, b) => sum + (5 - b.length), 0);
+  const full = boardSize(s.config.variant.board);
+  const missing = s.boards.reduce((sum, b) => sum + (full - b.length), 0);
   return missing > 0 && s.deckIndex + 2 * missing <= s.deck.length;
 }
 
@@ -706,7 +710,7 @@ function runOutAndFinish(s: HandState, runs: 1 | 2): HandState {
   while (s.street !== "river") dealNextStreet(s);
   if (runs === 2) {
     s.secondRun = shared;
-    s.deckIndex = dealStreets(s.deck, s.deckIndex, s.secondRun, from, "river");
+    s.deckIndex = dealStreets(s.config.variant.board, s.deck, s.deckIndex, s.secondRun, from, "river");
   }
   finish(s);
   return s;
@@ -718,11 +722,18 @@ const NEXT_STREET: Partial<Record<Street, Street>> = { preflop: "flop", flop: "t
  * Deals each street after `from` up to and including `until` onto `boards`:
  * board 1 then board 2 on each street, no burn cards. Returns the new deck index.
  */
-function dealStreets(deck: readonly Card[], index: number, boards: Card[][], from: Street, until: Street): number {
+function dealStreets(
+  layout: BoardLayout,
+  deck: readonly Card[],
+  index: number,
+  boards: Card[][],
+  from: Street,
+  until: Street,
+): number {
   let street = from;
   while (street !== until) {
     street = NEXT_STREET[street]!;
-    const count = street === "flop" ? 3 : 1;
+    const count = cardsOnStreet(layout, street);
     for (const board of boards) {
       board.push(...deck.slice(index, index + count));
       index += count;
@@ -740,10 +751,10 @@ function dealStreets(deck: readonly Card[], index: number, boards: Card[][], fro
 export function rabbitCards(s: HandState): Card[][] {
   if (s.street !== "complete") throw new EngineError("the hand isn't over");
   const boards = s.boards.map(() => [] as Card[]);
+  const layout = s.config.variant.board;
   const dealt = s.boards[0]!.length;
-  if (s.secondRun || dealt === 5) return boards;
-  const reached: Street = dealt === 0 ? "preflop" : dealt === 3 ? "flop" : "turn";
-  dealStreets(s.deck, s.deckIndex, boards, reached, "river");
+  if (s.secondRun || dealt === boardSize(layout)) return boards;
+  dealStreets(layout, s.deck, s.deckIndex, boards, streetWithDealt(layout, dealt), "river");
   return boards;
 }
 
@@ -767,7 +778,7 @@ function returnUncalled(s: HandState): void {
 function dealNextStreet(s: HandState): void {
   const from = s.street;
   s.street = NEXT_STREET[from]!;
-  s.deckIndex = dealStreets(s.deck, s.deckIndex, s.boards, from, s.street);
+  s.deckIndex = dealStreets(s.config.variant.board, s.deck, s.deckIndex, s.boards, from, s.street);
   for (const p of s.players) {
     p.bet = 0;
     p.acted = false;

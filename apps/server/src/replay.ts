@@ -4,23 +4,29 @@
  * field by field: a viewer sees their own hole cards and cards shown at
  * showdown or after the hand, never anyone else's cards, discards or the deck.
  */
-import { cardToString, type HandState, handLabel, potTotal, replayHand, type Street } from "@garagepoker/engine";
+import {
+	type BoardLayout,
+	cardToString,
+	type HandState,
+	handLabel,
+	potTotal,
+	replayHand,
+	type Street,
+	streetOfPosition,
+} from "@garagepoker/engine";
 import type { ReplayEvent, ReplayFrame, ReplayView } from "@garagepoker/protocol";
 import type { TableData } from "./table.js";
 
 const cards = (cs: readonly number[]) => cs.map(cardToString);
 
-/** The street a board card at this position was dealt on. */
-const streetOf = (position: number): Street => (position < 3 ? "flop" : position === 3 ? "turn" : "river");
-
 /** Board cards added between two states, grouped by street, run and board. */
-function dealEvents(before: Card2D | null, after: Card2D, run: number): ReplayEvent[] {
+function dealEvents(layout: BoardLayout, before: Card2D | null, after: Card2D, run: number): ReplayEvent[] {
 	const events: ReplayEvent[] = [];
 	after.forEach((board, b) => {
 		const from = before?.[b]?.length ?? 0;
 		const byStreet = new Map<Street, number[]>();
 		for (let i = from; i < board.length; i++) {
-			const street = streetOf(i);
+			const street = streetOfPosition(layout, i);
 			byStreet.set(street, [...(byStreet.get(street) ?? []), board[i]!]);
 		}
 		for (const [street, dealt] of byStreet) events.push({ kind: "deal", street, run, board: b, cards: cards(dealt) });
@@ -54,8 +60,9 @@ export function buildReplay(data: TableData, viewerId: string): ReplayView | nul
 			...(e.to !== undefined && { to: e.to }),
 			...(e.allIn !== undefined && { allIn: e.allIn }),
 		}));
-		events.push(...dealEvents(prev?.boards ?? null, st.boards, 0));
-		if (st.secondRun) events.push(...dealEvents(prev?.secondRun ?? st.boards.map(() => []), st.secondRun, 1));
+		const layout = st.config.variant.board;
+		events.push(...dealEvents(layout, prev?.boards ?? null, st.boards, 0));
+		if (st.secondRun) events.push(...dealEvents(layout, prev?.secondRun ?? st.boards.map(() => []), st.secondRun, 1));
 
 		const complete = st.street === "complete";
 		if (complete && st.result) {

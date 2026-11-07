@@ -1,3 +1,4 @@
+export * from "./board";
 export * from "./cards";
 export * from "./deck";
 export * from "./evaluator";

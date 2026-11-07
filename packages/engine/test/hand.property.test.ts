@@ -2,6 +2,7 @@ import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 import {
   applyAction,
+  boardSize,
   type HandConfig,
   type HandState,
   legalActions,
@@ -78,9 +79,10 @@ function playHand(params: HandParams): void {
     bombPot: params.bombPotBB > 0 ? { ante: params.bombPotBB * bb } : null,
     runItTwice: params.runItTwice,
   };
-  // Deck math for one run: seats × hole + boards × 5 ≤ deck size. (Not capped
-  // for two runs, so hands where the deck can't cover run it twice happen too.)
-  const maxPlayers = Math.floor((variant.deckSize - params.boards * 5) / variant.holeCards);
+  // Deck math for one run: seats × hole + boards × board cards ≤ deck size. (Not
+  // capped for two runs, so hands where the deck can't cover run it twice happen too.)
+  const full = boardSize(variant.board);
+  const maxPlayers = Math.floor((variant.deckSize - params.boards * full) / variant.holeCards);
   const seats = params.seats.slice(0, maxPlayers);
   const players = seats.map((seat, i) => ({
     seat,
@@ -154,7 +156,8 @@ function playHand(params: HandParams): void {
   // Run it twice: only when enabled, only after a run-out, and only if every
   // player in the pot accepted (or it's "always"). Run 2 shares the cards that
   // were out when the run-out began and deals the rest fresh.
-  const shared = { preflop: 0, flop: 3, turn: 4, river: 5, complete: 5 }[s.runOutFrom ?? "river"];
+  const [flop, turn] = variant.board.streets;
+  const shared = { preflop: 0, flop, turn: flop + turn, river: full, complete: full }[s.runOutFrom ?? "river"];
   const runTwoCards: number[] = [];
   if (s.secondRun) {
     expect(config.runItTwice).not.toBe("no");
@@ -164,7 +167,7 @@ function playHand(params: HandParams): void {
       expect(answers.every((e) => e.type === "ritAccept")).toBe(true);
     }
     s.secondRun.forEach((board, b) => {
-      expect(board).toHaveLength(5);
+      expect(board).toHaveLength(full);
       expect(board.slice(0, shared)).toEqual(s.boards[b]!.slice(0, shared));
       runTwoCards.push(...board.slice(shared));
     });
@@ -197,7 +200,7 @@ function playHand(params: HandParams): void {
 
   // Showdown: full boards; Omaha hands (high and low) use exactly 2 hole + 3 board on each board.
   if (result.showdown.length > 0) {
-    for (const board of s.boards) expect(board).toHaveLength(5);
+    for (const board of s.boards) expect(board).toHaveLength(full);
     if (variant.handRule === "omaha") {
       for (const { hole, boards, secondRun } of result.showdown) {
         const runs = secondRun ? [[boards, s.boards], [secondRun, s.secondRun!]] as const : [[boards, s.boards]] as const;

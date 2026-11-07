@@ -7,6 +7,7 @@
 import {
   applyAction,
   assertLedgerBalanced,
+  boardSize,
   type Card,
   EngineError,
   type HandState,
@@ -942,7 +943,8 @@ export function rabbitAvailable(d: TableData): boolean {
     last.number === d.handNumber &&
     !last.rabbit &&
     !last.secondRun &&
-    last.boards[0]!.length < 5
+    // The hand that was played: the settings may have changed since.
+    last.boards[0]!.length < boardSize(d.prevHand.config.variant.board)
   );
 }
 

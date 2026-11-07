@@ -1,3 +1,4 @@
+import { boardSize } from "./board";
 import { type HandConfig, type RunItTwiceMode, VARIANTS } from "./hand";
 
 export const RUN_IT_TWICE_MODES: RunItTwiceMode[] = ["no", "ask", "always"];
@@ -64,11 +65,11 @@ export const MAX_SEATS = 9;
 export const MAX_BOMB_POT_ANTE_BB = 10;
 
 /**
- * SPEC §3: seats × hole cards + boards × 5 × runs. No burn cards.
- * Runs is 1 until run it twice (phase 4).
+ * SPEC §3: seats × hole cards + boards × board cards × runs. No burn cards.
+ * A board is 5 cards, or 9 for the Tic-Tac-Toe grid.
  */
-export function cardsNeeded(seats: number, holeCards: number, boards = 1, runs = 1): number {
-  return seats * holeCards + boards * 5 * runs;
+export function cardsNeeded(seats: number, holeCards: number, boards = 1, runs = 1, boardCards = 5): number {
+  return seats * holeCards + boards * boardCards * runs;
 }
 
 export interface ConfigIssue {
@@ -98,7 +99,7 @@ export function validateConfig(s: TableSettings): ConfigIssue[] {
   if (s.boards !== 1 && s.boards !== 2) add("boards", "Boards must be 1 or 2");
   else if (seatsOk && variant) {
     const runs = s.runItTwice === "no" ? 1 : 2;
-    const needed = cardsNeeded(s.seats, variant.holeCards, s.boards, runs);
+    const needed = cardsNeeded(s.seats, variant.holeCards, s.boards, runs, boardSize(variant.board));
     if (needed > variant.deckSize) {
       const extras = [s.boards === 2 && "2 boards", runs === 2 && "run it twice"].filter(Boolean).join(" and ");
       add(
