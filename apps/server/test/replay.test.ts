@@ -52,6 +52,7 @@ describe("last-hand replay", () => {
 			["river", 2],
 		]);
 		expect(replay.frames.at(-1)!.boards[0]).toEqual(alice.view.lastHand!.boards[0]);
+		expect(replay.grid?.cells).toEqual([0, 2, 6, 8, 3, 4, 5, 1, 7]);
 	});
 
 	it("reproduces the live hand's final stacks, showing only your own and shown cards", async () => {

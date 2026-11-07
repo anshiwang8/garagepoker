@@ -101,6 +101,7 @@ export function buildReplay(data: TableData, viewerId: string): ReplayView | nul
 
 	return {
 		hand: rec.hand,
+		grid: final.config.variant.board.grid ?? null,
 		frames,
 		pots: (final.result?.pots ?? []).map((pot) => ({
 			amount: pot.amount,

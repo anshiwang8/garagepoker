@@ -821,9 +821,28 @@ describe("Tic-Tac-Toe Hold'em", () => {
 		expect([...sizes]).toEqual([0, 4, 7, 9]);
 		const last = h.view(carol).lastHand!;
 		expect(last.boards[0]).toHaveLength(9);
+		expect(last.grid?.cells).toEqual([0, 2, 6, 8, 3, 4, 5, 1, 7]);
 		expect(last.shown).toHaveLength(2);
-		for (const s of last.shown) expect(s.labels).toHaveLength(1);
+		for (const s of last.shown) {
+			expect(s.labels).toHaveLength(1);
+			// The hand each player played: both hole cards plus 3 board cards on one line.
+			const best = s.best[0]!;
+			expect(best).toHaveLength(5);
+			expect(best.filter((c) => s.cards.includes(c))).toHaveLength(2);
+			const squares = best.filter((c) => last.boards[0]!.includes(c)).map((c) => last.grid!.cells[last.boards[0]!.indexOf(c)]!);
+			expect(last.grid!.lines.some((line) => [...line].sort().join() === squares.sort().join())).toBe(true);
+		}
 		balanced(h);
+	});
+
+	it("sends no grid for a row board", () => {
+		const { h, owner, bob } = headsUp();
+		h.send(owner, { type: "startGame" });
+		h.act({ type: "raise", to: 100_000 });
+		h.act({ type: "call" });
+		const last = h.view(bob).lastHand!;
+		expect(last.grid).toBeNull();
+		for (const s of last.shown) expect(s.best[0]).toHaveLength(5);
 	});
 
 	it("rabbit hunts the turn and river (5 cards) after a hand ends on the flop", () => {

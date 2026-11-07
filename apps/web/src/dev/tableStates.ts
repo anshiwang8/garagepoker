@@ -3,7 +3,7 @@
  * the table UI must get right (SPEC §7). No server: each view is written by
  * hand the way the server would build it for the viewer "anshi".
  */
-import { DEFAULT_SETTINGS, type TableSettings } from "@garagepoker/engine";
+import { DEFAULT_SETTINGS, type TableSettings, TICTACTOE_BOARD } from "@garagepoker/engine";
 import type { HandView, LastHandView, LogEntryView, SeatView, TableView } from "@garagepoker/protocol";
 
 export const DEV_NOW = 1_800_000_000_000;
@@ -55,6 +55,7 @@ function last(over: Partial<LastHandView>): LastHandView {
     number: 12,
     bombPot: false,
     hiLo: false,
+    grid: null,
     boards: [[]],
     pots: [],
     shown: [],
@@ -213,8 +214,8 @@ function showdown(): TableView {
       boards: [["Kc", "Td", "7h", "7s", "2c"]],
       pots: [{ amount: 840, slices: [{ run: null, board: 0, half: null, amount: 840, winners: [{ seat: 1, amount: 840 }] }] }],
       shown: [
-        { seat: 1, nickname: "anshi", cards: ["Kh", "Ks"], labels: ["Full house"], secondRunLabels: null },
-        { seat: 2, nickname: "Richard", cards: ["Ad", "Td"], labels: ["Two pair"], secondRunLabels: null },
+        { seat: 1, nickname: "anshi", cards: ["Kh", "Ks"], labels: ["Full house"], secondRunLabels: null, best: [], secondRunBest: null },
+        { seat: 2, nickname: "Richard", cards: ["Ad", "Td"], labels: ["Two pair"], secondRunLabels: null, best: [], secondRunBest: null },
       ],
       nets: [{ seat: 1, net: 420 }, { seat: 2, net: -420 }, { seat: 3, net: 0 }],
     }),
@@ -245,9 +246,9 @@ function doubleBoardBomb(): TableView {
         },
       ],
       shown: [
-        { seat: 1, nickname: "anshi", cards: ["Kh", "Th", "7d", "6s"], labels: ["Pair", "Flush"], secondRunLabels: null },
-        { seat: 2, nickname: "Richard", cards: ["7s", "6h", "Tc", "Td"], labels: ["Straight", "Two pair"], secondRunLabels: null },
-        { seat: 5, nickname: "Priya", cards: ["Ks", "Kd", "4c", "3c"], labels: ["Three of a kind", "Two pair"], secondRunLabels: null },
+        { seat: 1, nickname: "anshi", cards: ["Kh", "Th", "7d", "6s"], labels: ["Pair", "Flush"], secondRunLabels: null, best: [], secondRunBest: null },
+        { seat: 2, nickname: "Richard", cards: ["7s", "6h", "Tc", "Td"], labels: ["Straight", "Two pair"], secondRunLabels: null, best: [], secondRunBest: null },
+        { seat: 5, nickname: "Priya", cards: ["Ks", "Kd", "4c", "3c"], labels: ["Three of a kind", "Two pair"], secondRunLabels: null, best: [], secondRunBest: null },
       ],
       nets: [
         { seat: 1, net: 240 },
@@ -294,6 +295,113 @@ function spectator(): TableView {
   return you(v, { seat: null, isOwner: false, playerId: "pwatcher0001" });
 }
 
+const TTT = { ...cents, variant: "TICTACTOE" as const };
+/** A grid board written as it looks ("row / row / row"), in dealing order, cut to the first `dealt` cards. */
+const grid = (rows: string, dealt = 9) => {
+  const squares = rows.split("/").flatMap((r) => r.trim().split(/\s+/));
+  return TICTACTOE_BOARD.grid.cells.slice(0, dealt).map((c) => squares[c]!);
+};
+
+/** m) Tic-Tac-Toe, six-handed, on the turn: the middle row is out; hero to act. */
+function tttTurn(): TableView {
+  const seats = [
+    seat(1, "anshi", 1840, { isOwner: true, inHand: true, cards: ["Qs", "Js"] }),
+    seat(2, "Richard", 2310, { inHand: true, bet: 80, cards: [null, null], lastAction: { type: "bet", amount: 80, to: 80 } }),
+    seat(3, "Maya", 1500, { inHand: true, folded: true, cards: [null, null] }),
+    seat(4, "Theo", 760, { inHand: true, bet: 80, cards: [null, null], lastAction: { type: "call", amount: 80 } }),
+    seat(5, "Priya", 2025, { inHand: true, folded: true, cards: [null, null] }),
+    seat(6, "Sam", 1190, { inHand: true, cards: [null, null], lastAction: { type: "check", amount: 0 } }),
+  ];
+  const v = table(seats, {
+    settings: TTT,
+    buttonSeat: 5,
+    hand: hand({ street: "turn", boards: [grid("As 8d Ks / Ts 4h 5h / 2s 9c 3s", 7)], pot: 480, boardShares: [480], currentBet: 80, toAct: 1, ...turn(0.6) }),
+  });
+  return you(v, { labels: ["Flush"], legal: { seat: 1, canCheck: false, callAmount: 80, canRaise: true, minRaiseTo: 160, maxRaiseTo: 1840 } });
+}
+
+/** n) Tic-Tac-Toe showdown: the winner's line is outlined in gold. */
+function tttShowdown(): TableView {
+  const seats = [seat(1, "anshi", 2420, { isOwner: true }), seat(2, "Richard", 1580), seat(3, "Maya", 2000)];
+  const v = table([...seats, null, null, null], {
+    settings: TTT,
+    buttonSeat: 2,
+    lastHand: last({
+      grid: TICTACTOE_BOARD.grid,
+      boards: [grid("Ah 8s 2h / 3c 9h Jd / 7c 4s 6d")],
+      pots: [{ amount: 840, slices: [{ run: 0, board: 0, half: "high", amount: 840, winners: [{ seat: 1, amount: 840 }] }] }],
+      shown: [
+        { seat: 1, nickname: "anshi", cards: ["5c", "5d"], labels: ["Pair"], secondRunLabels: null, best: [["5c", "5d", "Ah", "9h", "6d"]], secondRunBest: null },
+        { seat: 2, nickname: "Richard", cards: ["Kh", "Qh"], labels: ["Ace high"], secondRunLabels: null, best: [["Kh", "Qh", "Ah", "9h", "6d"]], secondRunBest: null },
+      ],
+      nets: [{ seat: 1, net: 420 }, { seat: 2, net: -420 }, { seat: 3, net: 0 }],
+    }),
+  });
+  return v;
+}
+
+/** o) Tic-Tac-Toe double board, won uncontested on the flop: two grids with rabbit hunt. */
+function tttRabbit(): TableView {
+  const seats = [seat(1, "anshi", 2060, { isOwner: true }), seat(2, "Richard", 1940), seat(3, "Maya", 1800), seat(4, "Theo", 2200)];
+  const v = table([...seats, null, null], {
+    settings: { ...TTT, boards: 2, rabbitHunt: true },
+    buttonSeat: 1,
+    lastHand: last({
+      grid: TICTACTOE_BOARD.grid,
+      boards: [grid("Jd 2c 8c / x x x / 4s x Ah", 4), grid("Kh 3d 9s / x x x / 6c x 2s", 4)],
+      pots: [{ amount: 160, slices: [{ run: null, board: null, half: null, amount: 160, winners: [{ seat: 1, amount: 160 }] }] }],
+      rabbitAvailable: true,
+      nets: [{ seat: 1, net: 100 }, { seat: 2, net: -60 }, { seat: 3, net: -20 }, { seat: 4, net: -20 }],
+    }),
+  });
+  return you(v, { showable: ["8s", "Ad"] });
+}
+
+/** p) Tic-Tac-Toe, a full 9-seat table on the flop: the tightest phone layout. */
+function tttFull(): TableView {
+  const seats = NAMES.map((n, i) =>
+    seat(i + 1, n, 1500 + i * 110, { isOwner: i === 0, inHand: true, cards: i === 0 ? ["9s", "9d"] : [null, null], bet: i === 3 ? 40 : 0 }),
+  );
+  const v = table(seats, {
+    settings: TTT,
+    buttonSeat: 2,
+    hand: hand({ street: "flop", boards: [grid("9h x 2c / x x x / Kd x 5s", 4)], pot: 220, boardShares: [220], currentBet: 40, toAct: 5, ...turn(0.5) }),
+  });
+  return you(v, { labels: ["Three of a kind"] });
+}
+
+/** q) Tic-Tac-Toe double board run twice: four grids at once. */
+function tttTwoRuns(): TableView {
+  const seats = [seat(1, "anshi", 4000, { isOwner: true }), seat(2, "Richard", 0), seat(3, "Maya", 2000)];
+  const shared = (rows: string) => grid(rows, 4);
+  const v = table([...seats, null, null, null], {
+    settings: { ...TTT, boards: 2, runItTwice: "ask" },
+    buttonSeat: 2,
+    lastHand: last({
+      grid: TICTACTOE_BOARD.grid,
+      boards: [grid("Ah 8s 2h / 3c 9h Jd / 7c 4s 6d"), grid("Kc 5h Qd / 2d Tc 8h / 3s 7s 9d")],
+      secondRun: [[...shared("Ah 8s 2h / 3c 9h Jd / 7c 4s 6d"), "Ac", "Kd", "6h", "Th", "4c"], [...shared("Kc 5h Qd / 2d Tc 8h / 3s 7s 9d"), "Js", "Jh", "4d", "9c", "3h"]],
+      pots: [
+        {
+          amount: 4000,
+          slices: [
+            { run: 0, board: 0, half: "high", amount: 1000, winners: [{ seat: 1, amount: 1000 }] },
+            { run: 0, board: 1, half: "high", amount: 1000, winners: [{ seat: 1, amount: 1000 }] },
+            { run: 1, board: 0, half: "high", amount: 1000, winners: [{ seat: 2, amount: 1000 }] },
+            { run: 1, board: 1, half: "high", amount: 1000, winners: [{ seat: 1, amount: 1000 }] },
+          ],
+        },
+      ],
+      shown: [
+        { seat: 1, nickname: "anshi", cards: ["5c", "5d"], labels: ["Pair", "Three of a kind"], secondRunLabels: ["Pair", "Two pair"], best: [["5c", "5d", "Ah", "9h", "6d"], ["5c", "5d", "Kc", "5h", "Qd"]], secondRunBest: [["5c", "5d", "Ah", "Kd", "6d"], ["5c", "5d", "Js", "Jh", "4d"]] },
+        { seat: 2, nickname: "Richard", cards: ["Kh", "Qh"], labels: ["Ace high", "Two pair"], secondRunLabels: ["Pair", "Pair"], best: [["Kh", "Qh", "Ah", "9h", "6d"], ["Kh", "Qh", "Kc", "5h", "Qd"]], secondRunBest: [["Kh", "Qh", "Ah", "Kd", "6d"], ["Kh", "Qh", "Kc", "Jh", "9d"]] },
+      ],
+      nets: [{ seat: 1, net: 1000 }, { seat: 2, net: -1000 }, { seat: 3, net: 0 }],
+    }),
+  });
+  return v;
+}
+
 export interface DevState {
   id: string;
   title: string;
@@ -314,4 +422,9 @@ export const DEV_STATES: DevState[] = [
   { id: "j", title: "Paused by owner", view: paused() },
   { id: "k", title: "Hero away", view: away() },
   { id: "l", title: "Spectator, 9 seats with Sit circles", view: spectator() },
+  { id: "m", title: "Tic-Tac-Toe, turn, hero to act", view: tttTurn() },
+  { id: "n", title: "Tic-Tac-Toe showdown, winning line", view: tttShowdown() },
+  { id: "o", title: "Tic-Tac-Toe double board, rabbit hunt", view: tttRabbit() },
+  { id: "p", title: "Tic-Tac-Toe, 9 seats on the flop", view: tttFull() },
+  { id: "q", title: "Tic-Tac-Toe double board run twice", view: tttTwoRuns() },
 ];

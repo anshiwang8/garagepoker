@@ -9,6 +9,7 @@
  */
 import {
   BOMB_POT_MODES,
+  type BoardGrid,
   type BombPotMode,
   RUN_IT_TWICE_MODES,
   type RunItTwiceMode,
@@ -310,6 +311,8 @@ export interface LastHandView {
   bombPot: boolean;
   /** The hand was Hi/Lo (so a board with only a high slice had no qualifying low). */
   hiLo: boolean;
+  /** The hand's boards were grids (Tic-Tac-Toe): where each card goes. Null for rows of 5. */
+  grid: BoardGrid | null;
   boards: string[][];
   /** Main pot first, then side pots. */
   pots: { amount: number; slices: SliceView[] }[];
@@ -321,6 +324,9 @@ export interface LastHandView {
     labels: string[];
     /** Labels on the second run's boards, when run twice. */
     secondRunLabels: string[] | null;
+    /** The 5 cards of the high hand played on each board (and on the second run's). */
+    best: string[][];
+    secondRunBest: string[][] | null;
   }[];
   /** Cards players chose to show after the hand (folded or uncontested hands), in the order shown. */
   showed: { seat: number; nickname: string; cards: string[] }[];
@@ -474,6 +480,8 @@ export interface ReplayFrame {
 
 export interface ReplayView {
   hand: number;
+  /** The hand's boards were grids (Tic-Tac-Toe). Null for rows of 5. */
+  grid: BoardGrid | null;
   /** The deal first, then one frame per action. */
   frames: ReplayFrame[];
   pots: { amount: number; slices: SliceView[] }[];

@@ -63,8 +63,13 @@ export interface Sizes {
   boardCardH: number;
   boardGap: number;
   rowGap: number;
-  /** Room for "B1"/"B2" left of each row (0 for one board). */
+  /** Room for "B1"/"B2" left of each row (0 for one board, or grids). */
   boardLabelW: number;
+  /** Grid boards (Tic-Tac-Toe): space between grids, and the "B1"/"R1" line above each (0 for one grid). */
+  gridGap: number;
+  gridLabelH: number;
+  /** Grids per line: all of them on desktop, at most 2 on phones (then a second line). */
+  gridCols: number;
   pillH: number;
   pillFont: number;
   /** The "total" tag and bomb-pot badge above the pill. */
@@ -99,8 +104,10 @@ export interface LayoutInput {
   /** The bottom seat is you (big cards, bigger plate). */
   heroSeated: boolean;
   holeCards: number;
-  /** Board rows: boards × runs (1–4). */
+  /** Board rows: boards × runs (1–4). With `grid`, that many grids side by side. */
   boardRows: number;
+  /** Each board is a 3×3 grid (Tic-Tac-Toe) instead of a row of 5. */
+  grid?: boolean;
   /** Extra height under the table info (e.g. the Copy link button), at full size. */
   infoExtra: number;
 }
@@ -130,7 +137,10 @@ export function fanStep(n: number, cw: number, maxW?: number): number {
   return maxW ? Math.min(step, (maxW - cw) / (n - 1)) : step;
 }
 
-function sizes(mode: "phone" | "desktop", k: number, holeCards: number, boardRows: number, w: number, s: number): Sizes {
+/** Squares per side of a grid board. */
+export const GRID_SIZE = 3;
+
+function sizes(mode: "phone" | "desktop", k: number, holeCards: number, boardRows: number, w: number, s: number, grid = false): Sizes {
   const fan = holeCards > 2;
   const tier = k <= 3 ? 0 : k <= 5 ? 1 : 2;
   const pick = <T,>(a: [T, T, T]) => a[tier]!;
@@ -143,9 +153,15 @@ function sizes(mode: "phone" | "desktop", k: number, holeCards: number, boardRow
   const heroCardH = d ? 140 : 118;
   const heroFanMax = d ? 260 : 210;
   const rows = Math.max(1, boardRows);
-  const baseBoardW = d ? [72, 60, 46][Math.min(rows, 3) - 1]! : [62, 52, 40][Math.min(rows, 3) - 1]!;
-  const boardGap = rows >= 3 ? 6 : 8;
-  const boardLabelW = rows > 1 ? 22 : 0;
+  // Grids sit side by side (two to a line on phones), so more across means smaller squares.
+  const gridCols = grid ? (d ? Math.min(rows, 4) : Math.min(rows, 2)) : 0;
+  const baseBoardW = grid
+    ? (d ? [46, 40, 34, 30] : [44, 34])[gridCols - 1]!
+    : d
+      ? [72, 60, 46][Math.min(rows, 3) - 1]!
+      : [62, 52, 40][Math.min(rows, 3) - 1]!;
+  const boardGap = grid ? 4 : rows >= 3 ? 6 : 8;
+  const boardLabelW = !grid && rows > 1 ? 22 : 0;
   const z: Sizes = {
     s,
     plateW,
@@ -171,6 +187,9 @@ function sizes(mode: "phone" | "desktop", k: number, holeCards: number, boardRow
     boardGap,
     rowGap: 6,
     boardLabelW,
+    gridGap: grid ? 14 : 0,
+    gridLabelH: grid && rows > 1 ? 14 : 0,
+    gridCols,
     pillH: d ? 48 : 44,
     pillFont: 28,
     tagH: 16,
@@ -180,11 +199,29 @@ function sizes(mode: "phone" | "desktop", k: number, holeCards: number, boardRow
     tagsBelow: 26,
   };
   // Scale everything, then fit the board to the width (as large as fits).
-  for (const key of Object.keys(z) as (keyof Sizes)[]) if (key !== "s") z[key] = z[key] * s;
-  const maxBoardW = (Math.min(w, d ? 1200 : w) - (d ? 120 : 40) - z.boardLabelW - 4 * z.boardGap) / 5;
+  for (const key of Object.keys(z) as (keyof Sizes)[]) if (key !== "s" && key !== "gridCols") z[key] = z[key] * s;
+  const across = Math.min(w, d ? 1200 : w) - (d ? 120 : 40);
+  const maxBoardW = grid
+    ? (across - (gridCols - 1) * z.gridGap - gridCols * (GRID_SIZE - 1) * z.boardGap) / (gridCols * GRID_SIZE)
+    : (across - z.boardLabelW - 4 * z.boardGap) / 5;
   z.boardCardW = Math.floor(Math.min(z.boardCardW, maxBoardW));
   z.boardCardH = Math.round(z.boardCardW * 1.42);
   return z;
+}
+
+/** The board area's size: rows of 5 stacked, or grids side by side. */
+export function boardBlock(inp: Pick<LayoutInput, "boardRows" | "grid">, z: Sizes): { w: number; h: number } {
+  const n = Math.max(1, inp.boardRows);
+  if (inp.grid) {
+    const side = (len: number) => GRID_SIZE * len + (GRID_SIZE - 1) * z.boardGap;
+    const cols = Math.min(n, z.gridCols);
+    const lines = Math.ceil(n / cols);
+    return {
+      w: cols * side(z.boardCardW) + (cols - 1) * z.gridGap,
+      h: lines * (z.gridLabelH + side(z.boardCardH)) + (lines - 1) * z.rowGap,
+    };
+  }
+  return { w: 5 * z.boardCardW + 4 * z.boardGap + z.boardLabelW, h: n * z.boardCardH + (n - 1) * z.rowGap };
 }
 
 /** The bottom seat (you, or seat 1 for someone watching) and everything it needs above it. */
@@ -214,7 +251,7 @@ const overlapsX = (a: { x: number; w: number }, b: { x: number; w: number }, pad
 function phoneLayout(inp: LayoutInput, s: number): FeltLayout | null {
   const { w, h } = inp;
   const k = inp.seats.length - 1;
-  const z = sizes("phone", k, inp.holeCards, inp.boardRows, w, s);
+  const z = sizes("phone", k, inp.holeCards, inp.boardRows, w, s, inp.grid);
   const m = 4 * s;
   const g = 6 * s;
   const [leftN, topN, rightN] = PHONE_SLOTS[Math.min(8, Math.max(0, k))]!;
@@ -250,8 +287,7 @@ function phoneLayout(inp: LayoutInput, s: number): FeltLayout | null {
   let uPlateY = colTop + z.above;
 
   const aboveBoard = z.tagH + 2 * s + z.pillH + 4 * s + z.resultH + 6 * s;
-  const rows = Math.max(1, inp.boardRows);
-  const boardH = rows * z.boardCardH + (rows - 1) * z.rowGap;
+  const boardH = boardBlock(inp, z).h;
   const infoH = z.infoH + inp.infoExtra * s;
   // Under each opponent's plate: their bet during a hand, showdown tags after it.
   const below = Math.max(4 * s + z.chipH, z.tagsBelow);
@@ -325,7 +361,7 @@ function phoneLayout(inp: LayoutInput, s: number): FeltLayout | null {
 function desktopLayout(inp: LayoutInput, s: number): FeltLayout | null {
   const { w, h } = inp;
   const k = inp.seats.length - 1;
-  const z = sizes("desktop", k, inp.holeCards, inp.boardRows, w, s);
+  const z = sizes("desktop", k, inp.holeCards, inp.boardRows, w, s, inp.grid);
   const m = 8 * s;
   const { plateW: pw, plateH: ph } = z;
   const bottom = inp.seats.length > 0 ? bottomSeat(inp, z, m) : null;
@@ -365,7 +401,7 @@ function desktopLayout(inp: LayoutInput, s: number): FeltLayout | null {
   };
   const seats: SeatSlot[] = [];
   let centerTopMin = m;
-  const boardW = 5 * z.boardCardW + 4 * z.boardGap + z.boardLabelW;
+  const boardW = boardBlock(inp, z).w;
   const column = { x: cx - Math.max(boardW, 260 * s) / 2, w: Math.max(boardW, 260 * s) };
   const blocks: Box[] = [];
   for (let i = 0; i < k; i++) {
@@ -407,8 +443,7 @@ function desktopLayout(inp: LayoutInput, s: number): FeltLayout | null {
     }
 
   const aboveBoard = z.tagH + 2 * s + z.pillH + 4 * s + z.resultH + 6 * s;
-  const rows = Math.max(1, inp.boardRows);
-  const boardH = rows * z.boardCardH + (rows - 1) * z.rowGap;
+  const boardH = boardBlock(inp, z).h;
   const infoH = z.infoH + inp.infoExtra * s;
   const need = aboveBoard + boardH + 8 * s + infoH;
   const room = bottomTop - 4 * s - centerTopMin - need;

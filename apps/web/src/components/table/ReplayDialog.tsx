@@ -76,20 +76,42 @@ export function ReplayDialog({ replay, displayCents, onClose }: { replay: Replay
           )}
         </ul>
 
-        <div className="flex flex-col items-center gap-1 rounded-lg bg-felt-dark/70 py-2">
-          {rows.map(({ r, b, cards }) => (
-            <div key={`${r}-${b}`} className="flex items-center gap-1.5">
-              {(twoRuns || boardCount > 1) && (
-                <span className="w-12 text-right text-[10px] text-muted">
-                  {[twoRuns && `Run ${r + 1}`, boardCount > 1 && `B${b + 1}`].filter(Boolean).join(" · ")}
-                </span>
-              )}
-              {Array.from({ length: 5 }, (_, i) =>
-                cards[i] ? <PlayingCard key={i} card={cards[i]!} w={24} h={34} /> : <div key={i} className="h-[34px] w-6 rounded border border-dashed border-white/15" />,
-              )}
-            </div>
-          ))}
-        </div>
+        {replay.grid ? (
+          <div className="flex flex-wrap justify-center gap-4 rounded-lg bg-felt-dark/70 py-2">
+            {rows.map(({ r, b, cards }) => (
+              <div key={`${r}-${b}`} className="flex flex-col items-center gap-1">
+                {(twoRuns || boardCount > 1) && (
+                  <span className="text-[10px] text-muted">{[twoRuns && `Run ${r + 1}`, boardCount > 1 && `B${b + 1}`].filter(Boolean).join(" · ")}</span>
+                )}
+                <div className="grid gap-1" style={{ gridTemplateColumns: `repeat(${replay.grid!.size}, 24px)` }}>
+                  {Array.from({ length: replay.grid!.size ** 2 }, (_, square) => {
+                    const card = cards[replay.grid!.cells.indexOf(square)];
+                    return card ? (
+                      <PlayingCard key={square} card={card} w={24} h={34} />
+                    ) : (
+                      <div key={square} className="h-[34px] w-6 rounded border border-dashed border-white/15" />
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="flex flex-col items-center gap-1 rounded-lg bg-felt-dark/70 py-2">
+            {rows.map(({ r, b, cards }) => (
+              <div key={`${r}-${b}`} className="flex items-center gap-1.5">
+                {(twoRuns || boardCount > 1) && (
+                  <span className="w-12 text-right text-[10px] text-muted">
+                    {[twoRuns && `Run ${r + 1}`, boardCount > 1 && `B${b + 1}`].filter(Boolean).join(" · ")}
+                  </span>
+                )}
+                {Array.from({ length: 5 }, (_, i) =>
+                  cards[i] ? <PlayingCard key={i} card={cards[i]!} w={24} h={34} /> : <div key={i} className="h-[34px] w-6 rounded border border-dashed border-white/15" />,
+                )}
+              </div>
+            ))}
+          </div>
+        )}
 
         <ul className="flex flex-col divide-y divide-line/50">
           {frame.seats.map((s) => (

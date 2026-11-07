@@ -152,6 +152,7 @@ export function buildView(
           number: lastHand.number,
           bombPot: lastHand.bombPot,
           hiLo: lastHand.hiLo,
+          grid: lastHand.grid ?? null,
           boards: lastHand.boards.map(cards),
           pots: lastHand.pots.map((p) => ({
             amount: p.amount,
@@ -170,6 +171,9 @@ export function buildView(
             cards: cards(x.cards),
             labels: x.labels,
             secondRunLabels: x.secondRunLabels ?? null,
+            // Shown hands only: these cards are all face up already.
+            best: (x.best ?? []).map(cards),
+            secondRunBest: x.secondRunBest?.map(cards) ?? null,
           })),
           // Only the cards each player chose to show.
           showed: (lastHand.showed ?? []).map((x) => ({ seat: x.seat, nickname: x.nickname, cards: cards(x.cards) })),

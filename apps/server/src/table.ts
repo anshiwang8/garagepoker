@@ -7,6 +7,7 @@
 import {
   applyAction,
   assertLedgerBalanced,
+  type BoardGrid,
   boardSize,
   type Card,
   EngineError,
@@ -114,11 +115,22 @@ export interface LastHand {
   number: number;
   bombPot: boolean;
   hiLo: boolean;
+  /** The hand's grid board, if any. (Absent on hands saved before Tic-Tac-Toe.) */
+  grid?: BoardGrid | null;
   boards: Card[][];
   /** Each pot split into slices (board × high/low); see the engine's PotSlice. */
   pots: { amount: number; slices: PotSlice[] }[];
   /** One label per board. */
-  shown: { seat: number; nickname: string; cards: Card[]; labels: string[]; secondRunLabels: string[] | null }[];
+  shown: {
+    seat: number;
+    nickname: string;
+    cards: Card[];
+    labels: string[];
+    secondRunLabels: string[] | null;
+    /** The high hand's 5 cards per board. (Absent on hands saved before this existed.) */
+    best?: Card[][];
+    secondRunBest?: Card[][] | null;
+  }[];
   /** The second run's boards, when run twice. */
   secondRun: Card[][] | null;
   /** Rabbit-hunted cards per board, once a seated player asked (SPEC §2.8). */
@@ -873,14 +885,17 @@ export class Table {
       number: d.handNumber,
       bombPot: hand.bombPot,
       hiLo: hand.config.variant.split === "hilo",
+      grid: hand.config.variant.board.grid ?? null,
       boards: hand.boards,
       pots: result.pots.map(({ amount, slices }) => ({ amount, slices })),
-      shown: result.showdown.map(({ seat, hole }) => ({
+      shown: result.showdown.map(({ seat, hole, boards, secondRun }) => ({
         seat,
         nickname: this.seat(seat)!.nickname,
         cards: hole,
         labels: hand.boards.map((board) => handLabel(hand.config.variant, hole, board).text),
         secondRunLabels: hand.secondRun?.map((board) => handLabel(hand.config.variant, hole, board).text) ?? null,
+        best: boards.map((b) => b.high.cards),
+        secondRunBest: secondRun?.map((b) => b.high.cards) ?? null,
       })),
       secondRun: hand.secondRun,
       rabbit: null,

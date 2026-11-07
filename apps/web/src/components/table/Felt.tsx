@@ -1,13 +1,13 @@
 "use client";
 
-import { VARIANTS } from "@garagepoker/engine";
-import type { SeatView, TableView } from "@garagepoker/protocol";
+import { type BoardGrid, type Variant, VARIANTS } from "@garagepoker/engine";
+import type { LastHandView, SeatView, TableView } from "@garagepoker/protocol";
 import { Eye } from "lucide-react";
 import { useLayoutEffect, useRef, useState } from "react";
 import { formatChips } from "@/lib/chips";
 import { CopyLinkButton } from "../ui";
 import { wonBySeat } from "./HandResult";
-import { type FeltLayout, fanStep, layoutFelt, type SeatSlot } from "./layout";
+import { boardBlock, type FeltLayout, fanStep, GRID_SIZE, layoutFelt, type SeatSlot } from "./layout";
 import { byRank, CardBack, CardFan, type Deal, PlayingCard } from "./PlayingCard";
 import { BetChip, type Countdown, DealerButton, HandTags, NamePlate, SitButton } from "./Seat";
 import { resultSummary, showingResult, tableStateText, VARIANT_SHORT } from "./tableText";
@@ -18,6 +18,16 @@ function useInfo(view: TableView) {
   const state = tableStateText(view);
   const copyLink = !view.hand && view.status !== "ended" && !showingResult(view) && !view.you.watchBlocked;
   return { owner, state, copyLink };
+}
+
+/**
+ * The grid the boards on the felt are laid out in (Tic-Tac-Toe), or null for
+ * rows of 5. A finished hand keeps its own, even if the owner has since
+ * switched games.
+ */
+function boardGridOf(view: TableView): BoardGrid | null {
+  if (!view.hand && showingResult(view)) return view.lastHand!.grid;
+  return (VARIANTS[view.settings.variant] as Variant).board.grid ?? null;
 }
 
 /** Seats clockwise from the bottom: you first; people watching see seat 1 there and every seat. */
@@ -84,7 +94,15 @@ export function Felt({
   const boardRows = Math.max(1, boards.length) * runs;
   const infoExtra = (info.copyLink ? 48 : 0) + (view.pendingSettings ? 16 : 0);
   const layout = size
-    ? layoutFelt({ ...size, seats: order, heroSeated, holeCards: VARIANTS[settings.variant].holeCards, boardRows, infoExtra })
+    ? layoutFelt({
+        ...size,
+        seats: order,
+        heroSeated,
+        holeCards: VARIANTS[settings.variant].holeCards,
+        boardRows,
+        grid: !!boardGridOf(view),
+        infoExtra,
+      })
     : null;
   // Hands dealt while you watch fly in; one already running when the page opened just appears.
   const [openedOn] = useState(() => (view.hand ? view.handNumber : null));
@@ -177,6 +195,7 @@ function Center({
   );
   const multiRun = !!result?.secondRun;
   const rowW = z.boardLabelW + 5 * z.boardCardW + 4 * z.boardGap;
+  const grid = boardGridOf(view);
   const line = (top: number, h: number): React.CSSProperties => ({ position: "absolute", left: 0, right: 0, top, height: h });
 
   return (
@@ -227,8 +246,24 @@ function Center({
         </div>
       )}
 
+      {/* Tic-Tac-Toe: one 3×3 grid per board (and run), side by side. */}
+      {grid && (
+        <GridBoards
+          rows={rows.map((r) => ({
+            ...r,
+            label: [multiRun && `R${r.run + 1}`, boards.length > 1 && `B${r.board + 1}`].filter(Boolean).join(" "),
+            hunted: r.run === 0 && result?.rabbit ? (result.rabbit.boards[r.board] ?? []) : [],
+          }))}
+          grid={grid}
+          layout={layout}
+          rabbitStrip={rabbitStrip}
+          onRabbit={onRabbit}
+          winning={result ? winningCards(result) : null}
+        />
+      )}
+
       {/* Board rows: B1/B2 (and R1/R2 when run twice). Only dealt cards are drawn. */}
-      {rows.map(({ run, board, cards }, i) => {
+      {!grid && rows.map(({ run, board, cards }, i) => {
         const top = center.boardTop + i * (z.boardCardH + z.rowGap);
         const label = [multiRun && `R${run + 1}`, boards.length > 1 && `B${board + 1}`].filter(Boolean).join(" ");
         const hunted = run === 0 && result?.rabbit ? (result.rabbit.boards[board] ?? []) : [];
@@ -299,6 +334,158 @@ function Center({
         {info.copyLink && <CopyLinkButton />}
       </div>
     </>
+  );
+}
+
+/**
+ * The board cards each showdown winner played, per run and board ("0-1" is run
+ * 1, board 2), so a grid can light up the winning lines. From the server's
+ * shown hands; nothing is evaluated here.
+ */
+function winningCards(result: LastHandView): Map<string, Set<string>> {
+  const out = new Map<string, Set<string>>();
+  if (result.shown.length === 0) return out;
+  for (const pot of result.pots) {
+    for (const slice of pot.slices) {
+      if (slice.half === "low" || slice.board === null) continue;
+      const run = slice.run ?? 0;
+      const board = (run === 1 ? result.secondRun : result.boards)?.[slice.board];
+      if (!board) continue;
+      const key = `${run}-${slice.board}`;
+      const set = out.get(key) ?? new Set<string>();
+      for (const w of slice.winners) {
+        const shown = result.shown.find((h) => h.seat === w.seat);
+        const played = (run === 1 ? shown?.secondRunBest : shown?.best)?.[slice.board] ?? [];
+        for (const c of played) if (board.includes(c)) set.add(c);
+      }
+      out.set(key, set);
+    }
+  }
+  return out;
+}
+
+/**
+ * Tic-Tac-Toe boards: a 3×3 grid each, side by side (two to a line on phones). Dealt cards fill their
+ * squares (new ones slide in); undealt squares are faint outlines, or card
+ * backs under a Reveal strip when rabbit hunt is available. At showdown the
+ * winning lines' cards are outlined in gold and the rest dimmed.
+ */
+function GridBoards({
+  rows,
+  grid,
+  layout,
+  rabbitStrip,
+  onRabbit,
+  winning,
+}: {
+  rows: { run: number; board: number; cards: string[]; label: string; hunted: string[] }[];
+  grid: BoardGrid;
+  layout: FeltLayout;
+  rabbitStrip: boolean;
+  onRabbit: () => void;
+  winning: Map<string, Set<string>> | null;
+}) {
+  const { z, center } = layout;
+  const block = boardBlock({ boardRows: rows.length, grid: true }, z);
+  return (
+    <div
+      className="absolute grid items-start justify-center"
+      style={{
+        left: (layout.w - block.w) / 2,
+        top: center.boardTop,
+        width: block.w,
+        height: block.h,
+        gridTemplateColumns: `repeat(${Math.min(rows.length, z.gridCols)}, auto)`,
+        columnGap: z.gridGap,
+        rowGap: z.rowGap,
+      }}
+    >
+      {rows.map(({ run, board, cards, label, hunted }) => {
+        const lit = winning?.get(`${run}-${board}`) ?? null;
+        const backs = run === 0 && rabbitStrip;
+        return (
+          <div key={`${run}-${board}`} data-box="board" className="flex flex-col items-center" aria-label={label || "Board"}>
+            {z.gridLabelH > 0 && (
+              <span className="text-center font-bold leading-none text-white/70" style={{ height: z.gridLabelH, fontSize: 10 * z.s }}>
+                {label}
+              </span>
+            )}
+            <div className="relative">
+              <GridSquares cards={cards} hunted={hunted} backs={backs} lit={lit && lit.size > 0 ? lit : null} grid={grid} layout={layout} />
+              {backs && (
+                <button
+                  type="button"
+                  onClick={onRabbit}
+                  className="absolute inset-x-0 top-1/2 flex -translate-y-1/2 items-center justify-center gap-1.5 bg-black/70 font-bold uppercase tracking-widest text-white hover:bg-black/80"
+                  style={{ height: Math.max(28, z.boardCardH * 0.5), fontSize: 12 * z.s }}
+                  aria-label="Rabbit hunt: reveal the rest of the board"
+                >
+                  <Eye size={16 * z.s} aria-hidden />
+                  Reveal
+                </button>
+              )}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function GridSquares({
+  cards,
+  hunted,
+  backs,
+  lit,
+  grid,
+  layout,
+}: {
+  cards: string[];
+  hunted: string[];
+  backs: boolean;
+  lit: Set<string> | null;
+  grid: BoardGrid;
+  layout: FeltLayout;
+}) {
+  const { z } = layout;
+  const w = z.boardCardW;
+  const h = z.boardCardH;
+  // Cards dealt since the grid first drew slide in, one after another.
+  const [seen, setSeen] = useState({ n: cards.length, from: cards.length });
+  let from = seen.from;
+  if (seen.n !== cards.length) {
+    from = cards.length < seen.n ? 0 : seen.n;
+    setSeen({ n: cards.length, from });
+  }
+  const r = Math.max(3, w * 0.1);
+  return (
+    <div className="grid" style={{ gridTemplateColumns: `repeat(${GRID_SIZE}, ${w}px)`, gap: z.boardGap }}>
+      {Array.from({ length: GRID_SIZE * GRID_SIZE }, (_, square) => {
+        const i = grid.cells.indexOf(square);
+        const card = cards[i];
+        if (card) {
+          const isNew = i >= from;
+          const inLine = lit?.has(card) ?? false;
+          return (
+            <div
+              key={square}
+              className={isNew ? "board-in" : undefined}
+              style={{
+                ...(isNew && { animationDelay: `${(i - from) * 130}ms` }),
+                ...(lit && !inLine && { opacity: 0.45 }),
+                ...(inLine && { borderRadius: r, boxShadow: `0 0 0 ${Math.max(2, 2.5 * z.s)}px var(--color-gold)` }),
+              }}
+            >
+              <PlayingCard card={card} w={w} h={h} />
+            </div>
+          );
+        }
+        const rabbit = hunted[i - cards.length];
+        if (rabbit) return <PlayingCard key={square} card={rabbit} w={w} h={h} dim />;
+        if (backs) return <CardBack key={square} w={w} h={h} />;
+        return <div key={square} aria-hidden className="border border-dashed border-white/15" style={{ width: w, height: h, borderRadius: r }} />;
+      })}
+    </div>
   );
 }
 
