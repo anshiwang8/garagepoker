@@ -213,7 +213,7 @@ export interface YouView {
   /** What you may do; set only when it's your turn. */
   legal: LegalActions | null;
   /**
-   * Your current hand label, one per board: "Top pair", or in Hi/Lo both
+   * Your current hand label, one per board: "Pair", or in Hi/Lo both
    * halves: "Flush / 8-6 low". Null if you're not in the hand.
    */
   labels: string[] | null;

@@ -17,17 +17,14 @@ const plo = (hole: string, board: string) =>
 
 describe("hand labels", () => {
   it("labels preflop hands", () => {
-    expect(nlh("As Ad", "")).toBe("Pocket pair");
+    expect(nlh("As Ad", "")).toBe("Pair");
     expect(nlh("As Kd", "")).toBe("Ace high");
-    expect(plo("As Ad Ah Kc", "")).toBe("Pocket pair");
+    expect(plo("As Ad Ah Kc", "")).toBe("Pair");
   });
 
-  it("names pairs relative to the board", () => {
-    expect(nlh("Ks 4d", "Kh 9c 2s")).toBe("Top pair");
-    expect(nlh("9s 4d", "Kh 9c 2s")).toBe("Second pair");
-    expect(nlh("2d 4d", "Kh 9c 2s")).toBe("Bottom pair");
-    expect(nlh("As Ad", "Kh 9c 2s")).toBe("Overpair");
-    expect(nlh("5s 5d", "Kh 9c 2s")).toBe("Pocket pair");
+  it("calls every one-pair hand just Pair", () => {
+    // Top, second and bottom pair, an overpair, a pocket pair and a board pair.
+    for (const hole of ["Ks 4d", "9s 4d", "2d 4d", "As Ad", "5s 5d"]) expect(nlh(hole, "Kh 9c 2s")).toBe("Pair");
     expect(nlh("As Qd", "Kh Kc 2s")).toBe("Pair");
   });
 
@@ -48,7 +45,7 @@ describe("hand labels", () => {
     expect(plo("Ah Kc Qd Js", "2h 5h 8h Th 3c")).toBe("Ace high");
     // Three kings in hand with a king on board: only two hole kings play.
     expect(plo("Kc Kd Kh 7s", "Ks 9c 2d")).toBe("Three of a kind");
-    expect(plo("Kc Kd Kh 7s", "Qs 9c 2d")).toBe("Overpair");
+    expect(plo("Kc Kd Kh 7s", "Qs 9c 2d")).toBe("Pair");
     // Board trips + one hole card of that rank: quads need 1 hole + 3 board.
     expect(plo("Qc Jd 8h 7s", "Qs Qh Qd")).toBe("Four of a kind");
   });

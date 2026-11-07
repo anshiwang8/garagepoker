@@ -124,11 +124,8 @@ describe("Tic-Tac-Toe hands: both hole cards plus one line", () => {
     expect(label(9).text).toBe("Flush");
   });
 
-  it("names pairs against the line the hand uses", () => {
-    // The queen pairs the top of the diagonal (Qd 6s Th), though the board has an ace (not in a line with it).
-    expect(handLabel(VARIANTS.TICTACTOE, parseCards("Qs 3d"), parseCards(grid("Qd 2s 5c / 8c 6s Ac / 4h 9s Th"))).text).toBe(
-      "Top pair",
-    );
+  it("labels a one-pair hand just Pair", () => {
+    expect(handLabel(VARIANTS.TICTACTOE, parseCards("Qs 3d"), parseCards(grid("Qd 2s 5c / 8c 6s Ac / 4h 9s Th"))).text).toBe("Pair");
   });
 
   it("settles the pot with the line rule at showdown", () => {

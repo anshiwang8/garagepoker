@@ -65,7 +65,7 @@ Two **table modifiers** work with any variant:
    - Both together give quartered pots.
    - Ties split evenly.
    - Odd chips go to the high hand, then to the first seat left of the button.
-6. **Hand labels.** Show every player's current best hand at all times: "Top pair", "Straight", "Flush", and so on. In Omaha, the label must obey the exactly 2 + 3 rule; in Tic-Tac-Toe, the 2 + line rule. In Hi/Lo, show both halves, e.g. "Flush / 8-6 low".
+6. **Hand labels.** Show every player's current best hand at all times: "Pair", "Two pair", "Straight", "Flush", and so on. Every one-pair hand is just "Pair" (no top pair, overpair or pocket pair). In Omaha, the label must obey the exactly 2 + 3 rule; in Tic-Tac-Toe, the 2 + line rule. In Hi/Lo, show both halves, e.g. "Flush / 8-6 low".
 7. **Run it twice.**
    - Only offered when every remaining player is all-in (or all but one) and no more action is possible.
    - Every player in the pot must accept; any decline or a 5-second timeout means it runs once.
