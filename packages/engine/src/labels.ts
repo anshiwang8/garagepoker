@@ -23,7 +23,9 @@ const RANK_NAMES = [
  */
 export function handLabel(variant: Variant, hole: readonly Card[], board: readonly Card[]): HandLabel {
   const value = handValue(variant, hole, board);
-  const high = labelText(value, hole, board);
+  // With lines, pairs are named against the line the hand uses, not the whole grid.
+  const played = variant.handRule === "lines" ? value.cards.filter((c) => !hole.includes(c)) : board;
+  const high = labelText(value, hole, played);
   if (variant.split !== "hilo" || board.length < 3) {
     return { category: value.category, text: high, value, low: null };
   }

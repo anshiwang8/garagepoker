@@ -26,6 +26,7 @@ export const VARIANT_LABELS: Record<VariantName, { name: string; detail: string 
   PLO5HL: { name: "PLO5 Hi/Lo", detail: "5 cards, split 8-or-better" },
   PINEAPPLE: { name: "Pineapple (5-card)", detail: "Discard 1 preflop, flop, turn" },
   SHORT: { name: "Short deck", detail: "36 cards; flush beats a full house" },
+  TICTACTOE: { name: "Tic-Tac-Toe Hold'em", detail: "3×3 board; both cards + a row, column or diagonal" },
 };
 
 const DECISION_TIMES = [10, 15, 20, 30, 45, 60, 90];

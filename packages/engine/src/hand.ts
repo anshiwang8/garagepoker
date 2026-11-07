@@ -1,8 +1,17 @@
-import { type BoardLayout, boardSize, cardsOnStreet, ROW_BOARD, streetWithDealt } from "./board";
+import {
+  type BoardLayout,
+  boardSize,
+  cardsOnStreet,
+  lineCards,
+  ROW_BOARD,
+  streetWithDealt,
+  TICTACTOE_BOARD,
+} from "./board";
 import { type Card, isCard } from "./cards";
 import { type DeckSize, makeDeck } from "./deck";
 import {
   bestHand,
+  bestLinesHand,
   bestLow,
   bestOmahaHand,
   bestOmahaLow,
@@ -17,8 +26,11 @@ import { computePots, type Pot, splitPot } from "./pots";
 // ---------------------------------------------------------------------------
 
 export type Betting = "NL" | "PL";
-/** "any": best 5 of hole + board. "omaha": exactly 2 hole + 3 board. */
-export type HandRule = "any" | "omaha";
+/**
+ * "any": best 5 of hole + board. "omaha": exactly 2 hole + 3 board.
+ * "lines": exactly 2 hole + the 3 cards of one line of a grid board (Tic-Tac-Toe).
+ */
+export type HandRule = "any" | "omaha" | "lines";
 /** "high": best high hand wins. "hilo": high and 8-or-better low split each board. */
 export type Split = "high" | "hilo";
 
@@ -47,6 +59,16 @@ export const VARIANTS = {
   PINEAPPLE: { holeCards: 5, deckSize: 52, betting: "NL", handRule: "any", split: "high", discard: true, board: ROW_BOARD },
   /** 36 cards, 6 to A; Triton rankings (flush > full house, trips > straight). */
   SHORT: { holeCards: 2, deckSize: 36, betting: "NL", handRule: "any", split: "high", discard: false, board: ROW_BOARD },
+  /** A 3×3 grid: corners, middle row, then top- and bottom-middle. Both hole cards + one line. */
+  TICTACTOE: {
+    holeCards: 2,
+    deckSize: 52,
+    betting: "NL",
+    handRule: "lines",
+    split: "high",
+    discard: false,
+    board: TICTACTOE_BOARD,
+  },
 } as const satisfies Record<string, Variant>;
 
 export interface HandConfig {
@@ -434,6 +456,7 @@ export function rankingFor(variant: Variant): Ranking {
 /** A player's best high hand under the variant's hand rule. */
 export function handValue(variant: Variant, hole: readonly Card[], board: readonly Card[]): HandValue {
   const ranking = rankingFor(variant);
+  if (variant.handRule === "lines") return bestLinesHand(hole, lineCards(variant.board.grid!, board), ranking);
   return variant.handRule === "omaha"
     ? bestOmahaHand(hole, board, ranking)
     : bestHand([...hole, ...board], ranking);
@@ -444,6 +467,8 @@ export function handValue(variant: Variant, hole: readonly Card[], board: readon
  * (exactly 2 hole + 3 board in Omaha), or null if they have none.
  */
 export function lowValue(variant: Variant, hole: readonly Card[], board: readonly Card[]): LowValue | null {
+  // Hi/Lo isn't offered with lines (validateHandConfig), so there's never a low.
+  if (variant.handRule === "lines") return null;
   return variant.handRule === "omaha" ? bestOmahaLow(hole, board) : bestLow([...hole, ...board]);
 }
 
@@ -466,9 +491,10 @@ function validateHandConfig(c: HandConfig): void {
   if (![2, 4, 5].includes(v.holeCards)) throw new EngineError(`invalid hole cards ${v.holeCards}`);
   if (v.deckSize !== 52 && v.deckSize !== 36) throw new EngineError(`invalid deck ${v.deckSize}`);
   if (v.betting !== "NL" && v.betting !== "PL") throw new EngineError(`invalid betting ${v.betting}`);
-  if (v.handRule !== "any" && v.handRule !== "omaha") {
+  if (v.handRule !== "any" && v.handRule !== "omaha" && v.handRule !== "lines") {
     throw new EngineError(`invalid hand rule ${v.handRule}`);
   }
+  validateBoardLayout(v);
   if (v.split !== "high" && v.split !== "hilo") throw new EngineError(`invalid split ${v.split}`);
   if (v.split === "hilo" && v.deckSize === 36) throw new EngineError("Hi/Lo isn't available with short deck");
   if (v.discard && v.holeCards - 3 !== 2) throw new EngineError("Pineapple needs 5 hole cards (3 discards, 2 kept)");
@@ -483,6 +509,31 @@ function validateHandConfig(c: HandConfig): void {
     throw new EngineError("small blind must be between 0 and the big blind");
   }
   if (!isChips(c.ante)) throw new EngineError("ante must be a non-negative integer");
+}
+
+function validateBoardLayout(v: Variant): void {
+  const { streets, grid } = v.board ?? {};
+  if (!streets || streets.length !== 3 || !streets.every((n) => Number.isInteger(n) && n > 0)) {
+    throw new EngineError("the board must deal at least 1 card on each of the flop, turn and river");
+  }
+  if (v.handRule === "lines") {
+    if (!grid) throw new EngineError("the lines hand rule needs a grid board");
+    if (v.split === "hilo") throw new EngineError("Hi/Lo isn't available with the lines hand rule");
+    if (v.discard) throw new EngineError("discards aren't available with the lines hand rule");
+  } else if (grid) {
+    throw new EngineError("a grid board needs the lines hand rule");
+  }
+  if (!grid) return;
+  const squares = grid.size * grid.size;
+  const cells = new Set(grid.cells);
+  const inGrid = (c: number) => Number.isInteger(c) && c >= 0 && c < squares;
+  if (grid.cells.length !== boardSize(v.board) || cells.size !== squares || !grid.cells.every(inGrid)) {
+    throw new EngineError("a grid board must deal exactly one card to every square");
+  }
+  // A hand is 2 hole cards + a line, so every line is 3 distinct squares.
+  if (grid.lines.length === 0 || !grid.lines.every((l) => l.length === 3 && new Set(l).size === 3 && l.every(inGrid))) {
+    throw new EngineError("every line of a grid board must be 3 different squares");
+  }
 }
 
 function validateDeck(deck: readonly Card[], deckSize: DeckSize, needed: number): void {

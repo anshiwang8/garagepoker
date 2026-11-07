@@ -2,6 +2,7 @@ import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 import {
   applyAction,
+  type BoardLayout,
   boardSize,
   type HandConfig,
   type HandState,
@@ -214,11 +215,29 @@ function playHand(params: HandParams): void {
         }
       }
     }
+    // Tic-Tac-Toe: both hole cards plus the 3 cards of one line of the grid, on every board and run.
+    const layout: BoardLayout = variant.board;
+    const grid = layout.grid;
+    if (variant.handRule === "lines" && grid) {
+      const lines = new Set(grid.lines.map((l) => [...l].sort((a, b) => a - b).join()));
+      for (const { hole, boards, secondRun } of result.showdown) {
+        const runs = secondRun ? [[boards, s.boards], [secondRun, s.secondRun!]] as const : [[boards, s.boards]] as const;
+        for (const [values, runBoards] of runs) {
+          values.forEach(({ high, low }, b) => {
+            expect(low).toBeNull();
+            const board = runBoards[b]!;
+            expect(high.cards.filter((c) => hole.includes(c))).toHaveLength(2);
+            const squares = high.cards.filter((c) => board.includes(c)).map((c) => grid.cells[board.indexOf(c)]!);
+            expect(lines.has(squares.sort((x, y) => x - y).join())).toBe(true);
+          });
+        }
+      }
+    }
   }
 }
 
 describe("hand state machine properties", () => {
-  it("over 100k random hands (incl. hi/lo, double board, bomb pots, run it twice, Pineapple, short deck): chips conserved, no card dealt twice", () => {
+  it("over 100k random hands (incl. hi/lo, double board, bomb pots, run it twice, Pineapple, short deck, Tic-Tac-Toe): chips conserved, no card dealt twice", () => {
     fc.assert(fc.property(handArb, playHand), { numRuns: 100_000 });
   }, 600_000);
 });

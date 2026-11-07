@@ -12,6 +12,7 @@ export const VARIANT_SHORT: Record<VariantName, string> = {
   PLO5HL: "PLO5 HL",
   PINEAPPLE: "Pineapple",
   SHORT: "Short deck",
+  TICTACTOE: "Tic-Tac-Toe",
 };
 
 export function countdownFor(view: TableView, now: number): Countdown | null {

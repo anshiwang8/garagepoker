@@ -162,6 +162,28 @@ export function bestOmahaHand(
   return best!;
 }
 
+/**
+ * Best hand on a grid board (Tic-Tac-Toe): exactly 2 hole cards plus the cards
+ * of one line. `lines` holds each line's dealt cards, so before a line is
+ * complete it counts what's there, as Omaha does before the flop.
+ */
+export function bestLinesHand(
+  hole: readonly Card[],
+  lines: readonly (readonly Card[])[],
+  ranking: Ranking = "standard",
+): HandValue {
+  if (hole.length < 2) throw new RangeError("a lines hand needs at least 2 hole cards");
+  if (lines.length === 0) throw new RangeError("a lines hand needs at least one line");
+  let best: HandValue | undefined;
+  forEachCombination(hole, 2, (h) => {
+    for (const line of lines) {
+      const v = evaluate([...h, ...line], ranking);
+      if (!best || v.score > best.score) best = v;
+    }
+  });
+  return best!;
+}
+
 function forOmahaCombos(
   hole: readonly Card[],
   board: readonly Card[],
