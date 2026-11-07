@@ -158,7 +158,7 @@ function playHand(params: HandParams): void {
   // player in the pot accepted (or it's "always"). Run 2 shares the cards that
   // were out when the run-out began and deals the rest fresh.
   const [flop, turn] = variant.board.streets;
-  const shared = { preflop: 0, flop, turn: flop + turn, river: full, complete: full }[s.runOutFrom ?? "river"];
+  const shared = { preflop: 0, flop, turn: flop + turn, river: full, extra: full, complete: full }[s.runOutFrom ?? "river"];
   const runTwoCards: number[] = [];
   if (s.secondRun) {
     expect(config.runItTwice).not.toBe("no");

@@ -7,7 +7,7 @@ import {
   streetWithDealt,
   TICTACTOE_BOARD,
 } from "./board";
-import { type Card, isCard } from "./cards";
+import { type Card, isCard, isRed } from "./cards";
 import { type DeckSize, makeDeck } from "./deck";
 import {
   bestHand,
@@ -121,7 +121,8 @@ export interface StartHandInput {
 // State
 // ---------------------------------------------------------------------------
 
-export type Street = "preflop" | "flop" | "turn" | "river" | "complete";
+/** "extra": a red river extra round (`HandState.extraRound` says which). */
+export type Street = "preflop" | "flop" | "turn" | "river" | "extra" | "complete";
 
 export interface PlayerState {
   seat: number;
@@ -166,6 +167,8 @@ export interface LogEntry {
   /** For bet / raise: the player's total bet on the street. */
   to?: number;
   allIn?: boolean;
+  /** Set on every entry whose street is "extra": the red river round (1, 2, …). */
+  extraRound?: number;
 }
 
 /**
@@ -230,6 +233,10 @@ export interface HandState {
    */
   discard: { pending: number[]; then: { bet: number } | { deal: true } } | null;
   street: Street;
+  /** Red river: 0 until the first extra round, then N during red river N. Kept after the hand ends. */
+  extraRound: number;
+  /** Red river: an extra round was skipped because the deck couldn't spare a card for every red board. */
+  redRiverStopped: boolean;
   /** The bet to match on this street. */
   currentBet: number;
   /** Size of the last full raise; the minimum raise increment. */
@@ -334,6 +341,8 @@ export function startHand(input: StartHandInput): HandState {
     runOutFrom: null,
     discard: null,
     street: "preflop",
+    extraRound: 0,
+    redRiverStopped: false,
     currentBet: config.bombPot ? 0 : config.bigBlind,
     lastRaiseSize: config.bigBlind,
     toAct: null,
@@ -401,7 +410,7 @@ export function applyAction(state: HandState, action: PlayerAction): HandState {
   const i = indexOfSeat(s, action.seat);
   const p = s.players[i]!;
   const legal = legalFor(s, i);
-  const base = { street: s.street, seat: p.seat };
+  const base = { ...logStreet(s), seat: p.seat };
 
   switch (action.type) {
     case "fold":
@@ -559,6 +568,11 @@ function cloneState(s: HandState): HandState {
   };
 }
 
+/** The street fields of a log entry made now: the round number too in an extra round. */
+function logStreet(s: HandState): Pick<LogEntry, "street" | "extraRound"> {
+  return s.street === "extra" ? { street: s.street, extraRound: s.extraRound } : { street: s.street };
+}
+
 function indexOfSeat(s: HandState, seat: number): number {
   const i = s.players.findIndex((p) => p.seat === seat);
   if (i < 0) throw new EngineError(`seat ${seat} is not in the hand`);
@@ -586,7 +600,7 @@ function post(s: HandState, i: number, amount: number, type: LogType): void {
   const posted = Math.min(amount, p.stack);
   if (posted === 0) return;
   putIn(p, posted);
-  s.log.push({ street: s.street, seat: p.seat, type, amount: posted, allIn: p.stack === 0 });
+  s.log.push({ ...logStreet(s), seat: p.seat, type, amount: posted, allIn: p.stack === 0 });
 }
 
 function othersWithChips(s: HandState, i: number): boolean {
@@ -647,13 +661,14 @@ function advance(s: HandState, from: number): HandState {
     }
     // Betting round over.
     returnUncalled(s);
-    if (s.street === "river") {
+    const baseDealt = s.street === "river" || s.street === "extra";
+    if (baseDealt && s.boards.every((b) => boardFinished(s.config, b))) {
       finish(s);
       return s;
     }
     // SPEC §2.7: the moment no more action is possible with cards still to
-    // come, offer run it twice (once: if the deck can't cover two runs then,
-    // it runs once to the river).
+    // come (base streets, or red river cards), offer run it twice (once: if
+    // the deck can't cover two runs then, it runs once to the end).
     if (s.runOutFrom === null && isRunOut(s)) {
       s.runOutFrom = s.street;
       const mode = s.config.runItTwice ?? "no";
@@ -664,8 +679,19 @@ function advance(s: HandState, from: number): HandState {
         return s;
       }
     }
-    dealNextStreet(s);
-    if (needsDiscard(s)) return openDiscards(s, { bet: btn });
+    if (baseDealt) {
+      // Red river (spec §4.1): another card on each board that ends red, and
+      // a betting round. All or nothing when the deck runs short.
+      if (!dealExtraRound(s, [s.boards])) {
+        finish(s);
+        return s;
+      }
+      s.street = "extra";
+      resetBets(s);
+    } else {
+      dealNextStreet(s);
+      if (needsDiscard(s)) return openDiscards(s, { bet: btn });
+    }
     from = btn;
   }
 }
@@ -701,7 +727,7 @@ function discardCard(state: HandState, seat: number, card: Card): HandState {
   p.hole = p.hole.filter((c) => c !== card);
   p.discards = [...p.discards, card];
   // The log records that a player discarded, never which card.
-  s.log.push({ street: s.street, seat, type: "discard", amount: 0 });
+  s.log.push({ ...logStreet(s), seat, type: "discard", amount: 0 });
   const left = pending.pending.filter((x) => x !== seat);
   if (left.length > 0) {
     s.discard = { pending: left, then: pending.then };
@@ -743,7 +769,7 @@ function decideRunItTwice(state: HandState, seat: number, accept: boolean): Hand
   if (!offer.seats.includes(seat)) throw new EngineError(`seat ${seat} isn't in the pot`);
   if (offer.accepted.includes(seat)) throw new EngineError(`seat ${seat} already accepted`);
   const s = cloneState(state);
-  s.log.push({ street: s.street, seat, type: accept ? "ritAccept" : "ritDecline", amount: 0 });
+  s.log.push({ ...logStreet(s), seat, type: accept ? "ritAccept" : "ritDecline", amount: 0 });
   // Any decline means it runs once (SPEC §2.7).
   if (!accept) return runOutAndFinish(s, 1);
   s.ritOffer = { seats: offer.seats, accepted: [...offer.accepted, seat] };
@@ -806,7 +832,7 @@ export function rabbitCards(s: HandState): Card[][] {
   const boards = s.boards.map(() => [] as Card[]);
   const layout = s.config.variant.board;
   const dealt = s.boards[0]!.length;
-  if (s.secondRun || dealt === boardSize(layout)) return boards;
+  if (s.secondRun || dealt >= boardSize(layout)) return boards;
   dealStreets(layout, s.deck, s.deckIndex, boards, streetWithDealt(layout, dealt), "river");
   return boards;
 }
@@ -824,14 +850,20 @@ function returnUncalled(s: HandState): void {
     p.bet -= excess;
     p.committed -= excess;
     p.stack += excess;
-    s.log.push({ street: s.street, seat: p.seat, type: "uncalled", amount: excess });
+    s.log.push({ ...logStreet(s), seat: p.seat, type: "uncalled", amount: excess });
   }
 }
 
+/** Deals the next base street (flop, turn or river) onto the boards and opens its betting. */
 function dealNextStreet(s: HandState): void {
   const from = s.street;
   s.street = NEXT_STREET[from]!;
   s.deckIndex = dealStreets(s.config.variant.board, s.deck, s.deckIndex, s.boards, from, s.street);
+  resetBets(s);
+}
+
+/** A new betting round: no bets, nobody has acted, the minimum raise is the big blind. */
+function resetBets(s: HandState): void {
   for (const p of s.players) {
     p.bet = 0;
     p.acted = false;
@@ -839,6 +871,38 @@ function dealNextStreet(s: HandState): void {
   }
   s.currentBet = 0;
   s.lastRaiseSize = s.config.bigBlind;
+}
+
+/**
+ * Red river (spec §4.1): this board's base cards are all out and its last card
+ * is red. Never on a grid board, which has no square for another card.
+ */
+export function wantsRedRiverCard(config: HandConfig, board: readonly Card[]): boolean {
+  const layout = config.variant.board;
+  return !!config.redRiver && !layout.grid && board.length >= boardSize(layout) && isRed(board.at(-1)!);
+}
+
+/** No more cards will come to this board: its base cards are out and red river doesn't want another. */
+export function boardFinished(config: HandConfig, board: readonly Card[]): boolean {
+  return board.length >= boardSize(config.variant.board) && !wantsRedRiverCard(config, board);
+}
+
+/**
+ * One red river round (spec §4.1, §4.4): one card to every board, across the
+ * runs given, that ends red, in run order then board order. All or nothing:
+ * if the deck can't spare a card for each, none is dealt and red river stops.
+ * Returns whether a round was dealt.
+ */
+function dealExtraRound(s: HandState, boards: Card[][][]): boolean {
+  const red = boards.flat().filter((b) => wantsRedRiverCard(s.config, b));
+  if (red.length === 0) return false;
+  if (s.deck.length - s.deckIndex < red.length) {
+    s.redRiverStopped = true;
+    return false;
+  }
+  for (const board of red) board.push(s.deck[s.deckIndex++]!);
+  s.extraRound += 1;
+  return true;
 }
 
 function finish(s: HandState): void {
