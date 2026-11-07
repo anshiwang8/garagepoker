@@ -125,7 +125,18 @@ function SquareIcon({
   );
 }
 
-export function TopBar({ view, send, onOptions }: { view: TableView; send: Send; onOptions: () => void }) {
+export function TopBar({
+  view,
+  send,
+  onOptions,
+  unread = false,
+}: {
+  view: TableView;
+  send: Send;
+  onOptions: () => void;
+  /** Chat messages you haven't seen (shown as a dot on Options). */
+  unread?: boolean;
+}) {
   const me = view.you.seat !== null ? view.seats[view.you.seat - 1] : null;
   const live = view.status !== "ended";
   const [sound, toggleSound] = useSoundPref();
@@ -136,7 +147,7 @@ export function TopBar({ view, send, onOptions }: { view: TableView; send: Send;
   return (
     <header className="flex shrink-0 items-center gap-1 px-2 pt-[env(safe-area-inset-top)]" style={{ minHeight: 64 }}>
       <nav className="flex items-center" aria-label="Table">
-        <LabeledIcon icon={<Menu size={22} />} label="Options" onClick={onOptions} badge={(view.requests?.length ?? 0) > 0} />
+        <LabeledIcon icon={<Menu size={22} />} label="Options" onClick={onOptions} badge={(view.requests?.length ?? 0) > 0 || unread} />
         {me && live && (
           <LabeledIcon
             icon={<LogOut size={22} />}

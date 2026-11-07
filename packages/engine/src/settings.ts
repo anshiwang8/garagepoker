@@ -36,6 +36,10 @@ export interface TableSettings {
   autoStart: boolean;
   rebuys: boolean;
   displayCents: boolean;
+  /** SPEC §5: table chat, on by default; the owner can turn it off. */
+  chat: boolean;
+  /** SPEC §2.9: show every live hand once no more betting is possible (all in), before the run-out. */
+  revealAllIn: boolean;
 }
 
 /** SPEC §5 defaults: NLH, 10/20, cent mode off, 8 seats, 1 board, no bomb pots, 20 s + 60 s bank. */
@@ -58,6 +62,8 @@ export const DEFAULT_SETTINGS: TableSettings = {
   autoStart: true,
   rebuys: true,
   displayCents: false,
+  chat: true,
+  revealAllIn: true,
 };
 
 export const MIN_SEATS = 2;
@@ -112,6 +118,8 @@ export function validateConfig(s: TableSettings): ConfigIssue[] {
   if (!RUN_IT_TWICE_MODES.includes(s.runItTwice)) add("runItTwice", "Unknown run it twice setting");
   if (typeof s.rabbitHunt !== "boolean") add("rabbitHunt", "Rabbit hunt must be on or off");
   if (typeof s.spectators !== "boolean") add("spectators", "Spectators must be on or off");
+  if (typeof s.chat !== "boolean") add("chat", "Chat must be on or off");
+  if (typeof s.revealAllIn !== "boolean") add("revealAllIn", "Reveal hands must be on or off");
   if (!BOMB_POT_MODES.includes(s.bombPotMode)) add("bombPotMode", "Unknown bomb pot mode");
   if (!Number.isInteger(s.bombPotEvery) || s.bombPotEvery < 2 || s.bombPotEvery > 100) {
     add("bombPotEvery", "Bomb pot frequency must be every 2-100 hands");

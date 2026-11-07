@@ -244,6 +244,12 @@ export function SettingsForm({
         <div className="flex flex-col divide-y divide-line rounded-xl border border-line bg-ink px-3">
           <Toggle label="UTG straddle (2 BB)" checked={s.straddle} onChange={(v) => set("straddle", v)} hint="Never heads-up" />
           <Toggle
+            label="Show hands when all in"
+            checked={s.revealAllIn}
+            onChange={(v) => set("revealAllIn", v)}
+            hint="Once nobody can bet, every live hand is shown before the rest is dealt"
+          />
+          <Toggle
             label="Rabbit hunt"
             checked={s.rabbitHunt}
             onChange={(v) => set("rabbitHunt", v)}
@@ -286,6 +292,7 @@ export function SettingsForm({
             onChange={(v) => set("spectators", v)}
             hint="Anyone with the link can watch without a seat"
           />
+          <Toggle label="Chat" checked={s.chat} onChange={(v) => set("chat", v)} hint="Table chat for players (and spectators)" />
           <Toggle label="Allow rebuys" checked={s.rebuys} onChange={(v) => set("rebuys", v)} hint="Through your approval" />
           <Toggle
             label="Cent mode"
@@ -413,5 +420,5 @@ function timersSummary(s: TableSettings): string {
 }
 
 function playersSummary(s: TableSettings): string {
-  return `spectators ${onOff(s.spectators)} · rebuys ${onOff(s.rebuys)} · cent mode ${onOff(s.displayCents)}`;
+  return `spectators ${onOff(s.spectators)} · chat ${onOff(s.chat)} · rebuys ${onOff(s.rebuys)} · cent mode ${onOff(s.displayCents)}`;
 }

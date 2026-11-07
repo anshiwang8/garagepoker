@@ -7,7 +7,10 @@ import { cardToString, handLabel, ledgerRows, legalActions, potTotal, settleUp, 
 import type { HandState, LogEntry } from "@garagepoker/engine";
 import type { LogEntryView, RequestView, SeatView, TableView } from "@garagepoker/protocol";
 import { proofFor } from "./fairness.js";
-import { rabbitAvailable, type SeatRequest, showableCards, type TableData } from "./table.js";
+import { isBlocked, needsCode, rabbitAvailable, type SeatRequest, showableCards, type TableData } from "./table.js";
+
+/** Chat messages sent in each view. */
+const CHAT_IN_VIEW = 40;
 
 const cards = (cs: readonly number[]) => cs.map(cardToString);
 
@@ -52,11 +55,18 @@ export function buildView(
   const isOwner = viewerId === data.ownerId;
   // SPEC §4: with spectators off, people without a seat (other than the owner)
   // see who's sitting where, so they can ask for a seat, but not the game.
-  const watchBlocked = !data.settings.spectators && viewerSeat === null && !isOwner;
+  // Blocked players and those who haven't entered the join code see the same.
+  const blocked = isBlocked(data, viewerId);
+  const codeRequired = needsCode(data, viewerId);
+  const watchBlocked = ((!data.settings.spectators && viewerSeat === null) || blocked || codeRequired) && !isOwner;
   const hand = watchBlocked ? null : data.hand;
   const lastHand = watchBlocked ? null : data.lastHand;
   const seatedIds = new Set(data.seats.flatMap((s) => (s ? [s.playerId] : [])));
   const fairness = data.fairness;
+  // SPEC §2.9: once nobody can bet any more (all in), every live hand is shown
+  // before the run-out. Not in discard games: the cards still to be discarded stay secret.
+  const revealLive =
+    !!hand && hand.runOutFrom !== null && data.settings.revealAllIn !== false && !hand.config.variant.discard;
 
   const seats = data.seats.slice(0, data.settings.seats).map((s, i): SeatView | null => {
     if (!s) return null;
@@ -79,8 +89,8 @@ export function buildView(
       folded: hp?.folded ?? false,
       allIn: !!hp && !hp.folded && hp.stack === 0,
       bet: hp?.bet ?? 0,
-      // Only your own hole cards, ever. Showdown cards go in lastHand.
-      cards: hp ? hp.hole.map((c) => (mine ? cardToString(c) : null)) : null,
+      // Only your own hole cards; others' once all live hands are revealed (SPEC §2.9). Showdown cards go in lastHand.
+      cards: hp ? hp.hole.map((c) => (mine || (revealLive && !hp.folded) ? cardToString(c) : null)) : null,
       lastAction: last ? { type: last.type, amount: last.amount, ...(last.to !== undefined && { to: last.to }) } : null,
     };
   });
@@ -105,6 +115,8 @@ export function buildView(
     you: {
       playerId: viewerId,
       isOwner,
+      blocked,
+      codeRequired,
       seat: viewerSeat,
       request: (() => {
         const r = data.requests.find((x) => x.playerId === viewerId);
@@ -191,6 +203,19 @@ export function buildView(
     ledger: watchBlocked ? [] : ledger,
     settlement: data.status === "ended" && !watchBlocked ? settleUp(ledger) : null,
     spectators: [...connected].filter((id) => !seatedIds.has(id)).length,
+    chat:
+      data.settings.chat === false || watchBlocked
+        ? null
+        : (data.chat ?? []).slice(-CHAT_IN_VIEW).map((c) => ({
+            id: c.id,
+            at: c.at,
+            name: c.name,
+            seat: c.seat,
+            text: c.text,
+            mine: c.playerId === viewerId,
+          })),
+    blocked: isOwner ? (data.blocked ?? []).map((b) => ({ playerId: b.playerId, nickname: b.nickname })) : null,
+    joinCode: isOwner ? (data.joinCode ?? null) : null,
   };
 }
 

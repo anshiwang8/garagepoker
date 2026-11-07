@@ -68,8 +68,14 @@ export const settingsSchema = z
     autoStart: z.boolean(),
     rebuys: z.boolean(),
     displayCents: z.boolean(),
+    // Newer settings default on, so clients from before they existed keep working.
+    chat: z.boolean().default(true),
+    revealAllIn: z.boolean().default(true),
   })
-  .strict() satisfies z.ZodType<TableSettings>;
+  .strict() satisfies z.ZodType<TableSettings, unknown>;
+
+/** A table join code: 4–12 letters or digits. */
+export const joinCode = z.string().regex(/^[A-Za-z0-9]{4,12}$/, "4 to 12 letters or digits");
 
 // ---------------------------------------------------------------------------
 // HTTP: create a table
@@ -145,13 +151,21 @@ export const clientMessageSchema = z.discriminatedUnion("type", [
   msg("discard", { hand: z.number().int().min(1), seq: z.number().int().min(0).optional(), card: z.string().regex(/^[2-9TJQKA][cdhs]$/) }),
   /** Ask for the last finished hand's replay; answered to you only. */
   msg("getReplay", {}),
+  /** Table chat (SPEC §5): seated players, and spectators where they can watch. */
+  msg("chat", { text: z.string().trim().min(1).max(200) }),
+  /** Unlock a table that has a join code. */
+  msg("enterJoinCode", { code: z.string().max(12) }),
 
   // Owner only
   msg("approveRequest", { requestId, stack: positiveCents }),
   msg("declineRequest", { requestId }),
   msg("updateSettings", { settings: settingsSchema }),
   msg("adjustStack", { playerId, op: z.enum(["add", "remove", "set"]), amount: cents }),
-  msg("kick", { playerId }),
+  /** `block`: they can't ask for a seat, chat or watch again until unblocked. */
+  msg("kick", { playerId, block: z.boolean().optional() }),
+  msg("unblock", { playerId }),
+  /** Require a code to watch or ask for a seat (null removes it). Seated players aren't affected. */
+  msg("setJoinCode", { code: joinCode.nullable() }),
   msg("transferOwnership", { playerId }),
   msg("startGame", {}),
   msg("pauseGame", {}),
@@ -209,11 +223,31 @@ export interface TableView {
   settlement: Payment[] | null;
   /** How many connected people are watching without a seat. */
   spectators: number;
+  /** The latest chat messages, oldest first; null when chat is off or you can't watch. */
+  chat: ChatView[] | null;
+  /** Owner only: players blocked after a kick (null for everyone else). */
+  blocked: { playerId: string; nickname: string }[] | null;
+  /** Owner only: the table's join code, if it has one. */
+  joinCode: string | null;
+}
+
+export interface ChatView {
+  id: number;
+  at: number;
+  /** The sender's nickname, or "Watcher" for someone without a seat. */
+  name: string;
+  seat: number | null;
+  text: string;
+  mine: boolean;
 }
 
 export interface YouView {
   playerId: string;
   isOwner: boolean;
+  /** The owner removed you: you can't ask for a seat, chat or watch. */
+  blocked: boolean;
+  /** The table has a join code you haven't entered yet. */
+  codeRequired: boolean;
   seat: number | null;
   /** Your pending request, if any. */
   request: RequestView | null;

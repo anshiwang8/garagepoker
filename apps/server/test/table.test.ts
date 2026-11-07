@@ -970,3 +970,121 @@ describe("reliability", () => {
 		expect(h.data.handNumber).toBe(2);
 	});
 });
+
+describe("chat", () => {
+	it("seated players and spectators chat; everyone who can watch sees it; one message a second each", () => {
+		const { h, owner, bob } = headsUp();
+		const carol = h.join("carol"); // spectator
+		h.send(bob, { type: "chat", text: "  nice hand  " });
+		expect(() => h.send(bob, { type: "chat", text: "again" })).toThrow(/one message a second/);
+		h.advance(1_000);
+		h.send(carol, { type: "chat", text: "gl all" });
+		for (const id of [owner, bob, carol]) {
+			expect(h.view(id).chat!.map((c) => [c.name, c.seat, c.text])).toEqual([
+				["bob", 2, "nice hand"],
+				["Watcher", null, "gl all"],
+			]);
+		}
+		expect(h.view(bob).chat!.map((c) => c.mine)).toEqual([true, false]);
+		// No player ids or tokens in chat views.
+		expect(Object.keys(h.view(owner).chat![0]!).sort()).toEqual(["at", "id", "mine", "name", "seat", "text"]);
+	});
+
+	it("keeps the last 100 messages and sends the last 40", () => {
+		const { h, bob } = headsUp();
+		for (let i = 0; i < 120; i++) {
+			h.send(bob, { type: "chat", text: `m${i}` });
+			h.advance(1_000);
+		}
+		expect(h.data.chat).toHaveLength(100);
+		const chat = h.view(bob).chat!;
+		expect(chat).toHaveLength(40);
+		expect(chat[39]!.text).toBe("m119");
+	});
+
+	it("is off when the owner turns it off, and hidden from people who can't watch", () => {
+		const { h, owner, bob } = headsUp({ spectators: false });
+		const carol = h.join("carol");
+		expect(() => h.send(carol, { type: "chat", text: "hi" })).toThrow(/Take a seat/);
+		expect(h.view(carol).chat).toBeNull();
+		h.send(owner, { type: "updateSettings", settings: { ...h.data.settings, chat: false } });
+		expect(() => h.send(bob, { type: "chat", text: "hi" })).toThrow(/turned off/);
+		expect(h.view(bob).chat).toBeNull();
+	});
+});
+
+describe("revealing hands when no more action is possible (SPEC §2.9)", () => {
+	const allInWithRitOffer = (settings = {}) => {
+		const { h, owner, bob } = headsUp({ runItTwice: "ask", ...settings });
+		const carol = h.join("carol");
+		h.send(owner, { type: "startGame" });
+		h.act({ type: "raise", to: 50_000 }); // Bob's whole stack
+		h.act({ type: "call" });
+		expect(h.data.hand!.ritOffer).not.toBeNull(); // waiting on the run-it-twice answers: cards still to come
+		return { h, owner, bob, carol };
+	};
+
+	it("shows every live hand to everyone once both players are all in", () => {
+		const { h, owner, bob, carol } = allInWithRitOffer();
+		const hole = (seat: number) => h.data.hand!.players.find((p) => p.seat === seat)!.hole.map(cardToString);
+		for (const id of [owner, bob, carol]) {
+			expect(h.view(id).seats[0]!.cards).toEqual(hole(1));
+			expect(h.view(id).seats[1]!.cards).toEqual(hole(2));
+		}
+	});
+
+	it("keeps them hidden when the owner turns it off", () => {
+		const { h, owner, carol } = allInWithRitOffer({ revealAllIn: false });
+		expect(h.view(carol).seats[0]!.cards).toEqual([null, null]);
+		expect(h.view(owner).seats[1]!.cards).toEqual([null, null]);
+	});
+});
+
+describe("blocking and join codes", () => {
+	it("a kicked and blocked player can't ask for a seat, chat or watch until unblocked", () => {
+		const { h, owner, bob } = headsUp();
+		h.send(owner, { type: "kick", playerId: bob, block: true });
+		expect(h.data.seats[1]).toBeNull();
+		expect(h.view(bob).you).toMatchObject({ blocked: true, watchBlocked: true });
+		expect(h.view(bob).chat).toBeNull();
+		expect(() => h.send(bob, { type: "requestSeat", seat: 2, nickname: "bob", buyIn: 1_000, postBlind: false })).toThrow(
+			/removed you/,
+		);
+		expect(() => h.send(bob, { type: "chat", text: "let me in" })).toThrow(/removed you/);
+		expect(h.view(owner).blocked).toEqual([{ playerId: bob, nickname: "bob" }]);
+		expect(h.view(bob).blocked).toBeNull();
+		// Still blocked after many visitors come and go (pruning keeps them).
+		for (let i = 0; i < 260; i++) h.disconnect(h.join(`v${i}`));
+		expect(h.view(bob).you.blocked).toBe(true);
+		h.send(owner, { type: "unblock", playerId: bob });
+		h.send(bob, { type: "requestSeat", seat: 2, nickname: "bob", buyIn: 1_000, postBlind: false });
+		expect(h.data.requests).toHaveLength(1);
+	});
+
+	it("with a join code, newcomers enter it before they can watch or ask for a seat", () => {
+		const { h, owner, bob } = headsUp();
+		h.send(owner, { type: "setJoinCode", code: "Fri9" });
+		const dan = h.join("dan");
+		expect(h.view(dan).you).toMatchObject({ codeRequired: true, watchBlocked: true });
+		expect(h.view(dan).joinCode).toBeNull();
+		expect(h.view(owner).joinCode).toBe("Fri9");
+		// Seated players never need it.
+		expect(h.view(bob).you.codeRequired).toBe(false);
+		expect(() => h.send(dan, { type: "requestSeat", seat: 3, nickname: "dan", buyIn: 1_000, postBlind: false })).toThrow(
+			/join code/,
+		);
+		expect(() => h.send(dan, { type: "enterJoinCode", code: "nope" })).toThrow(/isn't right/);
+		h.send(dan, { type: "enterJoinCode", code: "fri9" }); // not case-sensitive
+		expect(h.view(dan).you).toMatchObject({ codeRequired: false, watchBlocked: false });
+		h.send(dan, { type: "requestSeat", seat: 3, nickname: "dan", buyIn: 1_000, postBlind: false });
+		expect(h.data.requests).toHaveLength(1);
+	});
+
+	it("locks out a browser after 10 wrong codes", () => {
+		const { h, owner } = headsUp();
+		h.send(owner, { type: "setJoinCode", code: "Fri9" });
+		const eve = h.join("eve");
+		for (let i = 0; i < 10; i++) expect(() => h.send(eve, { type: "enterJoinCode", code: `x${i}xx` })).toThrow(/isn't right/);
+		expect(() => h.send(eve, { type: "enterJoinCode", code: "Fri9" })).toThrow(/Too many/);
+	});
+});

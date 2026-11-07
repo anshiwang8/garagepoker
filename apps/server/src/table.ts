@@ -57,6 +57,11 @@ export const DISCONNECT_GRACE_MS = 15_000;
 export const PRUNE_PLAYERS_AT = 200;
 /** ...and a table refuses new browsers beyond this. */
 export const MAX_PLAYERS = 500;
+/** Chat: messages kept, and at most one message a second per player. */
+export const CHAT_KEEP = 100;
+export const CHAT_MIN_GAP_MS = 1_000;
+/** Wrong join codes allowed per player before they're locked out. */
+export const MAX_CODE_ATTEMPTS = 10;
 
 /** An error the player caused; its message is shown to them. */
 export class TableError extends Error {
@@ -68,6 +73,19 @@ export interface PlayerRecord {
   /** Secret. Never leaves the server. */
   token: string;
   notice: string | null;
+  /** Entered the table's join code. */
+  admitted?: boolean;
+  /** Wrong join codes so far. */
+  codeAttempts?: number;
+}
+
+export interface ChatEntry {
+  id: number;
+  at: number;
+  playerId: string;
+  name: string;
+  seat: number | null;
+  text: string;
 }
 
 type StackOpKind = "rebuy" | "add" | "remove" | "set";
@@ -198,6 +216,13 @@ export interface TableData {
   emptySince: number | null;
   /** Who was connected at the last syncPresence(), to spot presence changes. */
   presence: string[];
+  /** Table chat, oldest first, at most CHAT_KEEP. (Absent on tables from before chat.) */
+  chat?: ChatEntry[];
+  chatSeq?: number;
+  /** Kicked and blocked: can't ask for a seat, chat or watch until unblocked. */
+  blocked?: { playerId: string; nickname: string }[];
+  /** Needed to watch or ask for a seat, when set. Owner only in views. */
+  joinCode?: string | null;
 }
 
 export interface TableDeps {
@@ -256,7 +281,22 @@ export function newTableData(
     ownerOfflineSince: null,
     emptySince: deps.now,
     presence: [],
+    chat: [],
+    chatSeq: 0,
+    blocked: [],
+    joinCode: null,
   };
+}
+
+/** Kicked and blocked by the owner. */
+export function isBlocked(d: TableData, playerId: string): boolean {
+  return (d.blocked ?? []).some((b) => b.playerId === playerId);
+}
+
+/** The table has a join code this player hasn't entered (the owner and seated players never need it). */
+export function needsCode(d: TableData, playerId: string): boolean {
+  if (!d.joinCode || playerId === d.ownerId || d.seats.some((s) => s?.playerId === playerId)) return false;
+  return !d.players.find((p) => p.playerId === playerId)?.admitted;
 }
 
 export class Table {
@@ -292,7 +332,13 @@ export class Table {
    */
   private prunePlayers() {
     const d = this.data;
-    const keep = new Set<string>([d.ownerId, ...d.requests.map((r) => r.playerId), ...this.deps.connected]);
+    const keep = new Set<string>([
+      d.ownerId,
+      ...d.requests.map((r) => r.playerId),
+      ...this.deps.connected,
+      // Forgetting a blocked player would quietly unblock them.
+      ...(d.blocked ?? []).map((b) => b.playerId),
+    ]);
     for (const s of d.seats) if (s) keep.add(s.playerId);
     for (const e of d.ledger) keep.add(e.playerId);
     d.players = d.players.filter((p) => keep.has(p.playerId));
@@ -325,7 +371,11 @@ export class Table {
   handle(playerId: string, m: Exclude<ClientMessage, { type: "hello" | "getReplay" }>): void {
     const player = this.player(playerId);
     player.notice = null;
+    // Chat and the join code still work once a game has ended.
+    if (m.type === "chat") return this.chat(playerId, m.text);
+    if (m.type === "enterJoinCode") return this.enterJoinCode(player, m.code);
     if (this.data.status === "ended") throw new TableError("This game has ended");
+    if (m.type === "requestSeat" || m.type === "requestRebuy") this.requireWelcome(playerId);
 
     switch (m.type) {
       case "requestSeat":
@@ -374,8 +424,21 @@ export class Table {
         return this.adjustStack(m.playerId, m.op, m.amount);
       case "kick": {
         if (m.playerId === playerId) throw new TableError("Use Leave seat to stand up");
-        return this.leave(this.requireSeatNumber(m.playerId), "kick");
+        const n = this.requireSeatNumber(m.playerId);
+        if (m.block) {
+          const blocked = (this.data.blocked ??= []);
+          if (!blocked.some((b) => b.playerId === m.playerId)) {
+            blocked.push({ playerId: m.playerId, nickname: this.seat(n)!.nickname });
+          }
+        }
+        return this.leave(n, "kick");
       }
+      case "unblock":
+        this.data.blocked = (this.data.blocked ?? []).filter((b) => b.playerId !== m.playerId);
+        return;
+      case "setJoinCode":
+        this.data.joinCode = m.code;
+        return;
       case "transferOwnership":
         this.requireSeated(m.playerId);
         this.data.ownerId = m.playerId;
@@ -399,6 +462,46 @@ export class Table {
         else this.end();
         return;
     }
+  }
+
+  // -------------------------------------------------------------------------
+  // Chat, blocking and the join code
+  // -------------------------------------------------------------------------
+
+  private requireWelcome(playerId: string) {
+    if (isBlocked(this.data, playerId)) throw new TableError("The owner has removed you from this table");
+    if (needsCode(this.data, playerId)) throw new TableError("Enter the table's join code first");
+  }
+
+  private enterJoinCode(player: PlayerRecord, code: string) {
+    if (!needsCode(this.data, player.playerId)) return;
+    if ((player.codeAttempts ?? 0) >= MAX_CODE_ATTEMPTS) throw new TableError("Too many wrong codes. Ask the owner for the link again.");
+    if (code.trim().toLowerCase() !== this.data.joinCode!.toLowerCase()) {
+      player.codeAttempts = (player.codeAttempts ?? 0) + 1;
+      throw new TableError("That code isn't right");
+    }
+    player.admitted = true;
+  }
+
+  private chat(playerId: string, text: string) {
+    const d = this.data;
+    if (!d.settings.chat) throw new TableError("Chat is turned off");
+    this.requireWelcome(playerId);
+    const n = this.seatNumberOf(playerId);
+    if (n === null && !d.settings.spectators && playerId !== d.ownerId) throw new TableError("Take a seat to chat");
+    const chat = (d.chat ??= []);
+    const mineLast = chat.findLast((c) => c.playerId === playerId);
+    if (mineLast && this.now - mineLast.at < CHAT_MIN_GAP_MS) throw new TableError("Slow down: one message a second");
+    d.chatSeq = (d.chatSeq ?? 0) + 1;
+    chat.push({
+      id: d.chatSeq,
+      at: this.now,
+      playerId,
+      name: n !== null ? this.seat(n)!.nickname : playerId === d.ownerId ? "Owner" : "Watcher",
+      seat: n,
+      text: text.trim(),
+    });
+    if (chat.length > CHAT_KEEP) chat.splice(0, chat.length - CHAT_KEEP);
   }
 
   /** Runs whatever is due: turn timeouts, the next hand, owner hand-off. */

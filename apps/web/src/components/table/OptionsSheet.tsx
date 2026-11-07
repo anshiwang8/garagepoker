@@ -7,10 +7,21 @@ import { copyText, Modal } from "../ui";
 import { actionText } from "./Seat";
 import { showingResult } from "./tableText";
 
-export type OptionsItem = "ledger" | "replay" | "log" | "rebuy" | "settings" | "players";
+export type OptionsItem = "chat" | "ledger" | "replay" | "log" | "rebuy" | "settings" | "players";
 
 /** The Options sheet (SPEC §7): everything that isn't on the table itself. */
-export function OptionsSheet({ view, onPick, onClose }: { view: TableView; onPick: (item: OptionsItem) => void; onClose: () => void }) {
+export function OptionsSheet({
+  view,
+  onPick,
+  onClose,
+  unread = 0,
+}: {
+  view: TableView;
+  onPick: (item: OptionsItem) => void;
+  onClose: () => void;
+  /** Unread chat messages. */
+  unread?: number;
+}) {
   const [copied, setCopied] = useState<"idle" | "copied" | "failed">("idle");
   const me = view.you.seat !== null ? view.seats[view.you.seat - 1] : null;
   const live = view.status !== "ended";
@@ -24,6 +35,11 @@ export function OptionsSheet({ view, onPick, onClose }: { view: TableView; onPic
   return (
     <Modal title="Options" onClose={onClose}>
       <div className="-mx-2 flex flex-col">
+        {view.chat && (
+          <Row onClick={() => onPick("chat")} note={unread > 0 ? `${unread} new` : undefined}>
+            Chat
+          </Row>
+        )}
         <Row onClick={() => onPick("ledger")}>Ledger</Row>
         {view.handNumber > 0 && !view.you.watchBlocked && <Row onClick={() => onPick("replay")}>Last hand</Row>}
         {!view.you.watchBlocked && <Row onClick={() => onPick("log")}>Log</Row>}

@@ -56,7 +56,13 @@ export class TableRoom extends DurableObject<Env> {
 	constructor(ctx: DurableObjectState, env: Env) {
 		super(ctx, env);
 		ctx.blockConcurrencyWhile(async () => {
-			this.data = (await ctx.storage.get<TableData>("table")) ?? null;
+			const stored = (await ctx.storage.get<TableData>("table")) ?? null;
+			// Tables saved before newer settings existed get their defaults.
+			if (stored) {
+				stored.settings = { ...DEFAULT_SETTINGS, ...stored.settings };
+				if (stored.pendingSettings) stored.pendingSettings = { ...DEFAULT_SETTINGS, ...stored.pendingSettings };
+			}
+			this.data = stored;
 		});
 		// Keep-alive pings are answered without waking the object.
 		ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair("ping", "pong"));

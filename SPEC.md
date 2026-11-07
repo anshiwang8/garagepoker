@@ -118,7 +118,9 @@ seats × hole cards + boards × board cards × runs ≤ deck size
 - **Away:** a player can toggle Away to sit out from the next hand. Away players are skipped: they're dealt no cards and post no blinds or bomb-pot antes.
 - **Pause / end:** the owner has Pause and End buttons, which take effect after the current hand. Between hands, if fewer than 2 seated players are active (not away, with chips), the game pauses automatically and shows "Paused: waiting for players"; only the owner can press Start to resume. A new table also starts paused. The owner presses Start Game to begin or resume.
 - **Kicking:** the owner can kick a player. Kicking takes effect after the current hand, and the player's stack is cashed out to the ledger. Until then, a kicked player (like one who chose Leave seat) checks or folds at once whenever it's their turn, so the hand doesn't wait on them.
-- **Spectators:** anyone with the link can watch without a seat. They never see hole cards before showdown.
+- **Spectators:** anyone with the link can watch without a seat. They never see hole cards before showdown, or before every live hand is shown once nobody can bet any more (SPEC §2.9).
+- **Blocking:** the owner can kick and block a player: they can't ask for a seat, chat or watch until unblocked (Players menu). Without accounts this is per browser, so it stops a forwarded link, not a determined person.
+- **Join code (optional):** the owner can set a code of 4–12 letters or digits. Newcomers enter it before they can watch or ask for a seat; the owner and players already seated never need it. Ten wrong codes lock that browser out.
 - **Lifetime:** a table is kept in its Durable Object's storage (so it survives the object being evicted) and nowhere else. A table with no connected players for 12 hours is deleted, storage included. When the owner ends a game, the final ledger and settle-up are shown and can be downloaded as CSV.
 
 ---
@@ -193,10 +195,10 @@ Store one entry per event, so the ledger is an audit log, not just running total
 
 Phone portrait first (390×844; also 360×740 and 430×932), desktop second (≥ 1024 px wide). GaragePoker branding only: our GP mark, our own card back (deep red with a subtle GP pattern) and a gold accent. No third-party logos, wordmarks or card-back artwork.
 
-- **Layout:** three zones on the page background, top to bottom, with no side panel and no background bars:
+- **Layout:** three zones on the page background, top to bottom, with no background bars. On screens 1024 px and wider, a collapsible sidebar on the right holds Chat and the Log (tabs); collapsed, it's a small Chat tab on the right edge with an unread count, and the choice is remembered in the browser:
   - **Top icon bar.** Left: Options, Leave seat (two-tap confirm) and Away ("I'm back", in gold, when away), each an icon with a small uppercase label. Right: square icon buttons for Sound on/off (a stored preference; there are no sounds yet) and, for the owner only, Pause/Resume and End game (two-tap confirm). Pause and End take effect after the current hand.
   - **Felt.** Fills the height in between: a tall rounded rectangle on phones and a stadium (at most ~1200 px wide) on desktop, with a thick dark rail. Seats sit on the rail.
-  - **Bottom action zone.** Holds exactly one thing at a time: the action row, the raise panel, the show-cards bar, a prompt (run it twice, Pineapple discard, waiting for approval) or a status pill. It grows when the raise panel opens, and the felt shrinks rather than being covered. On desktop it's anchored at the bottom right, with a Chat/Log box at the bottom left.
+  - **Bottom action zone.** Holds exactly one thing at a time: the action row, the raise panel, the show-cards bar, a prompt (run it twice, Pineapple discard, waiting for approval) or a status pill. It grows when the raise panel opens, and the felt shrinks rather than being covered. On desktop it sits under the felt, beside the sidebar.
 - **Options sheet:** Ledger, Last hand, Log (this hand's actions), Rebuy (if allowed), Table settings and Players (owner), Copy table link. On phones, Chat and Log live here.
 - **Felt centre**, top to bottom:
   - A bomb-pot badge on bomb-pot hands.
@@ -237,7 +239,7 @@ Phone portrait first (390×844; also 360×740 and 430×932), desktop second (≥
 - **Pineapple:** a discard picker appears in the action zone on each discard street.
 - **Approval popup:** the owner's popup waits until they've acted.
 - **Refresh:** reloading the page mid-game reconnects to the same table, seat and cards, with no re-join prompt.
-- **Chat panel**, if enabled.
+- **Chat** (if enabled): plain text, 200 characters, one message a second per person, the last 100 kept for the session (40 shown). Seated players chat; so do spectators where they can watch. Desktop: the sidebar. Phones: Options → Chat, with a dot on Options for unread messages.
 - **Fairness:** at hand start, show a short deck hash. After the hand, a "Verify" link checks the revealed cards against it in the browser (per-card commitments: see §8).
 
 ---

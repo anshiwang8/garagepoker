@@ -35,6 +35,8 @@ export const showingResult = (view: TableView): view is TableView & { lastHand: 
  * none has just finished: "Waiting for players", "Paused by owner".
  */
 export function tableStateText(view: TableView): string | null {
+  if (view.you.blocked) return "The owner removed you from this table";
+  if (view.you.codeRequired) return "This table needs a join code";
   if (view.you.watchBlocked) return "Spectating is off. Take a seat to watch.";
   if (view.hand) return null;
   if (view.status === "ended") return "Game over";

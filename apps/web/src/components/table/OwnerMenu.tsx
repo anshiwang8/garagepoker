@@ -4,7 +4,7 @@ import type { SeatView, TableView } from "@garagepoker/protocol";
 import { useState } from "react";
 import { chipsToInput, formatChips } from "@/lib/chips";
 import { SettingsForm } from "../SettingsForm";
-import { Button, ChipInput, ConfirmButton, Modal } from "../ui";
+import { Button, ChipInput, ConfirmButton, inputClass, Modal } from "../ui";
 import type { Send } from "@/lib/useTableSocket";
 
 export type OwnerTab = "settings" | "players";
@@ -54,13 +54,77 @@ function SettingsTab({ view, send }: { view: TableView; send: Send }) {
 
 function PlayersTab({ view, send }: { view: TableView; send: Send }) {
   const seated = view.seats.filter((s): s is SeatView => s !== null);
-  if (seated.length === 0) return <p className="text-sm text-muted">Nobody is seated yet.</p>;
   return (
     <div className="flex flex-col gap-3">
-      <p className="text-xs text-muted">Every change is written to the ledger. Changes to players in a hand apply when it ends.</p>
-      {seated.map((s) => (
-        <PlayerRow key={s.playerId} seat={s} view={view} send={send} />
-      ))}
+      {seated.length === 0 ? (
+        <p className="text-sm text-muted">Nobody is seated yet.</p>
+      ) : (
+        <>
+          <p className="text-xs text-muted">Every change is written to the ledger. Changes to players in a hand apply when it ends.</p>
+          {seated.map((s) => (
+            <PlayerRow key={s.playerId} seat={s} view={view} send={send} />
+          ))}
+        </>
+      )}
+      {(view.blocked?.length ?? 0) > 0 && (
+        <div className="rounded-xl border border-line bg-ink p-3">
+          <h3 className="mb-1 text-sm font-semibold">Blocked</h3>
+          <p className="mb-2 text-xs text-muted">They can&apos;t ask for a seat, chat or watch. (Someone determined can still come back from another browser.)</p>
+          <ul className="flex flex-col gap-1.5">
+            {view.blocked!.map((b) => (
+              <li key={b.playerId} className="flex items-center justify-between gap-2">
+                <span className="truncate">{b.nickname}</span>
+                <Button className="min-h-11" onClick={() => send({ type: "unblock", playerId: b.playerId })}>
+                  Unblock
+                </Button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      <JoinCodeSetting view={view} send={send} />
+    </div>
+  );
+}
+
+/** Optional join code: newcomers must enter it to watch or ask for a seat. */
+function JoinCodeSetting({ view, send }: { view: TableView; send: Send }) {
+  const [code, setCode] = useState(view.joinCode ?? "");
+  const valid = /^[A-Za-z0-9]{4,12}$/.test(code.trim());
+  return (
+    <div className="rounded-xl border border-line bg-ink p-3">
+      <h3 className="text-sm font-semibold">Join code</h3>
+      <p className="mb-2 text-xs text-muted">
+        {view.joinCode
+          ? `On: newcomers need “${view.joinCode}” to watch or ask for a seat. Players already seated don't.`
+          : "Off: anyone with the link can watch and ask for a seat. Add a code for extra privacy if the link gets passed around."}
+      </p>
+      <div className="flex gap-2">
+        <input
+          className={`${inputClass} min-h-11`}
+          value={code}
+          maxLength={12}
+          autoCapitalize="none"
+          autoComplete="off"
+          placeholder="4–12 letters or digits"
+          aria-label="Join code"
+          onChange={(e) => setCode(e.target.value)}
+        />
+        <Button className="min-h-11" disabled={!valid || code.trim() === view.joinCode} onClick={() => send({ type: "setJoinCode", code: code.trim() })}>
+          Set
+        </Button>
+        {view.joinCode && (
+          <Button
+            className="min-h-11"
+            onClick={() => {
+              setCode("");
+              send({ type: "setJoinCode", code: null });
+            }}
+          >
+            Remove
+          </Button>
+        )}
+      </div>
     </div>
   );
 }
@@ -108,6 +172,11 @@ function PlayerRow({ seat, view, send }: { seat: SeatView; view: TableView; send
             label={seat.leaving ? "Leaving after hand" : "Kick"}
             confirm={`Kick ${seat.nickname}?`}
             onConfirm={() => send({ type: "kick", playerId: seat.playerId })}
+          />
+          <ConfirmButton
+            label="Kick and block"
+            confirm={`Block ${seat.nickname}?`}
+            onConfirm={() => send({ type: "kick", playerId: seat.playerId, block: true })}
           />
           <ConfirmButton
             label="Make owner"

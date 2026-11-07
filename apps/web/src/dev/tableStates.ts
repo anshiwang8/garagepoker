@@ -8,6 +8,12 @@ import type { HandView, LastHandView, LogEntryView, SeatView, TableView } from "
 
 export const DEV_NOW = 1_800_000_000_000;
 
+const DEV_CHAT: TableView["chat"] = [
+  { id: 1, at: DEV_NOW - 90_000, name: "Richard", seat: 2, text: "who's bringing snacks next week", mine: false },
+  { id: 2, at: DEV_NOW - 60_000, name: "anshi", seat: 1, text: "me. gl all", mine: true },
+  { id: 3, at: DEV_NOW - 20_000, name: "Watcher", seat: null, text: "that river though", mine: false },
+];
+
 function seat(n: number, nickname: string, stack: number, over: Partial<SeatView> = {}): SeatView {
   return {
     seat: n,
@@ -95,6 +101,8 @@ function table(seats: (SeatView | null)[], over: Partial<Omit<TableView, "settin
       labels: null,
       watchBlocked: false,
       showable: null,
+      blocked: false,
+      codeRequired: false,
     },
     seats,
     hand: null,
@@ -103,6 +111,9 @@ function table(seats: (SeatView | null)[], over: Partial<Omit<TableView, "settin
     ledger: [],
     settlement: null,
     spectators: 0,
+    chat: DEV_CHAT,
+    blocked: null,
+    joinCode: null,
     ...rest,
     settings,
   };
