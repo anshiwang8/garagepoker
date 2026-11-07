@@ -48,6 +48,8 @@ export interface TableSettings {
   sevenDeuceBB: number;
   /** House rule, mixed games: rotate through these games, one orbit each. Fewer than 2 is off. */
   mixedGames: VariantName[];
+  /** Table toggle: the river must be a red card (hearts or diamonds), else it is redealt. Not for Tic-Tac-Toe. */
+  redRiver: boolean;
 }
 
 /** SPEC §5 defaults: NLH, 10/20, cent mode off, 8 seats, 1 board, no bomb pots, 20 s + 60 s bank. */
@@ -74,7 +76,13 @@ export const DEFAULT_SETTINGS: TableSettings = {
   revealAllIn: true,
   sevenDeuceBB: 0,
   mixedGames: [],
+  redRiver: false,
 };
+
+/** Whether red river can apply to this game: not for grid boards (Tic-Tac-Toe). */
+export function redRiverApplies(variant: VariantName): boolean {
+  return (VARIANTS[variant].board as { grid?: unknown }).grid === undefined;
+}
 
 export const MAX_SEVEN_DEUCE_BB = 20;
 
@@ -137,6 +145,7 @@ export function validateConfig(s: TableSettings): ConfigIssue[] {
   if (typeof s.rabbitHunt !== "boolean") add("rabbitHunt", "Rabbit hunt must be on or off");
   if (typeof s.spectators !== "boolean") add("spectators", "Spectators must be on or off");
   if (typeof s.chat !== "boolean") add("chat", "Chat must be on or off");
+  if (typeof s.redRiver !== "boolean") add("redRiver", "Red river must be on or off");
   if (typeof s.revealAllIn !== "boolean") add("revealAllIn", "Reveal hands must be on or off");
   if (!Number.isInteger(s.sevenDeuceBB) || s.sevenDeuceBB < 0 || s.sevenDeuceBB > MAX_SEVEN_DEUCE_BB) {
     add("sevenDeuceBB", `The 7-2 bounty must be 0-${MAX_SEVEN_DEUCE_BB} big blinds`);
@@ -188,5 +197,6 @@ export function handConfigFor(s: TableSettings, bombPot = false): HandConfig {
     boards: s.boards,
     bombPot: bombPot ? { ante: s.bombPotAnteBB * s.bigBlind } : null,
     runItTwice: s.runItTwice,
+    redRiver: s.redRiver && redRiverApplies(s.variant),
   };
 }

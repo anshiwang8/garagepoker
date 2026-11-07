@@ -73,6 +73,7 @@ export const settingsSchema = z
     revealAllIn: z.boolean().default(true),
     sevenDeuceBB: z.number().int().default(0),
     mixedGames: z.array(z.enum(VARIANT_NAMES as [VariantName, ...VariantName[]])).max(8).default([]),
+    redRiver: z.boolean().default(false),
   })
   .strict() satisfies z.ZodType<TableSettings, unknown>;
 

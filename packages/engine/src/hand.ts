@@ -94,6 +94,8 @@ export interface HandConfig {
    * without asking. Default "no".
    */
   runItTwice?: RunItTwiceMode;
+  /** Table toggle: the river is a red card or the hand is rerun. Ignored by grid boards. */
+  redRiver?: boolean;
 }
 
 export type RunItTwiceMode = "no" | "ask" | "always";
