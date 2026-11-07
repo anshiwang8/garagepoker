@@ -10,7 +10,7 @@ This project was built as an introduction to real-time systems, game-state desig
 
 A player creates a table, picks the game and shares the link. Friends join with a nickname, with no account, and the table owner approves each seat. Chips are play money. At the end of the game, the app works out who owes whom; the actual payments happen outside the app.
 
-The project currently supports seven variants:
+The project currently supports eight variants:
 
 - No-Limit Hold'em
 - Pot-Limit Omaha
@@ -19,6 +19,7 @@ The project currently supports seven variants:
 - 5-Card PLO Hi/Lo
 - 5-Card Pineapple
 - Short Deck (36 cards)
+- Tic-Tac-Toe Hold'em (a 3×3 board; play both hole cards plus a row, column or diagonal)
 
 These table options work with any variant: bomb pots, double board, run it twice, rabbit hunt, UTG straddle, a decision timer with time bank, spectators, a hand ledger with settle-up, and a provably fair shuffle.
 
@@ -91,14 +92,15 @@ Keeping the engine pure was the most important design decision. Randomness and t
 
 ### Variants as parameters
 
-Rather than hard-coding each game, a variant is a combination of six parameters:
+Rather than hard-coding each game, a variant is a combination of seven parameters:
 
 | Parameter | Values |
 | --- | --- |
 | Hole cards | 2, 4, 5 |
 | Deck | 52, or 36 (short deck, 6 to A) |
 | Betting | No-limit, pot-limit |
-| Hand rule | Best 5 of all cards, or exactly 2 hole + 3 board (Omaha) |
+| Board | 5 in a row (dealt 3 / 1 / 1), or a 3×3 grid (dealt 4 / 3 / 2) |
+| Hand rule | Best 5 of all cards, exactly 2 hole + 3 board (Omaha), or exactly 2 hole + one line of the grid (Tic-Tac-Toe) |
 | Pot split | High only, or high/low 8-or-better |
 | Discards | None, or 1 each preflop, flop and turn (Pineapple) |
 
@@ -117,8 +119,11 @@ The evaluator checks every legal 5-card combination and keeps the best one:
 - **Hold'em / Pineapple / Short Deck:** best 5 of 7 cards → 21 combinations
 - **Omaha (4 cards):** exactly 2 of 4 hole × 3 of 5 board → 6 × 10 = 60 combinations
 - **5-Card PLO:** 10 × 10 = 100 combinations
+- **Tic-Tac-Toe Hold'em:** both hole cards × each of the grid's 8 lines → 8 combinations
 
 Brute force is fast enough at this scale, and it makes Omaha's "exactly two hole cards" rule simple to enforce. That rule is the most common bug in hobby Omaha implementations: four hearts in your hand plus one on the board is **not** a flush.
+
+In Tic-Tac-Toe Hold'em the flop is the grid's four corners, the turn the middle row and the river the top- and bottom-middle squares. A hand only counts board cards that sit on one line, so three suited cards scattered across the grid are not a flush.
 
 Short deck uses its own ranking table (Triton rules): a flush beats a full house, three of a kind beats a straight, and A-6-7-8-9 is the lowest straight.
 
