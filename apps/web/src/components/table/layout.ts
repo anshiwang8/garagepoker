@@ -110,6 +110,8 @@ export interface LayoutInput {
   grid?: boolean;
   /** Extra height under the table info (e.g. the Copy link button), at full size. */
   infoExtra: number;
+  /** A hand is running, so seats may have bets out. Without one, no room is kept for bet chips. Default true. */
+  bets?: boolean;
 }
 
 /** Phones: how many opponents go up the left side, along the top and down the right. */
@@ -312,10 +314,13 @@ function phoneLayout(inp: LayoutInput, s: number, gridScale = 1): FeltLayout | n
     let room = bottomTop - 4 * s - infoBottom;
     if (hasL && bottom) {
       const lBottom = lPlateY() + ph + z.tagsBelow;
+      // A lower seat's bet sits beside its plate, under the info: keep it clear.
+      // (Between hands there are no bets, and the info is taller: the Copy link button.)
+      const bets = inp.bets ?? true;
       const lChipTop = lPlateY() + ph / 2 - z.chipH / 2;
-      if (lChipTop < infoBottom + 2 * s) return -1;
+      if (bets && lChipTop < infoBottom + 2 * s) return -1;
       room = Math.min(room, h - m - lBottom);
-      const lSide: Box = { x: m, y: 0, w: pw + 4 * s + chipW, h: 0 };
+      const lSide: Box = { x: m, y: 0, w: pw + (bets ? 4 * s + chipW : 0), h: 0 };
       const clearOfCards = bottom.slot.cards.y - 4 * s;
       if (overlapsX(lSide, bottom.slot.cards) || overlapsX(lSide, bottom.slot.plate)) room = Math.min(room, clearOfCards - lBottom);
     }

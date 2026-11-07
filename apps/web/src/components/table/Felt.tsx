@@ -103,6 +103,7 @@ export function Felt({
         // Between hands nothing is drawn, so a grid needs no room.
         grid: !!boardGridOf(view) && !!(hand || result),
         infoExtra,
+        bets: !!hand,
       })
     : null;
   // Hands dealt while you watch fly in; one already running when the page opened just appears.
