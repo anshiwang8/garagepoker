@@ -277,3 +277,7 @@ All taken at 390×844 unless noted; files are in `docs/audit/`.
 | `gp-10-flop-768x1024.jpg` | Tablet, flop |
 | `gp-11-hand-result-390x844.jpg`, `gp-12-result-details-390x844.jpg` | Hand result and Details |
 | `gp-13-options-sheet-390x844.jpg`, `gp-14-ledger-390x844.jpg`, `gp-16-owner-players-390x844.jpg` | Options, ledger, owner's Players tab |
+
+## 10. After
+
+The staged work is done on branch `private-table-improvements`; see `docs/engineering-summary.md`. "After" screenshots are in `docs/audit/after/`, taken at the same sizes from a real local game and the table previews.
