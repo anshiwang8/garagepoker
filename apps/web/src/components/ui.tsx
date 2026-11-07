@@ -1,6 +1,6 @@
 "use client";
 
-import { type ButtonHTMLAttributes, type ReactNode, useEffect, useId, useRef, useState } from "react";
+import { type ButtonHTMLAttributes, type ReactNode, useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
 import { chipsToInput, parseChips } from "@/lib/chips";
 
 type Variant = "primary" | "secondary" | "danger" | "ghost";
@@ -252,18 +252,39 @@ export async function copyText(text: string): Promise<boolean> {
 }
 
 /** "Copy link" for the table URL; shows "Copied" briefly. */
+const canShareSnapshot = () => typeof navigator !== "undefined" && typeof navigator.share === "function";
+const noSubscribe = () => () => {};
+
+/**
+ * Invite friends: Copy link, plus Share (the phone's share sheet: Messages,
+ * WhatsApp…) where the browser has one.
+ */
 export function CopyLinkButton() {
   const [state, setState] = useState<"idle" | "copied" | "failed">("idle");
+  const canShare = useSyncExternalStore(noSubscribe, canShareSnapshot, () => false);
   return (
-    <Button
-      variant="primary"
-      className="mt-1 px-5 py-2.5"
-      onClick={async () => {
-        setState((await copyText(window.location.href)) ? "copied" : "failed");
-        setTimeout(() => setState("idle"), 1_500);
-      }}
-    >
-      {state === "copied" ? "Copied" : state === "failed" ? "Couldn't copy: use the address bar" : "Copy link"}
-    </Button>
+    <div className="mt-1 flex items-center justify-center gap-2">
+      <Button
+        variant="primary"
+        className="min-h-11 px-5"
+        onClick={async () => {
+          setState((await copyText(window.location.href)) ? "copied" : "failed");
+          setTimeout(() => setState("idle"), 1_500);
+        }}
+      >
+        {state === "copied" ? "Copied" : state === "failed" ? "Couldn't copy: use the address bar" : "Copy link"}
+      </Button>
+      {canShare && (
+        <Button
+          className="min-h-11 px-5"
+          onClick={() => {
+            // Dismissing the share sheet rejects; that's fine.
+            navigator.share({ title: "GaragePoker table", text: "Join my poker table", url: window.location.href }).catch(() => {});
+          }}
+        >
+          Share
+        </Button>
+      )}
+    </div>
   );
 }

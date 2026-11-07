@@ -125,6 +125,13 @@ seats × hole cards + boards × board cards × runs ≤ deck size
 
 ## 5. Table settings (owner menu)
 
+**Creating a table** uses the same settings, laid out for speed:
+- **Quick starts:** Casual Hold'em, Competitive Hold'em and Omaha Night, plus presets you saved, plus Custom. Saved presets live in this browser only (localStorage), never on the server.
+- **Always shown:** game, blinds and ante, seats.
+- **Folded sections,** each with a one-line summary of its values: Table options (boards, bomb pots, run it twice, straddle, rabbit hunt), Timers (decision time, time bank, auto-start), Players and display (spectators, rebuys, cent mode). Custom opens them all; the owner menu shows them open.
+- **The Create button** stays at the bottom of the screen on phones.
+- **Inviting:** while no hand is running, the table shows Copy link, and Share (the phone's share sheet) where the browser has one.
+
 The owner can change settings at any time, including during a hand. Changes apply from the next hand, never mid-hand; until then every player sees a "Changes apply next hand" notice.
 
 | Setting | Default | Notes |

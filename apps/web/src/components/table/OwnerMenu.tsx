@@ -45,6 +45,7 @@ function SettingsTab({ view, send }: { view: TableView; send: Send }) {
         initial={view.pendingSettings ?? view.settings}
         highestOccupiedSeat={highest}
         submitLabel={view.hand ? "Save for next hand" : "Save settings"}
+        sectionsOpen
         onSubmit={(settings) => send({ type: "updateSettings", settings })}
       />
     </div>

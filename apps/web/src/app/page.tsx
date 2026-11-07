@@ -8,13 +8,14 @@ export default function Home() {
           Garage<span className="text-gold">Poker</span>
         </h1>
         <p className="text-muted">
-          Home-game tables for every game your group plays. No accounts, no real money, no paywall. Pick your game and
-          send the link.
+          Private poker tables for your home game. Pick a game, create the table, send your friends the link. No accounts,
+          no real money, no paywall.
         </p>
       </header>
 
       <section className="rounded-2xl border border-line bg-panel p-4 sm:p-6">
-        <h2 className="mb-4 text-lg font-semibold">New table</h2>
+        <h2 className="text-lg font-semibold">Create a private table</h2>
+        <p className="mb-4 text-xs text-muted">Only people you send the link to can find it.</p>
         <CreateTable />
       </section>
 
