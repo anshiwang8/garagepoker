@@ -284,6 +284,48 @@ export function SettingsForm({
         </div>
       </Section>
 
+      <Section title="House rules" summary={houseRulesSummary(s)} open={sectionsOpen}>
+        <Field
+          label="7-2 bounty"
+          hint="Win a pot with 7-2 offsuit and show it: everyone else dealt in pays you. 2-card games with a full deck only."
+          error={issue("sevenDeuceBB")}
+        >
+          <select className={inputClass} value={s.sevenDeuceBB} onChange={(e) => set("sevenDeuceBB", Number(e.target.value))}>
+            {[0, 1, 2, 3, 5, 10].map((n) => (
+              <option key={n} value={n}>
+                {n === 0 ? "Off" : `${n} BB from each player`}
+              </option>
+            ))}
+          </select>
+        </Field>
+        <fieldset>
+          <legend className="mb-1 text-xs font-medium uppercase tracking-wide text-muted">Mixed games</legend>
+          <p className="mb-2 text-xs text-muted">
+            Pick two or more to rotate, one orbit each, in the order you pick them. The table&apos;s game changes as it goes.
+          </p>
+          <div className="flex flex-wrap gap-1.5">
+            {VARIANT_NAMES.map((v) => {
+              const at = s.mixedGames.indexOf(v);
+              return (
+                <button
+                  key={v}
+                  type="button"
+                  aria-pressed={at >= 0}
+                  onClick={() =>
+                    set("mixedGames", at >= 0 ? s.mixedGames.filter((x) => x !== v) : [...s.mixedGames, v])
+                  }
+                  className={`min-h-11 rounded-full border px-3 text-sm ${at >= 0 ? "border-gold bg-gold/15 font-semibold" : "border-line bg-ink"}`}
+                >
+                  {at >= 0 && <span className="tabular mr-1 text-gold">{at + 1}.</span>}
+                  {VARIANT_LABELS[v].name}
+                </button>
+              );
+            })}
+          </div>
+          {issue("mixedGames") && <p className="mt-1.5 text-xs text-danger-text">{issue("mixedGames")}</p>}
+        </fieldset>
+      </Section>
+
       <Section title="Players and display" summary={playersSummary(s)} open={sectionsOpen}>
         <div className="flex flex-col divide-y divide-line rounded-xl border border-line bg-ink px-3">
           <Toggle
@@ -401,6 +443,14 @@ function Section({ title, summary, open, children }: { title: string; summary: s
 }
 
 const onOff = (b: boolean) => (b ? "on" : "off");
+
+function houseRulesSummary(s: TableSettings): string {
+  const parts = [
+    s.sevenDeuceBB > 0 ? `7-2 bounty ${s.sevenDeuceBB} BB` : "no 7-2 bounty",
+    s.mixedGames.length >= 2 ? `mixed: ${s.mixedGames.map((v) => VARIANT_LABELS[v].name).join(" → ")}` : "one game",
+  ];
+  return parts.join(" · ");
+}
 
 function tableOptionsSummary(s: TableSettings): string {
   const bomb = s.bombPotMode === "off" ? "no bomb pots" : s.bombPotMode === "everyHand" ? "bomb pot every hand" : `bomb pot every ${s.bombPotEvery}`;

@@ -68,10 +68,16 @@ export function PlayingCard({
     >
       <span
         className="absolute flex flex-col items-center"
-        style={{ left: w * 0.07, top: w * 0.06, fontSize: w * (rank.length > 1 ? 0.36 : 0.42), lineHeight: 0.95 }}
+        // Corner size follows the "large card corners" preference (--card-index-scale).
+        style={{
+          left: w * 0.07,
+          top: w * 0.06,
+          fontSize: `calc(${w * (rank.length > 1 ? 0.36 : 0.42)}px * var(--card-index-scale, 1))`,
+          lineHeight: 0.95,
+        }}
       >
         <span className={rank.length > 1 ? "tracking-[-0.08em]" : ""}>{rank}</span>
-        <span style={{ fontSize: w * 0.36 }}>{suit.symbol}</span>
+        <span style={{ fontSize: `calc(${w * 0.36}px * var(--card-index-scale, 1))` }}>{suit.symbol}</span>
       </span>
       <span className="absolute leading-none" style={{ right: w * 0.06, bottom: w * 0.02, fontSize: w * 0.62 }}>
         {suit.symbol}

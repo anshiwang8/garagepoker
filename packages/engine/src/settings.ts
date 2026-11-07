@@ -40,6 +40,14 @@ export interface TableSettings {
   chat: boolean;
   /** SPEC §2.9: show every live hand once no more betting is possible (all in), before the run-out. */
   revealAllIn: boolean;
+  /**
+   * House rule, the 7-2 game: win a pot holding 7-2 offsuit and show it, and
+   * every other player dealt in pays you this many big blinds. 0 is off.
+   * Only in 2-card games with a full deck.
+   */
+  sevenDeuceBB: number;
+  /** House rule, mixed games: rotate through these games, one orbit each. Fewer than 2 is off. */
+  mixedGames: VariantName[];
 }
 
 /** SPEC §5 defaults: NLH, 10/20, cent mode off, 8 seats, 1 board, no bomb pots, 20 s + 60 s bank. */
@@ -64,7 +72,17 @@ export const DEFAULT_SETTINGS: TableSettings = {
   displayCents: false,
   chat: true,
   revealAllIn: true,
+  sevenDeuceBB: 0,
+  mixedGames: [],
 };
+
+export const MAX_SEVEN_DEUCE_BB = 20;
+
+/** Whether the 7-2 bounty can apply to this game: 2 hole cards from a full deck (short deck has no deuces). */
+export function sevenDeuceApplies(variant: VariantName): boolean {
+  const v = VARIANTS[variant];
+  return v.holeCards === 2 && v.deckSize === 52;
+}
 
 export const MIN_SEATS = 2;
 export const MAX_SEATS = 9;
@@ -120,6 +138,22 @@ export function validateConfig(s: TableSettings): ConfigIssue[] {
   if (typeof s.spectators !== "boolean") add("spectators", "Spectators must be on or off");
   if (typeof s.chat !== "boolean") add("chat", "Chat must be on or off");
   if (typeof s.revealAllIn !== "boolean") add("revealAllIn", "Reveal hands must be on or off");
+  if (!Number.isInteger(s.sevenDeuceBB) || s.sevenDeuceBB < 0 || s.sevenDeuceBB > MAX_SEVEN_DEUCE_BB) {
+    add("sevenDeuceBB", `The 7-2 bounty must be 0-${MAX_SEVEN_DEUCE_BB} big blinds`);
+  }
+  if (!Array.isArray(s.mixedGames) || s.mixedGames.length > 8 || s.mixedGames.some((v) => !VARIANTS[v])) {
+    add("mixedGames", "Mixed games must be up to 8 known games");
+  } else if (s.mixedGames.length >= 2 && seatsOk) {
+    // Every game in the rotation has to fit the table, like the main game.
+    const runs = s.runItTwice === "no" ? 1 : 2;
+    for (const name of s.mixedGames) {
+      const v = VARIANTS[name];
+      if (cardsNeeded(s.seats, v.holeCards, s.boards, runs, boardSize(v.board)) > v.deckSize) {
+        add("mixedGames", `${name} doesn't fit ${s.seats} seats with these boards`, ["mixedGames", "seats", "boards", "runItTwice"]);
+        break;
+      }
+    }
+  }
   if (!BOMB_POT_MODES.includes(s.bombPotMode)) add("bombPotMode", "Unknown bomb pot mode");
   if (!Number.isInteger(s.bombPotEvery) || s.bombPotEvery < 2 || s.bombPotEvery > 100) {
     add("bombPotEvery", "Bomb pot frequency must be every 2-100 hands");

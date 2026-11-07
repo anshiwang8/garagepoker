@@ -7,6 +7,8 @@
 import {
   applyAction,
   assertLedgerBalanced,
+  rankOf,
+  suitOf,
   type BoardGrid,
   boardSize,
   type Card,
@@ -40,7 +42,7 @@ import {
 } from "@garagepoker/engine";
 import { type ClientMessage, STALE_ACTION, type TableStatus } from "@garagepoker/protocol";
 import { type FairnessSecret, newSalts } from "./fairness.js";
-import { noteShownCards, recordHand, type SessionData } from "./session.js";
+import { adjustNet, noteShownCards, recordHand, type SessionData } from "./session.js";
 
 export const AUTO_START_DELAY_MS = 3_000;
 /** The gap between hands while someone may still show their cards (SPEC §7). */
@@ -171,6 +173,8 @@ export interface LastHand {
   showed?: { seat: number; nickname: string; cards: Card[] }[];
   /** When the hand ended. */
   endedAt?: number;
+  /** House rule: the 7-2 bounty paid for this hand, if any. */
+  bounty?: { seat: number; nickname: string; amount: number } | null;
 }
 
 export interface TableData {
@@ -226,6 +230,8 @@ export interface TableData {
   joinCode?: string | null;
   /** History index, statistics and highlights for the session (see session.ts). */
   session?: SessionData;
+  /** Mixed games: which game in the rotation, and hands left in its orbit. */
+  mix?: { index: number; handsLeft: number };
 }
 
 export interface TableDeps {
@@ -806,6 +812,8 @@ export class Table {
 
   private applySettings(settings: TableSettings) {
     const d = this.data;
+    // A new rotation starts from its first game.
+    if ((settings.mixedGames ?? []).join() !== (d.settings.mixedGames ?? []).join()) d.mix = undefined;
     d.settings = settings;
     d.pendingSettings = null;
     d.requests = d.requests.filter((r) => r.seat === null || r.seat <= settings.seats);
@@ -904,6 +912,7 @@ export class Table {
     // waits for the big blind (there isn't one).
     const dealt = bombPot ? eligible : admitted ? [...active, admitted] : active;
 
+    this.rotateMixedGame(dealt.length);
     const variant = VARIANTS[d.settings.variant];
     const deck = shuffle(makeDeck(variant.deckSize), this.deps.random);
     const input: StartHandInput = {
@@ -971,7 +980,10 @@ export class Table {
     d.lastHand.showed = [...(d.lastHand.showed ?? []), { seat: who.seat, nickname: who.nickname, cards: chosen }];
     const held = d.prevHand?.players.find((p) => p.seat === who.seat)?.hole ?? [];
     const won = (d.prevHand?.result?.payouts ?? []).some((p) => p.seat === who.seat && p.amount > 0);
-    noteShownCards(d, who.nickname, held, d.lastHand.showed.filter((x) => x.seat === who.seat).flatMap((x) => x.cards), won);
+    const shownByThem = d.lastHand.showed.filter((x) => x.seat === who.seat).flatMap((x) => x.cards);
+    noteShownCards(d, who.nickname, held, shownByThem, won);
+    // The 7-2 game: a winner without a showdown collects once they've shown both cards.
+    if (held.every((c) => shownByThem.includes(c))) this.paySevenDeuce(who.seat);
     // Nobody left who could show: back to the normal gap between hands.
     if (d.nextHandAt !== null && !anyoneCanShow(d) && d.lastHand.endedAt !== undefined) {
       d.nextHandAt = Math.min(d.nextHandAt, Math.max(this.now, d.lastHand.endedAt + AUTO_START_DELAY_MS));
@@ -1027,6 +1039,64 @@ export class Table {
    */
   private checkSeq(seq: number | undefined) {
     if (seq !== undefined && seq !== this.data.hand!.log.length) throw new TableError(STALE_ACTION);
+  }
+
+  /**
+   * House rule, mixed games: each game in the rotation lasts one orbit (as
+   * many hands as players dealt in when it began), then the next one starts.
+   * The current game shows as the table's game.
+   */
+  private rotateMixedGame(players: number) {
+    const d = this.data;
+    const list = d.settings.mixedGames ?? [];
+    if (list.length < 2) {
+      d.mix = undefined;
+      return;
+    }
+    if (!d.mix) {
+      d.mix = { index: Math.max(0, list.indexOf(d.settings.variant)), handsLeft: players };
+    } else if (d.mix.handsLeft <= 0) {
+      d.mix = { index: (d.mix.index + 1) % list.length, handsLeft: players };
+    }
+    d.settings = { ...d.settings, variant: list[d.mix.index % list.length]! };
+    d.mix.handsLeft--;
+  }
+
+  /**
+   * House rule, the 7-2 game: if this seat won a pot holding 7-2 offsuit
+   * (shown at showdown, or shown afterwards), every other player dealt in
+   * pays them the bounty, as far as their stack goes. At most once a hand.
+   */
+  private paySevenDeuce(seat: number) {
+    const d = this.data;
+    const last = d.lastHand;
+    const hand = d.prevHand;
+    const rec = d.prevRecord;
+    const bbs = d.settings.sevenDeuceBB ?? 0;
+    if (!last || !hand?.result || !rec || last.bounty || bbs <= 0 || last.number !== rec.hand) return;
+    const v = hand.config.variant;
+    if (v.holeCards !== 2 || v.deckSize !== 52) return;
+    const hole = hand.players.find((p) => p.seat === seat)?.hole ?? [];
+    const ranks = hole.map(rankOf).sort((a, b) => a - b);
+    if (hole.length !== 2 || ranks[0] !== 2 || ranks[1] !== 7 || suitOf(hole[0]!) === suitOf(hole[1]!)) return;
+    if (!hand.result.payouts.some((p) => p.seat === seat && p.amount > 0)) return;
+    const winnerId = rec.players.find((p) => p.seat === seat)?.playerId;
+    const winner = this.seat(seat);
+    if (!winner || winner.playerId !== winnerId) return;
+    const each = bbs * hand.config.bigBlind;
+    let total = 0;
+    for (const other of rec.players) {
+      if (other.seat === seat) continue;
+      const s = this.seat(other.seat);
+      if (!s || s.playerId !== other.playerId) continue;
+      const amount = Math.min(each, s.stack);
+      s.stack -= amount;
+      winner.stack += amount;
+      total += amount;
+      adjustNet(d, s.playerId, -amount);
+    }
+    adjustNet(d, winner.playerId, total);
+    last.bounty = { seat, nickname: winner.nickname, amount: total };
   }
 
   /** Time's up: check if free, otherwise fold. */
@@ -1096,6 +1166,8 @@ export class Table {
     d.prevHand = hand;
     d.prevRecord = d.handRecord ?? null;
     d.handRecord = null;
+    // The 7-2 game: a winner holding 7-2 offsuit at showdown collects now.
+    for (const h of result.showdown) this.paySevenDeuce(h.seat);
     d.hand = null;
     d.turn = null;
     d.ritDeadline = null;

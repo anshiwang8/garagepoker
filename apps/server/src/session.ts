@@ -193,6 +193,15 @@ export function noteShownCards(d: TableData, nickname: string, seatCards: Card[]
 	}
 }
 
+/** Chips that moved outside a pot (the 7-2 bounty) count in the session nets too. */
+export function adjustNet(d: TableData, playerId: string, delta: number): void {
+	const st = d.session?.stats[playerId];
+	if (st) {
+		st.net += delta;
+		st.low = Math.min(st.low, st.net);
+	}
+}
+
 const pct = (n: number, of: number) => (of > 0 ? Math.round((n * 100) / of) : null);
 
 /** Session statistics and highlights for views: everyone at the table sees the same. */

@@ -75,6 +75,7 @@ function last(over: Partial<LastHandView>): LastHandView {
     number: 12,
     bombPot: false,
     hiLo: false,
+    bounty: null,
     grid: null,
     boards: [[]],
     pots: [],

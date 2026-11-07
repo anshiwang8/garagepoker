@@ -5,7 +5,9 @@ import type { ClientMessage, TableView } from "@garagepoker/protocol";
 import { Minus, Plus } from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
 import { chipsToInput, formatChips, parseChips } from "@/lib/chips";
+import { usePrefs } from "@/lib/prefs";
 import { useSent } from "@/lib/useSent";
+import { turnHint } from "./Learn";
 import { DiscardPicker } from "./DiscardPicker";
 import { byRank, rankText } from "./PlayingCard";
 import { RunItTwicePrompt } from "./RunItTwicePrompt";
@@ -33,6 +35,7 @@ export function ActionZone({
   // A tap is for this moment in the hand; until the server moves on, the buttons are "sent".
   const seq = hand?.log.length ?? 0;
   const [sent, markSent] = useSent(`${view.handNumber}:${seq}`);
+  const learn = usePrefs().learn;
   const legal = view.you.legal;
   const me = view.you.seat !== null ? view.seats[view.you.seat - 1] : null;
 
@@ -60,7 +63,18 @@ export function ActionZone({
     if (open) {
       return <RaisePanel view={view} onBack={() => setRaising({ hand: view.handNumber, open: false })} onRaise={(to) => act({ type: "raise", to })} />;
     }
-    return <ActionRow view={view} sent={sent} onRaise={() => setRaising({ hand: view.handNumber, open: true })} act={act} />;
+    const row = (full: boolean) => (
+      <ActionRow view={view} sent={sent} full={full} onRaise={() => setRaising({ hand: view.handNumber, open: true })} act={act} />
+    );
+    if (!learn) return row(false);
+    return (
+      <div className="ml-auto flex w-[80%] max-w-[34rem] flex-col gap-1.5">
+        <p className="text-xs text-white/75" role="note">
+          {turnHint(view)}
+        </p>
+        {row(true)}
+      </div>
+    );
   }
 
   if (showingResult(view) && me && canShowCards(view)) return <ShowCardsBar view={view} send={send} />;
@@ -112,7 +126,7 @@ function useShortcuts(keys: Record<string, (() => void) | null>) {
   });
 }
 
-function ActionRow({ view, sent, onRaise, act }: { view: TableView; sent: boolean; onRaise: () => void; act: Act }) {
+function ActionRow({ view, sent, onRaise, act, full = false }: { view: TableView; sent: boolean; onRaise: () => void; act: Act; full?: boolean }) {
   const hand = view.hand!;
   const legal = view.you.legal!;
   const me = view.seats[view.you.seat! - 1]!;
@@ -125,7 +139,7 @@ function ActionRow({ view, sent, onRaise, act }: { view: TableView; sent: boolea
     f: sent ? null : () => act({ type: "fold" }),
   });
   return (
-    <div className="ml-auto flex w-[80%] max-w-[34rem] gap-2" role="group" aria-label="Your turn" aria-busy={sent}>
+    <div className={`ml-auto flex gap-2 ${full ? "w-full" : "w-[80%] max-w-[34rem]"}`} role="group" aria-label="Your turn" aria-busy={sent}>
       <ActButton tone="green" disabled={!legal.canRaise || sent} busy={sent && legal.canRaise} onClick={onRaise} hotkey="R">
         {hand.currentBet === 0 ? "Bet" : "Raise"}
       </ActButton>

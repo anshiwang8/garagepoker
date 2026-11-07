@@ -71,6 +71,8 @@ export const settingsSchema = z
     // Newer settings default on, so clients from before they existed keep working.
     chat: z.boolean().default(true),
     revealAllIn: z.boolean().default(true),
+    sevenDeuceBB: z.number().int().default(0),
+    mixedGames: z.array(z.enum(VARIANT_NAMES as [VariantName, ...VariantName[]])).max(8).default([]),
   })
   .strict() satisfies z.ZodType<TableSettings, unknown>;
 
@@ -405,6 +407,8 @@ export interface LastHandView {
   bombPot: boolean;
   /** The hand was Hi/Lo (so a board with only a high slice had no qualifying low). */
   hiLo: boolean;
+  /** House rule: a 7-2 bounty paid for this hand. */
+  bounty: { seat: number; nickname: string; amount: number } | null;
   /** The hand's boards were grids (Tic-Tac-Toe): where each card goes. Null for rows of 5. */
   grid: BoardGrid | null;
   boards: string[][];

@@ -143,11 +143,11 @@ input[type="range"] {
 }
 .table-felt {
   z-index: 1;
-  background-color: #16633d;
+  background-color: var(--felt-base);
   background-image:
     url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 .55 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.32'/%3E%3C/svg%3E"),
     radial-gradient(ellipse 60% 55% at 50% 42%, rgb(255 255 255 / 0.09) 0%, transparent 70%),
-    radial-gradient(ellipse at 50% 50%, #1e7d4d 0%, #166239 55%, #0c4027 100%);
+    radial-gradient(ellipse at 50% 50%, var(--felt-hi) 0%, var(--felt-mid) 55%, var(--felt-lo) 100%);
   box-shadow:
     inset 0 0 0 1px rgb(0 0 0 / 0.55),
     inset 0 8px 18px rgb(0 0 0 / 0.5),
@@ -233,7 +233,68 @@ input[type="range"] {
 
 /* GaragePoker's card back: deep red; the GP monogram is drawn over it (PlayingCard). */
 .card-back {
-  background: linear-gradient(150deg, #a3202f 0%, #7a1422 55%, #5e0f1a 100%);
+  background: linear-gradient(150deg, var(--back-1) 0%, var(--back-2) 55%, var(--back-3) 100%);
+}
+
+/*
+ * Per-browser preferences (lib/prefs.ts), set as data attributes on <html>.
+ * GaragePoker-branded options only: felt colours, card backs, deck colours,
+ * larger card corners, reduced motion.
+ */
+:root {
+  --felt-base: #16633d;
+  --felt-hi: #1e7d4d;
+  --felt-mid: #166239;
+  --felt-lo: #0c4027;
+  --back-1: #a3202f;
+  --back-2: #7a1422;
+  --back-3: #5e0f1a;
+  --card-index-scale: 1;
+}
+[data-felt="blue"] {
+  --felt-base: #164a73;
+  --felt-hi: #1f5f91;
+  --felt-mid: #174c75;
+  --felt-lo: #0c2c47;
+}
+[data-felt="burgundy"] {
+  --felt-base: #5e1f2b;
+  --felt-hi: #7a2b39;
+  --felt-mid: #60202c;
+  --felt-lo: #3a1018;
+}
+[data-felt="charcoal"] {
+  --felt-base: #2e3433;
+  --felt-hi: #3c4442;
+  --felt-mid: #2f3534;
+  --felt-lo: #1a1e1d;
+}
+[data-back="navy"] {
+  --back-1: #23408a;
+  --back-2: #182d66;
+  --back-3: #101e47;
+}
+[data-back="black"] {
+  --back-1: #3a3a3a;
+  --back-2: #222222;
+  --back-3: #141414;
+}
+/* Classic two-colour deck: diamonds red, clubs black. */
+[data-deck="two"] {
+  --color-diamond: var(--color-heart);
+  --color-club: var(--color-spade);
+  --color-diamond-light: var(--color-heart-light);
+  --color-club-light: var(--color-spade-light);
+}
+[data-cards="large"] {
+  --card-index-scale: 1.2;
+}
+[data-motion="reduced"] *,
+[data-motion="reduced"] *::before,
+[data-motion="reduced"] *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
 }
 
 /* A poker chip: red with the white edge spots of a real chip. */

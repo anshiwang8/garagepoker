@@ -52,6 +52,7 @@ export function HandResult({ view, send, seenCommitment }: { view: TableView; se
         <span>
           Hand {last.number} result{last.bombPot ? " · bomb pot" : ""}
           {last.secondRun ? " · ran twice" : ""}
+          {last.bounty ? ` · 7-2 bounty: ${last.bounty.nickname} +${formatChips(last.bounty.amount, dc)}` : ""}
         </span>
         <span className="flex items-center gap-2 normal-case tracking-normal">
           <VerifyButton view={view} seenCommitment={seenCommitment} />

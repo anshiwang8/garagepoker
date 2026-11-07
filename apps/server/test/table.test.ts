@@ -7,7 +7,9 @@ import {
 	ledgerRows,
 	legalActions,
 	makeDeck,
+	parseCards,
 	rabbitCards,
+	validateConfig,
 } from "@garagepoker/engine";
 import { clientMessageSchema, STALE_ACTION } from "@garagepoker/protocol";
 import { describe, expect, it } from "vitest";
@@ -1194,5 +1196,77 @@ describe("session history and statistics", () => {
 		d.lastHand!.boards = [[held[0]! ^ 1, rest[0]!, rest[1]!]]; // pairs Bob's first card (same rank, another suit)
 		noteShownCards(d, "carl", held, held, true);
 		expect(hl(d)).toHaveLength(1);
+	});
+});
+
+describe("house rules", () => {
+	const winUncontestedWith = (hole: string, settings = {}) => {
+		const { h, owner, bob } = headsUp({ sevenDeuceBB: 2, ...settings });
+		h.send(owner, { type: "startGame" });
+		h.act({ type: "raise", to: 6_000 });
+		h.act({ type: "fold" });
+		// The owner (seat 1) won without a showdown; give them the hole cards under test.
+		h.data.prevHand!.players.find((p) => p.seat === 1)!.hole = parseCards(hole);
+		return { h, owner, bob };
+	};
+
+	it("7-2 game: showing 7-2 offsuit after winning collects the bounty from everyone dealt in", () => {
+		const { h, owner, bob } = winUncontestedWith("7c 2d");
+		const [ownerBefore, bobBefore] = [h.data.seats[0]!.stack, h.data.seats[1]!.stack];
+		h.send(owner, { type: "showCards", hand: 1, cards: ["7c"] });
+		expect(h.data.lastHand!.bounty).toBeFalsy(); // one card isn't proof
+		h.send(owner, { type: "showCards", hand: 1, cards: ["2d"] });
+		// 2 big blinds (2 × 2,000) from Bob.
+		expect(h.data.seats[0]!.stack).toBe(ownerBefore + 4_000);
+		expect(h.data.seats[1]!.stack).toBe(bobBefore - 4_000);
+		expect(h.view(bob).lastHand!.bounty).toEqual({ seat: 1, nickname: "owner", amount: 4_000 });
+		balanced(h);
+		// Session nets include it, matching the ledger.
+		const ledger = Object.fromEntries(ledgerRows(h.data.ledger, h.table().stacksByPlayer()).map((r) => [r.playerId, r.net]));
+		expect(h.data.session!.stats[owner]!.net).toBe(ledger[owner]);
+		expect(h.data.session!.stats[bob]!.net).toBe(ledger[bob]);
+	});
+
+	it("7-2 game: no bounty for suited 7-2, or when the rule is off", () => {
+		const suited = winUncontestedWith("7c 2c");
+		suited.h.send(suited.owner, { type: "showCards", hand: 1, cards: ["7c", "2c"] });
+		expect(suited.h.data.lastHand!.bounty).toBeFalsy();
+		const off = winUncontestedWith("7c 2d", { sevenDeuceBB: 0 });
+		off.h.send(off.owner, { type: "showCards", hand: 1, cards: ["7c", "2d"] });
+		expect(off.h.data.lastHand!.bounty).toBeFalsy();
+	});
+
+	it("7-2 game: pays at showdown too", () => {
+		const { h, owner } = headsUp({ sevenDeuceBB: 1 });
+		h.send(owner, { type: "startGame" });
+		const hand = h.data.hand!;
+		// Rig the rest of the hand: the owner's 7-2 makes a full house on a 7-7-2 board.
+		hand.players.find((p) => p.seat === 1)!.hole = parseCards("7c 2d");
+		hand.players.find((p) => p.seat === 2)!.hole = parseCards("3h 4s");
+		const board = parseCards("7h 7s 2c Kd 9h");
+		board.forEach((c, i) => (hand.deck[hand.deckIndex + i] = c));
+		h.act({ type: "call" });
+		while (h.data.hand) h.act({ type: "check" });
+		expect(h.data.lastHand!.shown).toHaveLength(2);
+		expect(h.data.lastHand!.bounty).toMatchObject({ seat: 1, amount: 2_000 });
+		balanced(h);
+	});
+
+	it("mixed games: each game in the rotation lasts one orbit", () => {
+		const { h, owner } = headsUp({ mixedGames: ["NLH", "PLO"] });
+		const holeCounts: number[] = [];
+		for (let n = 0; n < 5; n++) {
+			h.send(owner, { type: "startGame" });
+			holeCounts.push(h.data.hand!.players[0]!.hole.length);
+			expect(h.view(owner).settings.variant).toBe(holeCounts[n] === 2 ? "NLH" : "PLO");
+			h.act({ type: "fold" });
+		}
+		expect(holeCounts).toEqual([2, 2, 4, 4, 2]);
+	});
+
+	it("mixed games must all fit the table's deck math", () => {
+		const s = { ...DEFAULT_SETTINGS, seats: 9, boards: 2 as const, mixedGames: ["NLH", "PLO5"] as ("NLH" | "PLO5")[] };
+		expect(validateConfig(s).map((i) => i.field)).toContain("mixedGames");
+		expect(validateConfig({ ...s, mixedGames: ["NLH", "PLO"] })).toEqual([]);
 	});
 });

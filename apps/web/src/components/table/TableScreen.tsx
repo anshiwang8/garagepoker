@@ -10,6 +10,7 @@ import { Button, inputClass, Modal } from "../ui";
 import { ActionZone } from "./ActionZone";
 import { ChatPanel, unreadCount } from "./Chat";
 import { downloadText, HandsPanel, RecapDialog, StatsPanel } from "./Session";
+import { AppearanceDialog, HowToPlayDialog } from "./Learn";
 import { Felt } from "./Felt";
 import { HandResult } from "./HandResult";
 import { LedgerDialog } from "./LedgerDialog";
@@ -228,6 +229,8 @@ export function TableScreen({
         </Modal>
       )}
       {dialog?.kind === "recap" && <RecapDialog view={view} onClose={close} />}
+      {dialog?.kind === "howto" && <HowToPlayDialog view={view} onClose={close} />}
+      {dialog?.kind === "appearance" && <AppearanceDialog onClose={close} />}
       {dialog?.kind === "chat" && (
         <Modal title="Chat" onClose={close}>
           <div className="flex h-[min(60dvh,28rem)] flex-col">

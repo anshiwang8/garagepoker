@@ -7,7 +7,18 @@ import { copyText, Modal } from "../ui";
 import { actionText } from "./Seat";
 import { showingResult } from "./tableText";
 
-export type OptionsItem = "chat" | "ledger" | "replay" | "hands" | "stats" | "log" | "rebuy" | "settings" | "players";
+export type OptionsItem =
+  | "chat"
+  | "ledger"
+  | "replay"
+  | "hands"
+  | "stats"
+  | "log"
+  | "rebuy"
+  | "settings"
+  | "players"
+  | "howto"
+  | "appearance";
 
 /** The Options sheet (SPEC §7): everything that isn't on the table itself. */
 export function OptionsSheet({
@@ -52,6 +63,8 @@ export function OptionsSheet({
             Players
           </Row>
         )}
+        <Row onClick={() => onPick("howto")}>How to play</Row>
+        <Row onClick={() => onPick("appearance")}>Appearance</Row>
         <Row
           onClick={async () => {
             setCopied((await copyText(window.location.href)) ? "copied" : "failed");

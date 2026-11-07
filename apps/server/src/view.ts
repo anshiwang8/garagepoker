@@ -165,6 +165,7 @@ export function buildView(
           number: lastHand.number,
           bombPot: lastHand.bombPot,
           hiLo: lastHand.hiLo,
+          bounty: lastHand.bounty ?? null,
           grid: lastHand.grid ?? null,
           boards: lastHand.boards.map(cards),
           pots: lastHand.pots.map((p) => ({

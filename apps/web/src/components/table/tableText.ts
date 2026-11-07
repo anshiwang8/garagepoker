@@ -78,6 +78,13 @@ export function waitingText(view: TableView): string | null {
  * split pot, "B1 high: Ann 0.60 · B2 high: Bob 0.60".
  */
 export function resultSummary(view: TableView, last: LastHandView): string {
+  const pots = potSummary(view, last);
+  // House rule: the 7-2 bounty, if one was paid.
+  const b = last.bounty;
+  return b ? `${pots} · 7-2 bounty: ${b.nickname} +${formatChips(b.amount, view.settings.displayCents)}` : pots;
+}
+
+function potSummary(view: TableView, last: LastHandView): string {
   const dc = view.settings.displayCents;
   const name = (seat: number) => last.shown.find((s) => s.seat === seat)?.nickname ?? view.seats[seat - 1]?.nickname ?? `Seat ${seat}`;
   const slices = last.pots.flatMap((pot, p) => pot.slices.map((slice) => ({ slice, p })));
