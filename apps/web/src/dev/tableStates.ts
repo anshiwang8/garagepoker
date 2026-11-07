@@ -402,6 +402,23 @@ function tttTwoRuns(): TableView {
   return v;
 }
 
+/** r) A new Tic-Tac-Toe table, nobody seated yet: 8 Sit circles round the grid. */
+function tttEmpty(): TableView {
+  const v = table(Array.from({ length: 8 }, () => null), { status: "paused", handNumber: 0, buttonSeat: null, settings: TTT });
+  return you(v, { seat: null });
+}
+
+/** s) Someone watching a full 9-seat Tic-Tac-Toe hand on the river. */
+function tttSpectator(): TableView {
+  const seats = NAMES.map((n, i) => seat(i + 1, n, 1500 + i * 110, { isOwner: i === 0, inHand: true, cards: [null, null], bet: i === 2 ? 40 : 0 }));
+  const v = table(seats, {
+    settings: TTT,
+    buttonSeat: 1,
+    hand: hand({ street: "river", boards: [grid("Ah 8s 2h / 3c 9h Jd / 7c 4s 6d")], pot: 400, boardShares: [400], currentBet: 40, toAct: 4, ...turn(0.6) }),
+  });
+  return you(v, { seat: null, isOwner: false, playerId: "pwatcher0001" });
+}
+
 export interface DevState {
   id: string;
   title: string;
@@ -427,4 +444,6 @@ export const DEV_STATES: DevState[] = [
   { id: "o", title: "Tic-Tac-Toe double board, rabbit hunt", view: tttRabbit() },
   { id: "p", title: "Tic-Tac-Toe, 9 seats on the flop", view: tttFull() },
   { id: "q", title: "Tic-Tac-Toe double board run twice", view: tttTwoRuns() },
+  { id: "r", title: "Tic-Tac-Toe, new table, nobody seated", view: tttEmpty() },
+  { id: "s", title: "Tic-Tac-Toe, spectator, 9 seats", view: tttSpectator() },
 ];

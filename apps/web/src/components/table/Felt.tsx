@@ -100,7 +100,8 @@ export function Felt({
         heroSeated,
         holeCards: VARIANTS[settings.variant].holeCards,
         boardRows,
-        grid: !!boardGridOf(view),
+        // Between hands nothing is drawn, so a grid needs no room.
+        grid: !!boardGridOf(view) && !!(hand || result),
         infoExtra,
       })
     : null;
@@ -247,7 +248,8 @@ function Center({
       )}
 
       {/* Tic-Tac-Toe: one 3×3 grid per board (and run), side by side. */}
-      {grid && (
+      {/* (Nothing between hands: an empty grid would say nothing.) */}
+      {grid && (hand || result) && (
         <GridBoards
           rows={rows.map((r) => ({
             ...r,

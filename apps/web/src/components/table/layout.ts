@@ -140,7 +140,17 @@ export function fanStep(n: number, cw: number, maxW?: number): number {
 /** Squares per side of a grid board. */
 export const GRID_SIZE = 3;
 
-function sizes(mode: "phone" | "desktop", k: number, holeCards: number, boardRows: number, w: number, s: number, grid = false): Sizes {
+function sizes(
+  mode: "phone" | "desktop",
+  k: number,
+  holeCards: number,
+  boardRows: number,
+  w: number,
+  s: number,
+  grid = false,
+  /** Grid boards only: shrinks the squares when nothing fits at their full size. */
+  gridScale = 1,
+): Sizes {
   const fan = holeCards > 2;
   const tier = k <= 3 ? 0 : k <= 5 ? 1 : 2;
   const pick = <T,>(a: [T, T, T]) => a[tier]!;
@@ -156,7 +166,7 @@ function sizes(mode: "phone" | "desktop", k: number, holeCards: number, boardRow
   // Grids sit side by side (two to a line on phones), so more across means smaller squares.
   const gridCols = grid ? (d ? Math.min(rows, 4) : Math.min(rows, 2)) : 0;
   const baseBoardW = grid
-    ? (d ? [46, 40, 34, 30] : [44, 34])[gridCols - 1]!
+    ? (d ? [46, 40, 34, 30] : [44, 34])[gridCols - 1]! * gridScale
     : d
       ? [72, 60, 46][Math.min(rows, 3) - 1]!
       : [62, 52, 40][Math.min(rows, 3) - 1]!;
@@ -248,10 +258,10 @@ function bottomSeat(inp: LayoutInput, z: Sizes, m: number) {
 
 const overlapsX = (a: { x: number; w: number }, b: { x: number; w: number }, pad = 0) => a.x < b.x + b.w + pad && b.x < a.x + a.w + pad;
 
-function phoneLayout(inp: LayoutInput, s: number): FeltLayout | null {
+function phoneLayout(inp: LayoutInput, s: number, gridScale = 1): FeltLayout | null {
   const { w, h } = inp;
   const k = inp.seats.length - 1;
-  const z = sizes("phone", k, inp.holeCards, inp.boardRows, w, s, inp.grid);
+  const z = sizes("phone", k, inp.holeCards, inp.boardRows, w, s, inp.grid, gridScale);
   const m = 4 * s;
   const g = 6 * s;
   const [leftN, topN, rightN] = PHONE_SLOTS[Math.min(8, Math.max(0, k))]!;
@@ -358,10 +368,10 @@ function phoneLayout(inp: LayoutInput, s: number): FeltLayout | null {
   return finish("phone", inp, z, felt, Math.min(120 * s, felt.w / 2, felt.h / 2), bottom, seats, boardTop, boardH, aboveBoard);
 }
 
-function desktopLayout(inp: LayoutInput, s: number): FeltLayout | null {
+function desktopLayout(inp: LayoutInput, s: number, gridScale = 1): FeltLayout | null {
   const { w, h } = inp;
   const k = inp.seats.length - 1;
-  const z = sizes("desktop", k, inp.holeCards, inp.boardRows, w, s, inp.grid);
+  const z = sizes("desktop", k, inp.holeCards, inp.boardRows, w, s, inp.grid, gridScale);
   const m = 8 * s;
   const { plateW: pw, plateH: ph } = z;
   const bottom = inp.seats.length > 0 ? bottomSeat(inp, z, m) : null;
@@ -494,15 +504,21 @@ export function layoutMode(w: number, h: number): "phone" | "desktop" {
   return w >= 1024 || w > h * 1.3 ? "desktop" : "phone";
 }
 
-/** The largest layout that fits, shrinking in small steps. */
+/**
+ * The largest layout that fits, shrinking in small steps. A grid board is
+ * three cards tall, so if no scale fits at all (a full rail on a phone), its
+ * squares shrink too, a step at a time, before giving up.
+ */
 export function layoutFelt(inp: LayoutInput): FeltLayout | null {
   if (inp.w <= 0 || inp.h <= 0) return null;
   const mode = layoutMode(inp.w, inp.h);
   const max = mode === "desktop" ? Math.min(1.35, Math.max(1, inp.h / 600)) : Math.min(1.12, inp.w / 390);
   const fn = mode === "desktop" ? desktopLayout : phoneLayout;
-  for (let s = max; s >= 0.5; s -= 0.02) {
-    const l = fn(inp, s);
-    if (l) return l;
+  for (const gridScale of inp.grid ? [1, 0.85, 0.7, 0.55] : [1]) {
+    for (let s = max; s >= 0.5; s -= 0.02) {
+      const l = fn(inp, s, gridScale);
+      if (l) return l;
+    }
   }
   return fn(inp, 0.5) ?? phoneLayout(inp, 0.5);
 }
