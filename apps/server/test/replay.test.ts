@@ -40,6 +40,20 @@ async function checkDown(all: Client[], alice: Client, bob: Client, n: number) {
 }
 
 describe("last-hand replay", () => {
+	it("groups a Tic-Tac-Toe board's deals by street: 4 corners, 3 across the middle, then 2", async () => {
+		const { alice, bob, all } = await table({ variant: "TICTACTOE" });
+		await step(all, alice, { type: "startGame" });
+		await checkDown(all, alice, bob, 1);
+		const replay = (await alice.replay())!;
+		const deals = replay.frames.flatMap((f) => f.events).filter((e) => e.kind === "deal");
+		expect(deals.map((e) => [e.street, e.cards.length])).toEqual([
+			["flop", 4],
+			["turn", 3],
+			["river", 2],
+		]);
+		expect(replay.frames.at(-1)!.boards[0]).toEqual(alice.view.lastHand!.boards[0]);
+	});
+
 	it("reproduces the live hand's final stacks, showing only your own and shown cards", async () => {
 		const { alice, bob, carol, all } = await table();
 		expect(await alice.replay()).toBeNull(); // no hand yet

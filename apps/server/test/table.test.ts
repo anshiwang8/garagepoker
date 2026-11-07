@@ -806,3 +806,48 @@ describe("showing cards after a hand", () => {
 		expect(parse({ hand: 0, cards: ["As"] })).toBe(false);
 	});
 });
+
+describe("Tic-Tac-Toe Hold'em", () => {
+	it("deals the grid 4 / 3 / 2 to every client and shows down with one label per board", () => {
+		const { h, owner, bob } = headsUp({ variant: "TICTACTOE" });
+		const carol = h.join("carol"); // spectator
+		h.send(owner, { type: "startGame" });
+		const sizes = new Set<number>();
+		while (h.data.hand) {
+			for (const id of [owner, bob, carol]) sizes.add(h.view(id).hand!.boards[0]!.length);
+			expect(h.view(owner).you.labels).toHaveLength(1);
+			h.act(legal(h).canCheck ? { type: "check" } : { type: "call" });
+		}
+		expect([...sizes]).toEqual([0, 4, 7, 9]);
+		const last = h.view(carol).lastHand!;
+		expect(last.boards[0]).toHaveLength(9);
+		expect(last.shown).toHaveLength(2);
+		for (const s of last.shown) expect(s.labels).toHaveLength(1);
+		balanced(h);
+	});
+
+	it("rabbit hunts the turn and river (5 cards) after a hand ends on the flop", () => {
+		const { h, owner, bob } = headsUp({ variant: "TICTACTOE", rabbitHunt: true });
+		h.send(owner, { type: "startGame" });
+		h.act({ type: "call" });
+		h.act({ type: "check" });
+		h.act({ type: "raise", to: 4_000 });
+		h.act({ type: "fold" });
+		expect(h.view(bob).lastHand!.boards[0]).toHaveLength(4);
+		expect(h.view(bob).lastHand!.rabbitAvailable).toBe(true);
+		h.send(bob, { type: "rabbitHunt", hand: 1 });
+		expect(h.view(owner).lastHand!.rabbit!.boards[0]).toHaveLength(5);
+	});
+
+	it("judges rabbit hunt by the hand that was played, not settings changed since", () => {
+		// A full 5-card NLH board, then the owner switches to Tic-Tac-Toe (9-card boards).
+		const { h, owner, bob } = headsUp({ rabbitHunt: true });
+		h.send(owner, { type: "startGame" });
+		h.act({ type: "raise", to: 100_000 });
+		h.act({ type: "call" });
+		expect(h.view(bob).lastHand!.boards[0]).toHaveLength(5);
+		h.send(owner, { type: "updateSettings", settings: { ...h.data.settings, variant: "TICTACTOE" } });
+		expect(h.data.settings.variant).toBe("TICTACTOE");
+		expect(h.view(bob).lastHand!.rabbitAvailable).toBe(false);
+	});
+});
