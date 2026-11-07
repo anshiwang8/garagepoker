@@ -359,8 +359,8 @@ export function SettingsForm({
         </ul>
       )}
 
-      {/* On phones the submit row stays in reach at the bottom of the screen. */}
-      <div className="sticky bottom-0 z-10 -mx-4 flex items-center gap-3 border-t border-line bg-panel px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 sm:static sm:mx-0 sm:border-0 sm:bg-transparent sm:p-0">
+      {/* The submit row stays in reach at the bottom of the screen, however long the form gets. */}
+      <div className="sticky bottom-0 z-10 -mx-4 flex items-center gap-3 border-t border-line bg-panel px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3">
         <Button type="submit" variant="primary" className="min-h-12 flex-1 py-3 text-base" disabled={invalid || busy}>
           {busy ? "Working…" : submitLabel}
         </Button>

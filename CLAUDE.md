@@ -18,6 +18,7 @@ PokerNow-style home-game poker tables. Every variant and table feature is free. 
 - `pnpm --filter @garagepoker/engine test`: engine tests only
 - `cd apps/server && npx wrangler dev`: run the server locally
 - `cd apps/web && pnpm dev`: run the site at http://localhost:3000
+- `pnpm --filter web e2e`: browser tests (Playwright, uses the installed Chrome) against the dev table previews at four screen sizes; not part of `pnpm test`
 
 ## Hard rules
 

@@ -79,7 +79,9 @@ function store(presets: TablePreset[]): void {
 export function savePreset(name: string, settings: TableSettings): TablePreset[] {
   const clean = name.trim().slice(0, 40) || "My game";
   const rest = loadSavedPresets().filter((p) => p.name.toLowerCase() !== clean.toLowerCase());
-  const next = [{ id: `saved-${Date.now().toString(36)}`, name: clean, detail: "Saved on this device", settings }, ...rest];
+  // Unique even for two presets saved in the same millisecond.
+  const id = `saved-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  const next = [{ id, name: clean, detail: "Saved on this device", settings }, ...rest];
   store(next);
   return next.slice(0, MAX_SAVED);
 }

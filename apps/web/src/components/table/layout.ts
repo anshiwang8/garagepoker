@@ -306,7 +306,16 @@ function phoneLayout(inp: LayoutInput, s: number, gridScale = 1): FeltLayout | n
   const boardTopMin = () => Math.max(hasU ? uPlateY + ph + below + g : 0, (topN ? topBottom + 2 * s : m) + aboveBoard);
 
   let boardTop = boardTopMin();
-  const lPlateY = () => boardTop + boardH + g + z.above;
+  const bets = inp.bets ?? true;
+  // Lower side seats sit under the board. Their bet chip is beside the plate at
+  // mid-height, so with a tall info block (Copy link, "Changes apply next
+  // hand") they move down until the chip clears it, rather than not fitting.
+  const lPlateY = () => {
+    const underBoard = boardTop + boardH + g + z.above;
+    if (!bets) return underBoard;
+    const infoBottom = boardTop + boardH + 8 * s + infoH;
+    return Math.max(underBoard, infoBottom + 2 * s - ph / 2 + z.chipH / 2);
+  };
   // Room left once everything is in: the centre column must end above the bottom
   // seat, and a lower side seat (with its bet) must stay clear of it too.
   const slack = () => {
@@ -314,11 +323,6 @@ function phoneLayout(inp: LayoutInput, s: number, gridScale = 1): FeltLayout | n
     let room = bottomTop - 4 * s - infoBottom;
     if (hasL && bottom) {
       const lBottom = lPlateY() + ph + z.tagsBelow;
-      // A lower seat's bet sits beside its plate, under the info: keep it clear.
-      // (Between hands there are no bets, and the info is taller: the Copy link button.)
-      const bets = inp.bets ?? true;
-      const lChipTop = lPlateY() + ph / 2 - z.chipH / 2;
-      if (bets && lChipTop < infoBottom + 2 * s) return -1;
       room = Math.min(room, h - m - lBottom);
       const lSide: Box = { x: m, y: 0, w: pw + (bets ? 4 * s + chipW : 0), h: 0 };
       const clearOfCards = bottom.slot.cards.y - 4 * s;
