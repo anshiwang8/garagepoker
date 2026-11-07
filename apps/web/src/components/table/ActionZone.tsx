@@ -5,6 +5,7 @@ import type { ClientMessage, TableView } from "@garagepoker/protocol";
 import { Minus, Plus } from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
 import { chipsToInput, formatChips, parseChips } from "@/lib/chips";
+import { useSent } from "@/lib/useSent";
 import { DiscardPicker } from "./DiscardPicker";
 import { byRank, rankText } from "./PlayingCard";
 import { RunItTwicePrompt } from "./RunItTwicePrompt";
@@ -30,6 +31,9 @@ export function ActionZone({
 }) {
   const [raising, setRaising] = useState<{ hand: number; open: boolean }>({ hand: view.handNumber, open: initialRaising });
   const hand = view.hand;
+  // A tap is for this moment in the hand; until the server moves on, the buttons are "sent".
+  const seq = hand?.log.length ?? 0;
+  const [sent, markSent] = useSent(`${view.handNumber}:${seq}`);
   const legal = view.you.legal;
   const me = view.you.seat !== null ? view.seats[view.you.seat - 1] : null;
 
@@ -49,13 +53,15 @@ export function ActionZone({
   if (hand && legal && me) {
     const open = raising.open && raising.hand === view.handNumber && legal.canRaise;
     const act: Act = (action) => {
+      if (sent) return;
+      markSent();
       setRaising({ hand: view.handNumber, open: false });
-      send({ type: "act", hand: view.handNumber, action });
+      send({ type: "act", hand: view.handNumber, seq, action });
     };
     if (open) {
       return <RaisePanel view={view} onBack={() => setRaising({ hand: view.handNumber, open: false })} onRaise={(to) => act({ type: "raise", to })} />;
     }
-    return <ActionRow view={view} onRaise={() => setRaising({ hand: view.handNumber, open: true })} act={act} />;
+    return <ActionRow view={view} sent={sent} onRaise={() => setRaising({ hand: view.handNumber, open: true })} act={act} />;
   }
 
   if (showingResult(view) && me && canShowCards(view)) return <ShowCardsBar view={view} send={send} />;
@@ -107,33 +113,33 @@ function useShortcuts(keys: Record<string, (() => void) | null>) {
   });
 }
 
-function ActionRow({ view, onRaise, act }: { view: TableView; onRaise: () => void; act: Act }) {
+function ActionRow({ view, sent, onRaise, act }: { view: TableView; sent: boolean; onRaise: () => void; act: Act }) {
   const hand = view.hand!;
   const legal = view.you.legal!;
   const me = view.seats[view.you.seat! - 1]!;
   const dc = view.settings.displayCents;
   const callAllIn = legal.callAmount > 0 && legal.callAmount >= me.stack;
   useShortcuts({
-    k: legal.canCheck ? () => act({ type: "check" }) : null,
-    c: legal.canCheck ? null : () => act({ type: "call" }),
-    r: legal.canRaise ? onRaise : null,
-    f: () => act({ type: "fold" }),
+    k: legal.canCheck && !sent ? () => act({ type: "check" }) : null,
+    c: legal.canCheck || sent ? null : () => act({ type: "call" }),
+    r: legal.canRaise && !sent ? onRaise : null,
+    f: sent ? null : () => act({ type: "fold" }),
   });
   return (
-    <div className="ml-auto flex w-[80%] max-w-[34rem] gap-2" role="group" aria-label="Your turn">
-      <ActButton tone="green" disabled={!legal.canRaise} onClick={onRaise} hotkey="R">
+    <div className="ml-auto flex w-[80%] max-w-[34rem] gap-2" role="group" aria-label="Your turn" aria-busy={sent}>
+      <ActButton tone="green" disabled={!legal.canRaise || sent} onClick={onRaise} hotkey="R">
         {hand.currentBet === 0 ? "Bet" : "Raise"}
       </ActButton>
       {legal.canCheck ? (
-        <ActButton tone="green" onClick={() => act({ type: "check" })} hotkey="K">
+        <ActButton tone="green" disabled={sent} onClick={() => act({ type: "check" })} hotkey="K">
           Check
         </ActButton>
       ) : (
-        <ActButton tone="green" onClick={() => act({ type: "call" })} sub={formatChips(legal.callAmount, dc)} hotkey="C">
+        <ActButton tone="green" disabled={sent} onClick={() => act({ type: "call" })} sub={formatChips(legal.callAmount, dc)} hotkey="C">
           {callAllIn ? "Call all in" : "Call"}
         </ActButton>
       )}
-      <ActButton tone="red" onClick={() => act({ type: "fold" })} hotkey="F">
+      <ActButton tone="red" disabled={sent} onClick={() => act({ type: "fold" })} hotkey="F">
         Fold
       </ActButton>
     </div>

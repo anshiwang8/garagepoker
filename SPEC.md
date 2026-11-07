@@ -114,12 +114,12 @@ seats × hole cards + boards × board cards × runs ≤ deck size
 - **Owner:** the creator's token is the owner. The owner can hand off ownership from the Players menu. If the owner has been offline for 5 minutes and an eligible player (seated, not away, connected) is present, ownership passes to the longest-seated eligible player. This is checked when someone connects or disconnects, when someone taps "I'm back" and when a hand ends, never on a timer.
 - **Seats:** 2–9 seats (default 8). A player taps an empty seat and enters their name and buy-in amount.
 - **Seat approval:** the owner gets a popup to approve or decline each seat request. In that popup they can edit the player's starting stack before they sit. Rebuy requests use the same popup.
-- **Disconnects:** a disconnected player keeps their seat. Mid-hand, their timer runs and they auto-check or fold. If they're still disconnected when the hand ends, they're marked away for the next hand. Reconnecting doesn't clear away: the player taps "I'm back".
+- **Disconnects:** a disconnected player keeps their seat. Mid-hand, their timer runs and they auto-check or fold. A player who drops out while already using their time bank gets 15 s (or what's left of the bank) to reconnect before that happens. A connection that has gone silent for 75 s (no keep-alive) counts as disconnected. If they're still disconnected when the hand ends, they're marked away for the next hand. Reconnecting doesn't clear away: the player taps "I'm back".
 - **Away:** a player can toggle Away to sit out from the next hand. Away players are skipped: they're dealt no cards and post no blinds or bomb-pot antes.
 - **Pause / end:** the owner has Pause and End buttons, which take effect after the current hand. Between hands, if fewer than 2 seated players are active (not away, with chips), the game pauses automatically and shows "Paused: waiting for players"; only the owner can press Start to resume. A new table also starts paused. The owner presses Start Game to begin or resume.
-- **Kicking:** the owner can kick a player. Kicking takes effect after the current hand, and the player's stack is cashed out to the ledger.
+- **Kicking:** the owner can kick a player. Kicking takes effect after the current hand, and the player's stack is cashed out to the ledger. Until then, a kicked player (like one who chose Leave seat) checks or folds at once whenever it's their turn, so the hand doesn't wait on them.
 - **Spectators:** anyone with the link can watch without a seat. They never see hole cards before showdown.
-- **Lifetime:** tables live in memory only. A table with no connected players for 12 hours is deleted. When the owner ends a game, the final ledger and settle-up are shown and can be downloaded as CSV.
+- **Lifetime:** a table is kept in its Durable Object's storage (so it survives the object being evicted) and nowhere else. A table with no connected players for 12 hours is deleted, storage included. When the owner ends a game, the final ledger and settle-up are shown and can be downloaded as CSV.
 
 ---
 
@@ -241,7 +241,7 @@ Phone portrait first (390×844; also 360×740 and 430×932), desktop second (≥
 Browser (Next.js on Vercel)
    │  sends actions over WebSocket
    ▼
-Table Durable Object (Cloudflare, one per table, in memory)
+Table Durable Object (Cloudflare, one per table, its own storage)
    1. Validate   — is it this seat's turn? is the amount legal?
    2. Engine     — pure reducer: state + action → new state
    3. Ledger     — append event, assert sum of nets = 0
@@ -254,6 +254,11 @@ Browsers render only what they receive
 - The server is authoritative. Clients never compute game state.
 - The engine is a pure reducer with no I/O, no `Date.now` and no `Math.random`; randomness and time are passed in. The action log doubles as hand history and makes hands replayable.
 - **Provable fairness (per-card commitments):** at hand start, each deck position gets its own random salt and hash SHA-256(salt:index:card), and the server publishes SHA-256 of all those hashes. After the hand it reveals every position hash, plus the salt and card only for cards that became public (boards, shown hands, rabbit cards once hunted), so folded hands and discards stay secret.
+- **Reliability:**
+  - Every action and Pineapple discard carries the hand's log length the client saw (`seq`). The server drops one sent before the hand moved on, so a double tap or a slow network can never act on the next turn or street. Action buttons show as sent until the table moves on.
+  - A player's mistake leaves the table untouched. An unexpected server error undoes the change; if the table's own timers can't run, the hand in progress is cancelled with every stack restored to the start of the hand, and the table pauses ("Hand cancelled after an error") for the owner to resume. A table never freezes.
+  - Each connection may send at most 40 messages in 10 s. Browsers that only ever looked are forgotten once a table has 200 players on record; a table refuses new browsers beyond 500.
+  - Clients ping every 25 s and reconnect if no pong comes back within 10 s, when the network comes back, or when the tab is shown again.
 
 ## 9. Stack
 

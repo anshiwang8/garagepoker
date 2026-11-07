@@ -1,6 +1,6 @@
 "use client";
 
-import { type ButtonHTMLAttributes, type ReactNode, useEffect, useId, useState } from "react";
+import { type ButtonHTMLAttributes, type ReactNode, useEffect, useId, useRef, useState } from "react";
 import { chipsToInput, parseChips } from "@/lib/chips";
 
 type Variant = "primary" | "secondary" | "danger" | "ghost";
@@ -26,7 +26,16 @@ export function Button({
   );
 }
 
-/** Bottom sheet on phones, centered dialog on larger screens. */
+/** Open modals, innermost last: only the top one answers Escape. */
+const modalStack: symbol[] = [];
+
+const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+/**
+ * Bottom sheet on phones, centered dialog on larger screens. Keyboard focus
+ * moves into it and stays there (Tab wraps), returns to where it was on
+ * close, and Escape closes only the topmost dialog.
+ */
 export function Modal({
   title,
   onClose,
@@ -38,26 +47,66 @@ export function Modal({
   children: ReactNode;
   wide?: boolean;
 }) {
+  const panel = useRef<HTMLDivElement>(null);
+  const close = useRef(onClose);
   useEffect(() => {
-    if (!onClose) return;
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    close.current = onClose;
+  });
+
+  useEffect(() => {
+    const me = Symbol(title);
+    modalStack.push(me);
+    const returnTo = document.activeElement as HTMLElement | null;
+    const el = panel.current;
+    // Focus an autofocused field if there is one, else the dialog itself.
+    if (el && !el.contains(document.activeElement)) el.focus({ preventScroll: true });
+    const onKey = (e: KeyboardEvent) => {
+      if (modalStack[modalStack.length - 1] !== me) return;
+      if (e.key === "Escape" && close.current) {
+        e.stopPropagation();
+        close.current();
+      } else if (e.key === "Tab" && el) {
+        const items = [...el.querySelectorAll<HTMLElement>(FOCUSABLE)].filter((x) => x.offsetParent !== null);
+        if (items.length === 0) return;
+        const first = items[0]!;
+        const last = items[items.length - 1]!;
+        if (e.shiftKey && (document.activeElement === first || document.activeElement === el)) {
+          e.preventDefault();
+          last.focus();
+        } else if (!e.shiftKey && document.activeElement === last) {
+          e.preventDefault();
+          first.focus();
+        }
+      }
+    };
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      modalStack.splice(modalStack.indexOf(me), 1);
+      if (returnTo?.isConnected) returnTo.focus({ preventScroll: true });
+    };
+  }, [title]);
 
   return (
     <div className="fixed inset-0 z-40 flex items-end sm:items-center justify-center bg-black/60" onClick={onClose}>
       <div
+        ref={panel}
         role="dialog"
         aria-modal="true"
         aria-label={title}
+        tabIndex={-1}
         onClick={(e) => e.stopPropagation()}
-        className={`w-full ${wide ? "sm:max-w-2xl" : "sm:max-w-md"} max-h-sheet overflow-y-auto rounded-t-2xl sm:rounded-2xl bg-panel border border-line shadow-2xl safe-bottom`}
+        className={`w-full ${wide ? "sm:max-w-2xl" : "sm:max-w-md"} max-h-sheet overflow-y-auto rounded-t-2xl sm:rounded-2xl bg-panel border border-line shadow-2xl safe-bottom outline-none`}
       >
-        <div className="sticky top-0 z-10 flex items-center justify-between gap-2 border-b border-line bg-panel px-4 py-3">
+        <div className="sticky top-0 z-10 flex items-center justify-between gap-2 border-b border-line bg-panel py-1.5 pl-4 pr-1.5">
           <h2 className="text-base font-semibold">{title}</h2>
           {onClose && (
-            <button type="button" onClick={onClose} className="rounded-md px-2 py-1 text-muted hover:text-text" aria-label="Close">
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex h-11 w-11 items-center justify-center rounded-lg text-muted hover:bg-panel-2 hover:text-text"
+              aria-label="Close"
+            >
               ✕
             </button>
           )}

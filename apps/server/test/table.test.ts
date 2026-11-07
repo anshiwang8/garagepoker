@@ -1,9 +1,17 @@
 import { assertLedgerBalanced, cardToString, DEFAULT_SETTINGS, ledgerRows, legalActions, rabbitCards } from "@garagepoker/engine";
-import { clientMessageSchema } from "@garagepoker/protocol";
+import { clientMessageSchema, STALE_ACTION } from "@garagepoker/protocol";
 import { describe, expect, it } from "vitest";
 import { ALARM_CLAMP_MS, scheduleAlarm } from "../src/limits.js";
 import { buildReplay } from "../src/replay.js";
-import { AUTO_START_DELAY_MS, IDLE_DELETE_MS, OWNER_OFFLINE_MS, RIT_DECISION_MS, SHOW_WINDOW_MS } from "../src/table.js";
+import {
+	AUTO_START_DELAY_MS,
+	DISCONNECT_GRACE_MS,
+	IDLE_DELETE_MS,
+	OWNER_OFFLINE_MS,
+	PRUNE_PLAYERS_AT,
+	RIT_DECISION_MS,
+	SHOW_WINDOW_MS,
+} from "../src/table.js";
 import { harness, token } from "./helpers.js";
 
 /** Owner in seat 1 and Bob in seat 2, game not started. */
@@ -868,5 +876,97 @@ describe("Tic-Tac-Toe Hold'em", () => {
 		h.send(owner, { type: "updateSettings", settings: { ...h.data.settings, variant: "TICTACTOE" } });
 		expect(h.data.settings.variant).toBe("TICTACTOE");
 		expect(h.view(bob).lastHand!.rabbitAvailable).toBe(false);
+	});
+});
+
+describe("reliability", () => {
+	it("drops an action sent before the hand moved on, so a double tap can't act on the next street", () => {
+		const { h, owner, bob } = headsUp();
+		h.send(owner, { type: "startGame" });
+		h.act({ type: "call" }); // the owner completes the small blind: Bob's option
+		const seq = h.data.hand!.log.length;
+		h.send(bob, { type: "act", hand: 1, seq, action: { type: "check" } });
+		// Heads-up, Bob (big blind) acts first on the flop.
+		expect(h.data.hand).toMatchObject({ street: "flop", toAct: 2 });
+		// The same tap arriving again: it was meant for the preflop, so it's dropped.
+		expect(() => h.send(bob, { type: "act", hand: 1, seq, action: { type: "check" } })).toThrow(STALE_ACTION);
+		expect(h.data.hand).toMatchObject({ street: "flop", toAct: 2 });
+		// A fresh tap works, and so does one without seq (older clients).
+		h.send(bob, { type: "act", hand: 1, seq: h.data.hand!.log.length, action: { type: "check" } });
+		expect(h.data.hand!.toAct).toBe(1);
+		h.send(owner, { type: "act", hand: 1, action: { type: "check" } });
+		expect(h.data.hand!.street).toBe("turn");
+	});
+
+	it("gives a player who drops out while in their time bank 15 s to come back, not an instant fold", () => {
+		const { h, owner } = headsUp();
+		h.send(owner, { type: "startGame" });
+		h.advance(20_000); // the owner is into the time bank
+		h.disconnect(owner);
+		expect(h.data.hand!.toAct).toBe(1);
+		h.advance(DISCONNECT_GRACE_MS - 1);
+		expect(h.data.hand!.toAct).toBe(1);
+		h.advance(1);
+		// Folded facing the big blind: heads-up, that ends the hand.
+		expect(h.data.hand).toBeNull();
+		expect(h.data.seats[0]!.timeBankMs).toBe(0);
+	});
+
+	it("keeps the rest of the time bank for a player who comes back within the grace", () => {
+		const { h, owner } = headsUp();
+		h.send(owner, { type: "startGame" });
+		h.advance(20_000);
+		h.disconnect(owner);
+		h.advance(10_000);
+		h.join("owner");
+		h.advance(10_000); // past the grace: still their turn, on the bank
+		expect(h.data.hand!.toAct).toBe(1);
+		h.act({ type: "call" });
+		expect(h.data.seats[0]!.timeBankMs).toBe(40_000);
+	});
+
+	it("still times out at once a player who was disconnected before the time bank started", () => {
+		const { h, owner, bob } = headsUp();
+		h.send(owner, { type: "startGame" });
+		h.act({ type: "call" });
+		h.disconnect(bob);
+		h.advance(DEFAULT_SETTINGS.decisionTimeSec * 1000);
+		expect(h.data.hand!.street).toBe("flop"); // Bob checked his option at the deadline
+	});
+
+	it("checks or folds for a player who leaves mid-hand instead of waiting on their timer", () => {
+		const { h, owner, bob } = headsUp();
+		h.send(owner, { type: "startGame" });
+		h.act({ type: "call" }); // Bob's option
+		h.send(bob, { type: "leaveSeat" });
+		// Bob checks his option at once, then checks first on the flop: the owner's turn.
+		expect(h.data.hand).toMatchObject({ street: "flop", toAct: 1 });
+		h.act({ type: "raise", to: 4_000 });
+		// Bob folds at once; the hand ends and he leaves.
+		expect(h.data.hand).toBeNull();
+		expect(h.data.seats[1]).toBeNull();
+		balanced(h);
+	});
+
+	it("forgets visitors who never sat once many browsers have opened the link", () => {
+		const { h, owner, bob } = headsUp();
+		for (let i = 0; i < PRUNE_PLAYERS_AT + 50; i++) h.disconnect(h.join(`visitor${i}`));
+		expect(h.data.players.length).toBeLessThanOrEqual(PRUNE_PLAYERS_AT);
+		const ids = h.data.players.map((p) => p.playerId);
+		expect(ids).toContain(owner);
+		expect(ids).toContain(bob);
+	});
+
+	it("recover() cancels the hand, puts stacks back to the start of the hand and pauses", () => {
+		const { h, owner } = headsUp();
+		h.send(owner, { type: "startGame" });
+		h.act({ type: "raise", to: 6_000 });
+		h.table().recover();
+		expect(h.data).toMatchObject({ hand: null, turn: null, status: "paused", pausedReason: "error" });
+		expect(h.data.seats.slice(0, 2).map((s) => s!.stack)).toEqual([100_000, 50_000]);
+		expect(h.view(owner)).toMatchObject({ status: "paused", pausedReason: "error", hand: null });
+		balanced(h);
+		h.send(owner, { type: "startGame" });
+		expect(h.data.handNumber).toBe(2);
 	});
 });

@@ -1,6 +1,6 @@
 "use client";
 
-import type { ClientMessage, ReplayView, ServerMessage, TableView } from "@garagepoker/protocol";
+import { type ClientMessage, type ReplayView, type ServerMessage, STALE_ACTION, type TableView } from "@garagepoker/protocol";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { tableSocketUrl } from "./server";
 import { getPlayerToken } from "./token";
@@ -13,6 +13,8 @@ export interface Toast {
 }
 
 const PING_MS = 25_000;
+/** No "pong" this long after a ping: the connection is dead (half-open), so reconnect. */
+const PONG_TIMEOUT_MS = 10_000;
 /** Consecutive failures before an attempt that never opened, before we say "can't reach". */
 const UNREACHABLE_AFTER = 3;
 
@@ -44,7 +46,41 @@ export function useTableSocket(tableId: string) {
     let failures = 0;
     let retry: ReturnType<typeof setTimeout> | undefined;
     let ping: ReturnType<typeof setInterval> | undefined;
+    let pongDue: ReturnType<typeof setTimeout> | undefined;
     const token = getPlayerToken();
+
+    /** Sends a keep-alive; if no pong comes back in time, the socket is dead: drop it and reconnect. */
+    const checkAlive = (ws: WebSocket) => {
+      if (ws.readyState !== WebSocket.OPEN || pongDue) return;
+      ws.send("ping");
+      pongDue = setTimeout(() => {
+        pongDue = undefined;
+        if (wsRef.current === ws) dropAndReconnect(ws);
+      }, PONG_TIMEOUT_MS);
+    };
+
+    /** Abandons a socket without waiting for its close handshake (which may never come). */
+    const dropAndReconnect = (ws: WebSocket) => {
+      ws.onclose = null;
+      ws.onmessage = null;
+      try {
+        ws.close();
+      } catch {
+        // Already closed.
+      }
+      onClosed(true);
+    };
+
+    const onClosed = (opened: boolean) => {
+      clearInterval(ping);
+      clearTimeout(pongDue);
+      pongDue = undefined;
+      if (stopped) return;
+      failures = opened ? 1 : failures + 1;
+      setConnection(!opened && failures >= UNREACHABLE_AFTER ? "unreachable" : "reconnecting");
+      clearTimeout(retry);
+      retry = setTimeout(connect, Math.min(10_000, 500 * 2 ** Math.min(failures, 5)));
+    };
 
     const connect = () => {
       const ws = new WebSocket(tableSocketUrl(tableId));
@@ -56,10 +92,14 @@ export function useTableSocket(tableId: string) {
         failures = 0;
         setConnection("open");
         ws.send(JSON.stringify({ type: "hello", token } satisfies ClientMessage));
-        ping = setInterval(() => ws.readyState === WebSocket.OPEN && ws.send("ping"), PING_MS);
+        ping = setInterval(() => checkAlive(ws), PING_MS);
       };
       ws.onmessage = (e: MessageEvent<string>) => {
-        if (e.data === "pong") return;
+        if (e.data === "pong") {
+          clearTimeout(pongDue);
+          pongDue = undefined;
+          return;
+        }
         let m: ServerMessage;
         try {
           m = JSON.parse(e.data) as ServerMessage;
@@ -77,24 +117,37 @@ export function useTableSocket(tableId: string) {
         } else if (m.type === "replay") {
           if (m.replay) setReplay({ value: m.replay, at: Date.now() });
           else toast("There's no finished hand to replay yet.");
-        } else {
+        } else if (m.message !== STALE_ACTION) {
+          // (A stale action is a double tap the server ignored: nothing to tell the player.)
           toast(m.message);
         }
       };
-      ws.onclose = () => {
-        clearInterval(ping);
-        if (stopped) return;
-        failures = opened ? 1 : failures + 1;
-        setConnection(!opened && failures >= UNREACHABLE_AFTER ? "unreachable" : "reconnecting");
-        retry = setTimeout(connect, Math.min(10_000, 500 * 2 ** Math.min(failures, 5)));
-      };
+      // Only the current socket reconnects: an abandoned one closing late mustn't start a second.
+      ws.onclose = () => wsRef.current === ws && onClosed(opened);
     };
     connect();
+
+    // Back online, or back to the tab (phones freeze background tabs): reconnect
+    // now rather than at the end of a backoff, or check an open socket is alive.
+    const wake = () => {
+      if (stopped || document.visibilityState === "hidden") return;
+      const ws = wsRef.current;
+      if (ws?.readyState === WebSocket.OPEN) return checkAlive(ws);
+      if (ws?.readyState === WebSocket.CONNECTING) return;
+      if (ws) ws.onclose = null;
+      clearTimeout(retry);
+      connect();
+    };
+    window.addEventListener("online", wake);
+    document.addEventListener("visibilitychange", wake);
 
     return () => {
       stopped = true;
       clearTimeout(retry);
       clearInterval(ping);
+      clearTimeout(pongDue);
+      window.removeEventListener("online", wake);
+      document.removeEventListener("visibilitychange", wake);
       wsRef.current?.close(1000, "leaving");
     };
   }, [tableId, toast]);

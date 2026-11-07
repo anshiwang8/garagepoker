@@ -28,6 +28,9 @@ import { z } from "zod";
 // Primitives
 // ---------------------------------------------------------------------------
 
+/** The error for an action sent before the hand moved on (a double tap). Clients don't show it. */
+export const STALE_ACTION = "That action was already handled";
+
 /** Chips in integer cents. Capped well below 2^53 so sums stay exact. */
 export const cents = z.number().int().min(0).max(1e13);
 export const positiveCents = cents.min(1);
@@ -114,7 +117,12 @@ export const clientMessageSchema = z.discriminatedUnion("type", [
   msg("cancelRequest", {}),
   msg("requestRebuy", { amount: positiveCents }),
   /** `hand` guards against acting on a hand that already ended. */
-  msg("act", { hand: z.number().int().min(1), action: playerActionSchema }),
+  /**
+   * `seq` is the hand's log length the client saw (`hand.log.length`). The
+   * server ignores the action if the hand has moved on, so a double tap can't
+   * act twice. Optional so older clients keep working.
+   */
+  msg("act", { hand: z.number().int().min(1), seq: z.number().int().min(0).optional(), action: playerActionSchema }),
   msg("setAway", { away: z.boolean() }),
   msg("leaveSeat", {}),
   /** Answer the run-it-twice prompt (anyone in the pot, within 5 s). */
@@ -134,7 +142,7 @@ export const clientMessageSchema = z.discriminatedUnion("type", [
       .refine((cs) => new Set(cs).size === cs.length, "Each card once"),
   }),
   /** Pineapple: discard one of your cards (face down, everyone at once). */
-  msg("discard", { hand: z.number().int().min(1), card: z.string().regex(/^[2-9TJQKA][cdhs]$/) }),
+  msg("discard", { hand: z.number().int().min(1), seq: z.number().int().min(0).optional(), card: z.string().regex(/^[2-9TJQKA][cdhs]$/) }),
   /** Ask for the last finished hand's replay; answered to you only. */
   msg("getReplay", {}),
 
@@ -181,7 +189,8 @@ export interface TableView {
    * "waitingForPlayers": paused automatically because fewer than 2 seated
    * players are active between hands. Only the owner can press Start.
    */
-  pausedReason: "waitingForPlayers" | null;
+  /** "error": a hand was cancelled after a server error, stacks restored. */
+  pausedReason: "waitingForPlayers" | "error" | null;
   endRequested: boolean;
   settings: TableSettings;
   /** Settings saved during a hand, applied from the next one. */

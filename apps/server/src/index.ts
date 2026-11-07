@@ -15,8 +15,11 @@ import {
 	ALARM_CLAMP_MS,
 	CREATE_TABLE_LIMIT,
 	CREATE_TABLE_WINDOW_MS,
+	MESSAGE_BURST,
+	MESSAGE_WINDOW_MS,
 	parseAllowedOrigins,
 	scheduleAlarm,
+	STALE_SOCKET_MS,
 } from "./limits.js";
 import { buildReplay } from "./replay.js";
 import { buildView } from "./view.js";
@@ -30,7 +33,10 @@ const cryptoRandom: RandomSource = (buf) => {
 interface Attachment {
 	/** Set by the "hello" message. */
 	playerId: string | null;
+	/** Real time (ms) of the last message from this socket, or when it opened. */
+	seenAt?: number;
 }
+
 
 /**
  * One TableRoom per table. Validates every message with Zod, runs it through
@@ -42,6 +48,10 @@ export class TableRoom extends DurableObject<Env> {
 
 	/** The clock. Tests replace this to drive timers. */
 	now: () => number = () => Date.now();
+	/** Real time, for socket liveness (keep-alive timestamps are real). Tests may replace it. */
+	realNow: () => number = () => Date.now();
+	/** In memory only; resets when the object hibernates, which is fine for a rate limit. */
+	private budgets = new Map<WebSocket, { start: number; count: number }>();
 
 	constructor(ctx: DurableObjectState, env: Env) {
 		super(ctx, env);
@@ -68,12 +78,14 @@ export class TableRoom extends DurableObject<Env> {
 		if (!this.data) return new Response("Table not found", { status: 404 });
 		const { 0: client, 1: server } = new WebSocketPair();
 		this.ctx.acceptWebSocket(server);
-		server.serializeAttachment({ playerId: null } satisfies Attachment);
+		server.serializeAttachment({ playerId: null, seenAt: this.realNow() } satisfies Attachment);
 		return new Response(null, { status: 101, webSocket: client });
 	}
 
 	async webSocketMessage(ws: WebSocket, raw: string | ArrayBuffer): Promise<void> {
 		if (!this.data) return ws.close(1011, "Table not found");
+		if (!this.withinBudget(ws)) return send(ws, { type: "error", message: "Too many messages: slow down" });
+		ws.serializeAttachment({ ...attachment(ws), seenAt: this.realNow() } satisfies Attachment);
 		if (typeof raw !== "string" || raw.length > MAX_CLIENT_MESSAGE_BYTES) {
 			return send(ws, { type: "error", message: "Message too large or not text" });
 		}
@@ -90,10 +102,18 @@ export class TableRoom extends DurableObject<Env> {
 		const m = parsed.data;
 
 		if (m.type === "hello") {
-			await this.mutate(ws, m.type, (table) => {
-				const playerId = table.hello(m.token);
-				ws.serializeAttachment({ playerId } satisfies Attachment);
-			});
+			const before = attachment(ws);
+			await this.mutate(
+				ws,
+				m.type,
+				(table) => {
+					const playerId = table.hello(m.token);
+					ws.serializeAttachment({ ...before, playerId } satisfies Attachment);
+				},
+				undefined,
+				// Rolled back: this socket must not keep a player id the table doesn't know.
+				() => ws.serializeAttachment(before),
+			);
 			return;
 		}
 		const playerId = attachment(ws).playerId;
@@ -104,6 +124,7 @@ export class TableRoom extends DurableObject<Env> {
 	}
 
 	async webSocketClose(ws: WebSocket): Promise<void> {
+		this.budgets.delete(ws);
 		await this.mutate(null, undefined, () => {}, ws);
 	}
 
@@ -112,7 +133,41 @@ export class TableRoom extends DurableObject<Env> {
 	}
 
 	async alarm(): Promise<void> {
+		this.closeStaleSockets();
 		await this.mutate(null, undefined, () => {});
+	}
+
+	/** True while a socket is within its message budget. */
+	private withinBudget(ws: WebSocket): boolean {
+		const now = this.realNow();
+		const b = this.budgets.get(ws);
+		if (!b || now - b.start >= MESSAGE_WINDOW_MS) {
+			this.budgets.set(ws, { start: now, count: 1 });
+			return true;
+		}
+		b.count++;
+		return b.count <= MESSAGE_BURST;
+	}
+
+	/** Has this socket been heard from lately (a message, or a keep-alive ping)? */
+	private isLive(ws: WebSocket): boolean {
+		const pinged = this.ctx.getWebSocketAutoResponseTimestamp(ws)?.getTime() ?? 0;
+		const last = Math.max(attachment(ws).seenAt ?? 0, pinged);
+		// (Sockets from before seenAt existed have neither: treat them as live.)
+		return last === 0 || this.realNow() - last < STALE_SOCKET_MS;
+	}
+
+	/** Closes sockets that went silent (a half-open connection); the client reconnects if it's still there. */
+	private closeStaleSockets(): void {
+		for (const ws of this.ctx.getWebSockets()) {
+			if (!this.isLive(ws)) {
+				try {
+					ws.close(4000, "No keep-alive");
+				} catch {
+					// Already closing.
+				}
+			}
+		}
 	}
 
 	// -------------------------------------------------------------------------
@@ -120,7 +175,7 @@ export class TableRoom extends DurableObject<Env> {
 	private connectedIds(closing?: WebSocket): Set<string> {
 		const ids = new Set<string>();
 		for (const ws of this.ctx.getWebSockets()) {
-			if (ws === closing) continue;
+			if (ws === closing || !this.isLive(ws)) continue;
 			const id = attachment(ws).playerId;
 			if (id) ids.add(id);
 		}
@@ -133,31 +188,44 @@ export class TableRoom extends DurableObject<Env> {
 
 	/**
 	 * Applies a change and everything that follows from it (timers, presence),
-	 * then persists and broadcasts. On any error the table is left untouched.
+	 * then persists and broadcasts.
+	 *
+	 * A player's mistake (TableError) leaves the table untouched. Anything else
+	 * is a bug: the change is undone, and if the table can't even run its own
+	 * timers without it (state that throws on every wake), the hand is
+	 * cancelled with stacks restored and the table paused, rather than left
+	 * frozen with no alarm. Either way the table is saved and its next alarm
+	 * set.
 	 */
 	private async mutate(
 		ws: WebSocket | null,
 		type: ClientMessageType | undefined,
 		change: (table: Table) => void,
 		closing?: WebSocket,
+		onRollback?: () => void,
 	): Promise<void> {
 		if (!this.data) return;
 		const before = structuredClone(this.data);
 		let table: Table;
 		try {
 			change(new Table(this.data, this.deps(closing)));
-			// hello may have added a connection, so recompute presence before timers.
-			table = new Table(this.data, this.deps(closing));
-			table.syncPresence();
-			table.tick();
-			// A hand just started: commit to its deck before anyone sees it.
-			if (this.data.fairness && this.data.fairness.commitment === null) await seal(this.data.fairness);
+			table = await this.advance(closing);
 		} catch (err) {
 			this.data = before;
-			if (!(err instanceof TableError)) console.error("TableRoom error", err);
+			onRollback?.();
 			const message = err instanceof TableError ? err.message : "Something went wrong";
 			if (ws) send(ws, { type: "error", message, ...(type && { for: type }) });
-			return;
+			if (err instanceof TableError) return;
+			console.error("TableRoom error", err);
+			try {
+				table = await this.advance(closing);
+			} catch (again) {
+				console.error("TableRoom recovering: cancelling the hand", again);
+				this.data = structuredClone(before);
+				table = new Table(this.data, this.deps(closing));
+				table.recover();
+				table.syncPresence();
+			}
 		}
 		if (table.shouldDelete()) {
 			await this.destroy();
@@ -166,6 +234,16 @@ export class TableRoom extends DurableObject<Env> {
 		this.data.rev++;
 		await this.persist(table);
 		this.broadcast(closing);
+	}
+
+	/** Presence and timers after a change; commits to a new hand's deck before anyone sees it. */
+	private async advance(closing?: WebSocket): Promise<Table> {
+		// hello may have added a connection, so recompute presence before timers.
+		const table = new Table(this.data!, this.deps(closing));
+		table.syncPresence();
+		table.tick();
+		if (this.data!.fairness && this.data!.fairness.commitment === null) await seal(this.data!.fairness);
+		return table;
 	}
 
 	private async persist(table: Table): Promise<void> {

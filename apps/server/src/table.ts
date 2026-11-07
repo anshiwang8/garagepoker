@@ -38,7 +38,7 @@ import {
   validateConfig,
   VARIANTS,
 } from "@garagepoker/engine";
-import type { ClientMessage, TableStatus } from "@garagepoker/protocol";
+import { type ClientMessage, STALE_ACTION, type TableStatus } from "@garagepoker/protocol";
 import { type FairnessSecret, newSalts } from "./fairness.js";
 
 export const AUTO_START_DELAY_MS = 3_000;
@@ -51,6 +51,12 @@ export const TIME_BANK_REFILL_MS = 10_000;
 export const MAX_SEATS = 9;
 /** SPEC §2.7: players have 5 s to accept running it twice. */
 export const RIT_DECISION_MS = 5_000;
+/** A player who drops out while using their time bank gets this long to come back. */
+export const DISCONNECT_GRACE_MS = 15_000;
+/** Visitors who never sat are forgotten once a table has this many players on record... */
+export const PRUNE_PLAYERS_AT = 200;
+/** ...and a table refuses new browsers beyond this. */
+export const MAX_PLAYERS = 500;
 
 /** An error the player caused; its message is shown to them. */
 export class TableError extends Error {
@@ -99,8 +105,11 @@ export interface TableHandRecord {
   players: { seat: number; playerId: string; nickname: string }[];
 }
 
-/** "waitingForPlayers": fewer than 2 active players between hands (SPEC §4). */
-export type PausedReason = "waitingForPlayers" | null;
+/**
+ * "waitingForPlayers": fewer than 2 active players between hands (SPEC §4).
+ * "error": a hand was cancelled after an unexpected server error.
+ */
+export type PausedReason = "waitingForPlayers" | "error" | null;
 
 /** The timers that can wake a TableRoom. */
 export type AlarmTimer = "turn" | "nextHand" | "runItTwice" | "discard" | "idleDelete";
@@ -109,6 +118,10 @@ export interface TurnTimer {
   seat: number;
   decisionDeadline: number;
   bankDeadline: number;
+  /** The player was connected at the decision deadline and is using their time bank. */
+  inBank?: boolean;
+  /** They dropped out while in the bank: auto-act at this time unless they're back. */
+  graceDeadline?: number | null;
 }
 
 export interface LastHand {
@@ -264,10 +277,49 @@ export class Table {
   hello(token: string): string {
     let p = this.data.players.find((x) => x.token === token);
     if (!p) {
+      if (this.data.players.length >= PRUNE_PLAYERS_AT) this.prunePlayers();
+      if (this.data.players.length >= MAX_PLAYERS) throw new TableError("This table has too many visitors");
       p = { playerId: randomId(12, this.deps.random), token, notice: null };
       this.data.players.push(p);
     }
     return p.playerId;
+  }
+
+  /**
+   * Forgets browsers that only ever looked: not connected, never seated or in
+   * the ledger, not the owner, no request pending. Keeps the stored table small
+   * however many people open the link.
+   */
+  private prunePlayers() {
+    const d = this.data;
+    const keep = new Set<string>([d.ownerId, ...d.requests.map((r) => r.playerId), ...this.deps.connected]);
+    for (const s of d.seats) if (s) keep.add(s.playerId);
+    for (const e of d.ledger) keep.add(e.playerId);
+    d.players = d.players.filter((p) => keep.has(p.playerId));
+  }
+
+  /**
+   * Recovers from an unexpected error (a bug, not a player's mistake): cancels
+   * the hand in progress, puts every stack back to where it was when the hand
+   * started, and pauses the table so it can't fail the same way on the next
+   * timer. The owner presses Start to carry on.
+   */
+  recover(): void {
+    const d = this.data;
+    const started = d.handRecord?.record.input.players ?? [];
+    if (d.hand) {
+      for (const p of started) {
+        const seat = this.seat(p.seat);
+        if (seat) seat.stack = p.stack;
+      }
+    }
+    d.hand = null;
+    d.handRecord = null;
+    d.turn = null;
+    d.ritDeadline = null;
+    d.discardDeadline = null;
+    d.fairness = null;
+    this.pause("error");
   }
 
   handle(playerId: string, m: Exclude<ClientMessage, { type: "hello" | "getReplay" }>): void {
@@ -284,7 +336,7 @@ export class Table {
       case "requestRebuy":
         return this.requestRebuy(playerId, m.amount);
       case "act":
-        return this.act(playerId, m.hand, m.action);
+        return this.act(playerId, m.hand, m.action, m.seq);
       case "setAway": {
         const seat = this.requireSeated(playerId);
         seat.away = m.away;
@@ -301,7 +353,7 @@ export class Table {
       case "showCards":
         return this.showCards(playerId, m.hand, m.cards);
       case "discard":
-        return this.discard(playerId, m.hand, m.card);
+        return this.discard(playerId, m.hand, m.card, m.seq);
     }
 
     // Owner only from here.
@@ -352,12 +404,28 @@ export class Table {
   /** Runs whatever is due: turn timeouts, the next hand, owner hand-off. */
   tick(): void {
     const d = this.data;
+    // Someone leaving or kicked mid-hand doesn't hold the hand up: they check or fold at once.
+    for (let guard = 0; d.hand && d.turn && this.seat(d.turn.seat)?.leaving && guard < MAX_SEATS; guard++) {
+      this.timeout(d.turn, false);
+    }
     const turn = d.turn;
     if (d.hand && turn && this.now >= turn.decisionDeadline) {
       const seat = this.seat(turn.seat)!;
       const connected = this.deps.connected.has(seat.playerId);
-      // Connected players dip into their time bank; disconnected ones don't.
-      if (!connected || this.now >= turn.bankDeadline) this.timeout(turn, connected);
+      if (connected) {
+        // Connected players dip into their time bank.
+        turn.inBank = true;
+        turn.graceDeadline = null;
+        if (this.now >= turn.bankDeadline) this.timeout(turn, true);
+      } else if (!turn.inBank) {
+        // Disconnected at the deadline: no time bank (SPEC §4).
+        this.timeout(turn, false);
+      } else if (turn.graceDeadline == null) {
+        // Dropped out while in the bank: a short grace to reconnect, not an instant fold.
+        turn.graceDeadline = Math.min(turn.bankDeadline, this.now + DISCONNECT_GRACE_MS);
+      } else if (this.now >= turn.graceDeadline) {
+        this.timeout(turn, true);
+      }
     }
     if (d.hand?.ritOffer && d.ritDeadline !== null && this.now >= d.ritDeadline) {
       // No answer in time: it runs once (SPEC §2.7).
@@ -406,7 +474,8 @@ export class Table {
     if (d.hand && d.turn) {
       // At the decision deadline a disconnected player times out; a connected
       // one moves on to the time bank, which is still in the future.
-      const at = this.now < d.turn.decisionDeadline ? d.turn.decisionDeadline : d.turn.bankDeadline;
+      let at = this.now < d.turn.decisionDeadline ? d.turn.decisionDeadline : d.turn.bankDeadline;
+      if (d.turn.graceDeadline != null) at = Math.min(at, d.turn.graceDeadline);
       due.push({ at, timer: "turn" });
     }
     // tick() only starts a hand between hands.
@@ -800,9 +869,10 @@ export class Table {
     }
   }
 
-  private discard(playerId: string, hand: number, cardText: string) {
+  private discard(playerId: string, hand: number, cardText: string, seq?: number) {
     const d = this.data;
     if (!d.hand || hand !== d.handNumber) throw new TableError("That hand is over");
+    this.checkSeq(seq);
     if (!d.hand.discard) throw new TableError("Nobody is discarding now");
     const n = this.seatNumberOf(playerId);
     if (n === null || !d.hand.discard.pending.includes(n)) throw new TableError("You have nothing to discard");
@@ -819,9 +889,10 @@ export class Table {
     d.handRecord?.record.actions.push(action);
   }
 
-  private act(playerId: string, hand: number, action: Extract<ClientMessage, { type: "act" }>["action"]) {
+  private act(playerId: string, hand: number, action: Extract<ClientMessage, { type: "act" }>["action"], seq?: number) {
     const d = this.data;
     if (!d.hand || hand !== d.handNumber) throw new TableError("That hand is over");
+    this.checkSeq(seq);
     const n = this.seatNumberOf(playerId);
     if (n === null || d.hand.toAct !== n) throw new TableError("It's not your turn");
     const engineAction =
@@ -838,6 +909,15 @@ export class Table {
       seat.timeBankMs = Math.max(0, seat.timeBankMs - used);
     }
     this.afterAction();
+  }
+
+  /**
+   * The client sends the log length it saw; anything older was sent before
+   * the hand moved on (a double tap, a slow network) and is dropped, so it
+   * can't land on the next player's turn or the next street.
+   */
+  private checkSeq(seq: number | undefined) {
+    if (seq !== undefined && seq !== this.data.hand!.log.length) throw new TableError(STALE_ACTION);
   }
 
   /** Time's up: check if free, otherwise fold. */

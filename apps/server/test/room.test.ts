@@ -3,6 +3,7 @@ import type { ClientMessage } from "@garagepoker/protocol";
 import { env, evictDurableObject, runDurableObjectAlarm, runInDurableObject, SELF } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import type { TableRoom } from "../src/index.js";
+import type { TableData } from "../src/table.js";
 import { Client, createTable, freshIp, ORIGIN, step, token } from "./helpers.js";
 
 type PlayerAction = Extract<ClientMessage, { type: "act" }>["action"];
@@ -438,5 +439,55 @@ describe("playing hands over WebSockets", () => {
 		// Alice (to act, facing the BB) was folded; Bob wins the blinds.
 		expect(alice.view.hand).toBeNull();
 		expect(alice.view.seats[0]).toMatchObject({ stack: 99_000, timeBankMs: 0 });
+	});
+});
+
+describe("reliability", () => {
+	it("cancels the hand and pauses, instead of freezing, when the table's own timer throws", async () => {
+		const { tableId, alice, all } = await twoPlayerTable();
+		await step(all, alice, { type: "startGame" });
+		await step(all, alice, { type: "act", hand: 1, action: { type: "raise", to: 6_000 } });
+		const stub = env.TABLE.getByName(tableId);
+		// A bug stand-in: the turn points at an empty seat, so tick() throws a
+		// TypeError (not a game error) every time the alarm fires.
+		await runInDurableObject(stub, (room: TableRoom) => {
+			(room as unknown as { data: TableData }).data.turn!.seat = 7;
+			const start = Date.now();
+			room.now = () => start + 81_000;
+		});
+		const rev = alice.rev;
+		expect(await runDurableObjectAlarm(stub)).toBe(true);
+		await alice.waitForRev(rev + 1);
+		expect(alice.view).toMatchObject({ status: "paused", pausedReason: "error", hand: null });
+		expect(alice.view.seats.slice(0, 2).map((s) => s!.stack)).toEqual([100_000, 60_000]);
+		// The owner carries on with a new hand.
+		await step(all, alice, { type: "startGame" });
+		expect(alice.view.hand!.number).toBe(2);
+	});
+
+	it("limits how fast one socket can send", async () => {
+		const { alice } = await twoPlayerTable();
+		const n = alice.raw.length;
+		for (let i = 0; i < 60; i++) alice.send({ type: "cancelRequest" });
+		await alice.until(
+			() => alice.messages.slice(n).some((m) => m.type === "error" && /slow down/.test(m.message)),
+			"the rate-limit error",
+		);
+	});
+
+	it("treats a socket that has gone silent as disconnected, and closes it on the next alarm", async () => {
+		const { tableId, alice, bob } = await twoPlayerTable();
+		const stub = env.TABLE.getByName(tableId);
+		const closed = new Promise<void>((resolve) => bob.ws.addEventListener("close", () => resolve()));
+		await runInDurableObject(stub, (room: TableRoom) => {
+			const start = Date.now();
+			room.realNow = () => start + 80_000;
+		});
+		// Alice speaks (so she's live at the new time); Bob has been silent for 80 s.
+		await alice.request({ type: "setAway", away: false });
+		expect(alice.view.seats[0]).toMatchObject({ connected: true });
+		expect(alice.view.seats[1]).toMatchObject({ connected: false });
+		await runInDurableObject(stub, (room: TableRoom) => room.alarm());
+		await closed;
 	});
 });

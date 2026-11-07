@@ -2,6 +2,7 @@
 
 import type { ClientMessage, TableView } from "@garagepoker/protocol";
 import { useState } from "react";
+import { useSent } from "@/lib/useSent";
 import { PlayingCard } from "./PlayingCard";
 
 type Send = (m: Exclude<ClientMessage, { type: "hello" }>) => void;
@@ -16,6 +17,8 @@ export function DiscardPicker({ view, send, now }: { view: TableView; send: Send
   const me = view.you.seat;
   const cards = me !== null ? view.seats[me - 1]?.cards : null;
   const [picked, setPicked] = useState<string | null>(null);
+  const seq = view.hand?.log.length ?? 0;
+  const [sent, markSent] = useSent(`${view.handNumber}:${seq}`);
   if (!phase || me === null || !cards) return null;
 
   const seconds = Math.max(0, Math.ceil((phase.deadline - now) / 1000));
@@ -54,10 +57,11 @@ export function DiscardPicker({ view, send, now }: { view: TableView; send: Send
         </div>
         <button
           type="button"
-          disabled={!choice}
+          disabled={!choice || sent}
           onClick={() => {
-            if (!choice) return;
-            send({ type: "discard", hand: view.handNumber, card: choice });
+            if (!choice || sent) return;
+            markSent();
+            send({ type: "discard", hand: view.handNumber, seq, card: choice });
             setPicked(null);
           }}
           className="min-h-14 w-28 shrink-0 rounded-lg border-[1.5px] border-[#ef4444] font-semibold uppercase tracking-wide text-[#f87171] active:bg-[#ef4444] active:text-white disabled:opacity-30"

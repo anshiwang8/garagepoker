@@ -33,3 +33,10 @@ export function parseAllowedOrigins(value: string | undefined): string[] {
 /** POST /api/tables: at most this many per client IP per window. */
 export const CREATE_TABLE_LIMIT = 5;
 export const CREATE_TABLE_WINDOW_MS = 60_000;
+
+/** A socket silent this long (no message, no keep-alive ping) counts as disconnected. Clients ping every 25 s. */
+export const STALE_SOCKET_MS = 75_000;
+
+/** Per-socket message budget: at most MESSAGE_BURST messages in any MESSAGE_WINDOW_MS. */
+export const MESSAGE_BURST = 40;
+export const MESSAGE_WINDOW_MS = 10_000;

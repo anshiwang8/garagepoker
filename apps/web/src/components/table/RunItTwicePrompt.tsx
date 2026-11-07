@@ -1,6 +1,7 @@
 "use client";
 
 import type { ClientMessage, TableView } from "@garagepoker/protocol";
+import { useSent } from "@/lib/useSent";
 import { Button } from "../ui";
 
 type Send = (m: Exclude<ClientMessage, { type: "hello" }>) => void;
@@ -12,6 +13,8 @@ type Send = (m: Exclude<ClientMessage, { type: "hello" }>) => void;
  */
 export function RunItTwicePrompt({ view, send, now }: { view: TableView; send: Send; now: number }) {
   const offer = view.hand?.ritOffer;
+  // Answers are logged, so the log length moves on once the server has ours.
+  const [sent, markSent] = useSent(`${view.handNumber}:${view.hand?.log.length ?? 0}`);
   if (!offer) return null;
   const seconds = Math.max(0, Math.ceil((offer.deadline - now) / 1000));
   const me = view.you.seat;
@@ -19,7 +22,11 @@ export function RunItTwicePrompt({ view, send, now }: { view: TableView; send: S
   const waitingOn = offer.seats
     .filter((s) => !offer.accepted.includes(s))
     .map((s) => view.seats[s - 1]?.nickname ?? `Seat ${s}`);
-  const answer = (accept: boolean) => send({ type: "runItTwice", hand: view.handNumber, accept });
+  const answer = (accept: boolean) => {
+    if (sent) return;
+    markSent();
+    send({ type: "runItTwice", hand: view.handNumber, accept });
+  };
 
   return (
     <div role="alertdialog" aria-label="Run it twice?" className="rounded-xl border border-gold/60 bg-gold/10 px-3 py-2.5">
@@ -37,10 +44,10 @@ export function RunItTwicePrompt({ view, send, now }: { view: TableView; send: S
       </div>
       {mustAnswer ? (
         <div className="mt-2 flex gap-2">
-          <Button className="flex-1 py-2.5" onClick={() => answer(false)}>
+          <Button className="flex-1 py-2.5" disabled={sent} onClick={() => answer(false)}>
             No, once
           </Button>
-          <Button variant="primary" className="flex-1 py-2.5" onClick={() => answer(true)}>
+          <Button variant="primary" className="flex-1 py-2.5" disabled={sent} onClick={() => answer(true)}>
             Yes, twice
           </Button>
         </div>

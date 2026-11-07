@@ -54,6 +54,8 @@ export function TableScreen({
   initialRaising?: boolean;
 }) {
   const [dialog, setDialog] = useState<Dialog>(null);
+  /** The final ledger opens by itself when the game ends; once closed it stays in Options. */
+  const [finalLedgerClosed, setFinalLedgerClosed] = useState(false);
   const close = () => setDialog(null);
   const countdown = countdownFor(view, now);
   const canSit = view.you.seat === null && !view.you.request && view.status !== "ended";
@@ -119,7 +121,9 @@ export function TableScreen({
       )}
       {/* Never over the action row: requests wait until you've acted. */}
       {view.you.isOwner && dialog?.kind !== "players" && !view.you.legal && <ApprovalPopup view={view} send={send} />}
-      {view.status === "ended" && !dialog && !replay && <LedgerDialog view={view} />}
+      {view.status === "ended" && !dialog && !replay && !finalLedgerClosed && (
+        <LedgerDialog view={view} onClose={() => setFinalLedgerClosed(true)} />
+      )}
       {replay && <ReplayDialog key={replay.hand} replay={replay} displayCents={view.settings.displayCents} onClose={closeReplay} />}
 
       {/* Toasts: server errors and notices */}

@@ -40,6 +40,7 @@ export function tableStateText(view: TableView): string | null {
   if (view.status === "ended") return "Game over";
   const active = view.seats.filter((s) => s && !s.away && s.stack > 0).length;
   if (view.status === "paused") {
+    if (view.pausedReason === "error") return "Hand cancelled after an error: stacks restored";
     if (view.pausedReason === "waitingForPlayers" || active < 2) return "Waiting for players";
     if (view.handNumber === 0) return "Waiting for the owner to start";
     return "Paused by owner";
