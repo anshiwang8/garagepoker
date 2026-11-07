@@ -8,14 +8,15 @@ Positioning: *PokerNow-style tables, every game your group actually plays, no pa
 
 ## 1. Game model
 
-Variants are built from six parameters. Every "mode" is a preset; a new variant should be a config row, not new code.
+Variants are built from seven parameters. Every "mode" is a preset; a new variant should be a config row, not new code.
 
 | Parameter | Values |
 | --- | --- |
 | Hole cards | 2, 4, 5 |
 | Deck | 52, 36 (short deck, 6 to A) |
 | Betting | No-limit, pot-limit |
-| Hand rule | Best 5 of all cards; or exactly 2 hole + 3 board (Omaha) |
+| Board | 5 in a row, dealt 3 / 1 / 1; or a 3×3 grid, dealt 4 / 3 / 2 (Tic-Tac-Toe) |
+| Hand rule | Best 5 of all cards; exactly 2 hole + 3 board (Omaha); or exactly 2 hole + one full line of the grid (Tic-Tac-Toe) |
 | Pot split | High only; high/low 8-or-better |
 | Discards | None; 1 each preflop, flop, turn (Pineapple) |
 
@@ -28,21 +29,23 @@ Two **table modifiers** work with any variant:
 
 ### Presets
 
-| Preset | Hole | Deck | Betting | Hand rule | Split | Discards |
-| --- | --- | --- | --- | --- | --- | --- |
-| NLH (default) | 2 | 52 | NL | Best 5 | Hi | None |
-| PLO | 4 | 52 | PL | 2 + 3 | Hi | None |
-| PLO5 | 5 | 52 | PL | 2 + 3 | Hi | None |
-| PLO Hi/Lo | 4 | 52 | PL | 2 + 3, each half | Hi/Lo 8 | None |
-| PLO5 Hi/Lo | 5 | 52 | PL | 2 + 3, each half | Hi/Lo 8 | None |
-| Pineapple (5-card) | 5 | 52 | NL | Best 5 | Hi | Preflop, flop, turn |
-| Short deck | 2 | 36 | NL | Best 5 | Hi | None |
+| Preset | Hole | Deck | Board | Betting | Hand rule | Split | Discards |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| NLH (default) | 2 | 52 | Row | NL | Best 5 | Hi | None |
+| PLO | 4 | 52 | Row | PL | 2 + 3 | Hi | None |
+| PLO5 | 5 | 52 | Row | PL | 2 + 3 | Hi | None |
+| PLO Hi/Lo | 4 | 52 | Row | PL | 2 + 3, each half | Hi/Lo 8 | None |
+| PLO5 Hi/Lo | 5 | 52 | Row | PL | 2 + 3, each half | Hi/Lo 8 | None |
+| Pineapple (5-card) | 5 | 52 | Row | NL | Best 5 | Hi | Preflop, flop, turn |
+| Short deck | 2 | 36 | Row | NL | Best 5 | Hi | None |
+| Tic-Tac-Toe Hold'em | 2 | 52 | Grid | NL | 2 + line | Hi | None |
 
 ### Variant rules
 
 - **Pineapple (5-card):** each player is dealt 5 and discards 1 preflop, 1 after the flop and 1 after the turn, so they hold 2 on the river. Showdown is best 5 of 7. Everyone discards face down at the same time, before betting on that street. If the timer expires, the engine discards the player's lowest card.
 - **Short deck:** 36 cards (6 through A). Flush beats full house. Three of a kind beats a straight (Triton rules). A-6-7-8-9 is the lowest straight.
 - **Hi/Lo:** a low must be 8-or-better with 5 distinct ranks, ace plays low. In Omaha, both the high and the low use exactly 2 hole + 3 board, and can use different hole cards.
+- **Tic-Tac-Toe Hold'em:** the board is 9 cards in a 3×3 grid. The flop is the 4 corners, the turn is the middle row (left, centre, right) and the river is the top-middle and bottom-middle squares. A hand is both hole cards plus the 3 cards of one line: a row, a column or a diagonal (8 lines). No line is complete after the flop; after the turn the middle row, both outer columns and both diagonals are; the river completes the top row, bottom row and middle column. Before a line is complete, labels count the hole cards plus the line's dealt cards, as Omaha does preflop. High only.
 - **Bomb pots:** every player who isn't away antes (default 2 BB). There is no preflop betting; action starts on the flop. Away players are not included. UTG straddle is off during bomb pots.
 
 ---
@@ -62,7 +65,7 @@ Two **table modifiers** work with any variant:
    - Both together give quartered pots.
    - Ties split evenly.
    - Odd chips go to the high hand, then to the first seat left of the button.
-6. **Hand labels.** Show every player's current best hand at all times: "Top pair", "Straight", "Flush", and so on. In Omaha, the label must obey the exactly 2 + 3 rule. In Hi/Lo, show both halves, e.g. "Flush / 8-6 low".
+6. **Hand labels.** Show every player's current best hand at all times: "Top pair", "Straight", "Flush", and so on. In Omaha, the label must obey the exactly 2 + 3 rule; in Tic-Tac-Toe, the 2 + line rule. In Hi/Lo, show both halves, e.g. "Flush / 8-6 low".
 7. **Run it twice.**
    - Only offered when every remaining player is all-in (or all but one) and no more action is possible.
    - Every player in the pot must accept; any decline or a 5-second timeout means it runs once.
@@ -82,10 +85,10 @@ Two **table modifiers** work with any variant:
 Formula the engine enforces when the owner saves settings:
 
 ```
-seats × hole cards + boards × 5 × runs ≤ deck size
+seats × hole cards + boards × board cards × runs ≤ deck size
 ```
 
-`runs` = 2 when run it twice is enabled, otherwise 1. If a setting fails, grey out the offending option in the UI with the reason. Never fail mid-hand.
+`board cards` is 5, or 9 for the Tic-Tac-Toe grid. `runs` = 2 when run it twice is enabled, otherwise 1. If a setting fails, grey out the offending option in the UI with the reason. Never fail mid-hand.
 
 | Config (8 seats, no burns) | Deck | Cards needed | With run it twice |
 | --- | --- | --- | --- |
@@ -97,6 +100,8 @@ seats × hole cards + boards × 5 × runs ≤ deck size
 | PLO5, double board | 52 | 50 | **60 (not allowed)** |
 | Short deck | 36 | 21 | 26 |
 | Short deck, double board | 36 | 26 | 36 |
+| Tic-Tac-Toe | 52 | 25 | 34 |
+| Tic-Tac-Toe, double board | 52 | 34 | **52** |
 
 ---
 
@@ -191,6 +196,7 @@ Phone portrait first (390×844; also 360×740 and 430×932), desktop second (≥
   - The pot pill, showing the collected pot, with a small "total X" tag (pot plus this street's bets) while bets are out.
   - After a hand, a one-line result ("B1 high: Ann 60 · B2 high: Bob 60") with a Details link to the full breakdown (winners, Verify, run twice).
   - The board: up to 5 cards, as large as fit, with no placeholders for cards not yet dealt. A double board (or run twice) stacks rows labelled "B1"/"B2" (or "R1"/"R2").
+  - Tic-Tac-Toe: each board is a 3×3 grid of squares; undealt squares are faint outlines so the grid keeps its shape. Several boards or runs sit side by side, labelled the same way. At showdown, the line each winner used is highlighted.
   - Table info: "OWNER: NAME" and "NLH ~ 10 / 20".
   - When no hand is running (new, paused or waiting for players), the info shows that state ("Waiting for players", "Paused by owner") with a gold **Copy link** button that copies the table URL and briefly shows "Copied".
 - There are no chip graphics, only numbers.
