@@ -61,7 +61,7 @@ function boardRowsOf(view: TableView): { rows: BoardRowData[]; rabbitStrip: bool
       label: [multiRun && `R${r + 1}`, boards.length > 1 && `B${b + 1}`].filter(Boolean).join(" "),
       cards,
       hunted: r === 0 && result?.rabbit ? (result.rabbit.boards[b] ?? []) : [],
-      backs: r === 0 && rabbitStrip ? (result.rabbitBacks[b] ?? 0) : 0,
+      backs: r === 0 && rabbitStrip ? (result.rabbitBacks?.[b] ?? 0) : 0,
     })),
   );
   // Red river boards can be longer than 5 (and run 2 longer than run 1).

@@ -1,6 +1,6 @@
 "use client";
 
-import { type LogEntryView, shortHash, streetTitle, type TableView } from "@garagepoker/protocol";
+import { type LogEntryView, RED_RIVER_STOPS, shortHash, streetTitle, type TableView } from "@garagepoker/protocol";
 import { ChevronRight } from "lucide-react";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { copyText, Modal } from "../ui";
@@ -89,9 +89,6 @@ function Row({ onClick, note, children }: { onClick: () => void; note?: string; 
     </button>
   );
 }
-
-/** The log's note when the deck can't spare another red river card (spec §4.4). */
-export const RED_RIVER_STOPS = "No cards left: red river stops.";
 
 /**
  * This hand's actions (or the last hand's, until the next deal), one per line

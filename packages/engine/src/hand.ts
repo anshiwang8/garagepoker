@@ -94,7 +94,7 @@ export interface HandConfig {
    * without asking. Default "no".
    */
   runItTwice?: RunItTwiceMode;
-  /** Table toggle: the river is a red card or the hand is rerun. Ignored by grid boards. */
+  /** Table toggle: a red river deals another card, with betting, until a black one. Ignored by grid boards. */
   redRiver?: boolean;
 }
 

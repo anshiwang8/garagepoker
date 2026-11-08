@@ -15,7 +15,7 @@ import {
 	type Street,
 	streetOfPosition,
 } from "@garagepoker/engine";
-import { type ReplayEvent, type ReplayFrame, type ReplayView, streetTitle } from "@garagepoker/protocol";
+import { RED_RIVER_STOPS, type ReplayEvent, type ReplayFrame, type ReplayView, streetTitle } from "@garagepoker/protocol";
 import type { StoredHand } from "./session.js";
 import { isBlocked, needsCode, type TableData } from "./table.js";
 
@@ -141,9 +141,6 @@ export function buildReplay(data: TableData, viewerId: string, stored?: StoredHa
 // ---------------------------------------------------------------------------
 // Text export: the viewer's permitted history, one block per hand.
 // ---------------------------------------------------------------------------
-
-/** The note when the deck can't spare another red river card (spec §4.4). */
-const RED_RIVER_STOPS = "No cards left: red river stops.";
 
 /** "1980" or, in cent mode, "19.80". */
 function chips(amount: number, cents: boolean): string {

@@ -361,6 +361,9 @@ export interface LogEntryView {
   extraRound?: number;
 }
 
+/** The log/replay note when the deck can't spare another red river card (spec 4.4). */
+export const RED_RIVER_STOPS = "No cards left: red river stops.";
+
 /** "Flop", or "Red river 2" for a red river extra round; "" once the hand is complete. */
 export function streetTitle(street: Street, extraRound?: number): string {
   switch (street) {

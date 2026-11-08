@@ -30,6 +30,7 @@ describe("Learn mode rules text", () => {
   it("explains red river when on", () => {
     const on = extraRules({ ...DEFAULT_SETTINGS, redRiver: true });
     expect(on.some((r) => r.includes("Red river") && r.includes("betting"))).toBe(true);
+    expect(on.some((r) => r.includes("Hands use the whole board, however long."))).toBe(true);
   });
   it("says nothing about red river when off", () => {
     expect(extraRules({ ...DEFAULT_SETTINGS, redRiver: false }).some((r) => r.includes("Red river"))).toBe(false);

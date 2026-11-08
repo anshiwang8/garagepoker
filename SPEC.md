@@ -79,7 +79,7 @@ Three **table modifiers** work with any variant (Red river only with a row board
    - Each run takes half of each pot.
    - Disabled wherever the deck math fails (section 3). With red river it also needs at least one spare card per run for every board that currently ends red.
    - With red river, each run and each board carries on on its own: one run can end black on the river while the other draws extra cards. Cards are dealt in this order: run 1's remaining base streets, then run 2's, then extra cards round by round, one card to each board still ending red, in the order run 1 board 1, run 1 board 2, run 2 board 1, run 2 board 2.
-8. **Rabbit hunt.** When allowed, after a hand ends before the river, any player can reveal the cards that would have come. Display only; no effect on the pot. "Before the river" means before the board was finished, so it also applies to a fold during river betting or an extra round while a red card is showing. The cards shown are the rest of the base board, then extra cards while the last one is red.
+8. **Rabbit hunt.** When allowed, after a hand ends before the board was finished, any player can reveal the cards that would have come. Display only; no effect on the pot. It also applies to a fold during river betting or an extra round while a red card is showing. The cards shown are the rest of the base board, then extra cards while the last one is red.
 9. **Showdown.** When "reveal hands when no more action is possible" is on, all live hands are shown face up as soon as action is closed, before the remaining board is dealt.
 10. **Dealing.**
     - The deck is shuffled once per hand, server-side, before any card is dealt, using a CSPRNG with unbiased Fisher-Yates.

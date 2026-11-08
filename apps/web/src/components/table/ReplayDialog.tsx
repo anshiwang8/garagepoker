@@ -1,11 +1,10 @@
 "use client";
 
-import { type ReplayEvent, type ReplayView, streetTitle } from "@garagepoker/protocol";
+import { RED_RIVER_STOPS, type ReplayEvent, type ReplayView, streetTitle } from "@garagepoker/protocol";
 import { useEffect, useState } from "react";
 import { formatChips } from "@/lib/chips";
 import { Button, Modal } from "../ui";
 import { PlayingCard } from "./PlayingCard";
-import { RED_RIVER_STOPS } from "./OptionsSheet";
 import { actionText } from "./Seat";
 
 export function eventText(e: ReplayEvent, name: (seat: number) => string, dc: boolean, boards: number, twoRuns: boolean): string {
@@ -117,7 +116,7 @@ export function ReplayDialog({ replay, displayCents, onClose }: { replay: Replay
                   </span>
                 )}
                 {/* At least 5 slots; a red river board is longer, and wraps if it must. */}
-                <div className="flex min-w-0 flex-wrap gap-1">
+                <div className="flex min-w-0 flex-wrap gap-1.5">
                   {Array.from({ length: Math.max(5, cards.length) }, (_, i) =>
                     cards[i] ? <PlayingCard key={i} card={cards[i]!} w={24} h={34} /> : <div key={i} className="h-[34px] w-6 rounded border border-dashed border-white/15" />,
                   )}

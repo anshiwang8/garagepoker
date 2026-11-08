@@ -48,7 +48,7 @@ export interface TableSettings {
   sevenDeuceBB: number;
   /** House rule, mixed games: rotate through these games, one orbit each. Fewer than 2 is off. */
   mixedGames: VariantName[];
-  /** Table toggle: the river must be a red card (hearts or diamonds), else it is redealt. Not for Tic-Tac-Toe. */
+  /** Table toggle: a red river (hearts or diamonds) deals another card, with betting, until a black one. Row boards only, not Tic-Tac-Toe. */
   redRiver: boolean;
 }
 
@@ -82,6 +82,16 @@ export const DEFAULT_SETTINGS: TableSettings = {
 /** Whether red river can apply to this game: not for grid boards (Tic-Tac-Toe). */
 export function redRiverApplies(variant: VariantName): boolean {
   return (VARIANTS[variant].board as { grid?: unknown }).grid === undefined;
+}
+
+/**
+ * Whether the red river toggle is meaningful for these settings: the current game
+ * takes it, or a mixed rotation (2+ games) includes a row-board game. The server
+ * overwrites `variant` with the current game during a rotation, so a Tic-Tac-Toe
+ * orbit must not grey the toggle out (spec 4.7).
+ */
+export function redRiverAvailable(s: TableSettings): boolean {
+  return redRiverApplies(s.variant) || (s.mixedGames.length >= 2 && s.mixedGames.some(redRiverApplies));
 }
 
 export const MAX_SEVEN_DEUCE_BB = 20;

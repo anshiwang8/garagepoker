@@ -56,7 +56,7 @@ export function extraRules(s: TableSettings): string[] {
     s.straddle && "UTG straddle: the player after the big blind posts 2 big blinds before the cards are dealt.",
     s.redRiver &&
       redRiverApplies(s.variant) &&
-      "Red river: if the river card is red (hearts or diamonds), another card is dealt with a new betting round, and again while it stays red. Each board is dealt on its own.",
+      "Red river: if the river card is red (hearts or diamonds), another card is dealt with a new betting round, and again while it stays red. Each board is dealt on its own. Hands use the whole board, however long.",
   ].filter(Boolean) as string[];
 }
 

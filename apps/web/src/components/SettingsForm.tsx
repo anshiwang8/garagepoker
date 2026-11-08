@@ -9,7 +9,7 @@ import {
   MAX_BOMB_POT_ANTE_BB,
   MAX_SEATS,
   MIN_SEATS,
-  redRiverApplies,
+  redRiverAvailable,
   type TableSettings,
   validateConfig,
   VARIANT_NAMES,
@@ -261,7 +261,7 @@ export function SettingsForm({
             checked={s.redRiver}
             onChange={(v) => set("redRiver", v)}
             hint="A red river deals another card, with betting, until a black one."
-            disabledReason={redRiverApplies(s.variant) ? undefined : "Tic-Tac-Toe has no single river card."}
+            disabledReason={redRiverAvailable(s) ? undefined : "Tic-Tac-Toe has no single river card."}
           />
         </div>
       </Section>
@@ -468,7 +468,7 @@ function tableOptionsSummary(s: TableSettings): string {
     `run it twice: ${RIT_LABELS[s.runItTwice].toLowerCase()}`,
     s.straddle && "straddle",
     s.rabbitHunt && "rabbit hunt",
-    s.redRiver && redRiverApplies(s.variant) && "red river",
+    s.redRiver && redRiverAvailable(s) && "red river",
   ]
     .filter(Boolean)
     .join(" · ");

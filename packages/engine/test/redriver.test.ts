@@ -20,6 +20,7 @@ import {
   rabbitBacks,
   rabbitCards,
   redRiverApplies,
+  redRiverAvailable,
   replayHand,
   type RunItTwiceMode,
   streetOfPosition,
@@ -75,6 +76,14 @@ describe("red river settings", () => {
     expect(redRiverApplies("PLO")).toBe(true);
     expect(redRiverApplies("SHORT")).toBe(true);
     expect(redRiverApplies("TICTACTOE")).toBe(false);
+  });
+
+  it("is available in a mixed rotation that has a row-board game, even on a Tic-Tac-Toe orbit", () => {
+    const s = { ...DEFAULT_SETTINGS };
+    expect(redRiverAvailable({ ...s, variant: "TICTACTOE" })).toBe(false);
+    expect(redRiverAvailable({ ...s, variant: "NLH" })).toBe(true);
+    expect(redRiverAvailable({ ...s, variant: "TICTACTOE", mixedGames: ["NLH", "TICTACTOE"] })).toBe(true);
+    expect(redRiverAvailable({ ...s, variant: "TICTACTOE", mixedGames: ["TICTACTOE", "TICTACTOE"] })).toBe(false);
   });
 
   it("flows into the hand config, off for Tic-Tac-Toe", () => {
