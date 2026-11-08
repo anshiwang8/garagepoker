@@ -8,13 +8,18 @@ import {
   type HandConfig,
   type HandState,
   handConfigFor,
+  handValue,
+  huntable,
   isRed,
   legalActions,
   makeDeck,
   parseCard,
   parseCards,
   ROW_BOARD,
+  rabbitBacks,
+  rabbitCards,
   redRiverApplies,
+  type RunItTwiceMode,
   streetOfPosition,
   streetWithDealt,
   VARIANTS,
@@ -224,18 +229,254 @@ describe("red river live play", () => {
     expect(s.boards.flat()).not.toContain(parseCard("Th"));
   });
 
-  it("Omaha uses 2 + 3 from the whole long board", () => {
-    // Heads-up, button 1: seat 2 gets the first hole cards. On the base board
-    // seat 2 has trip nines and seat 1 a pair of kings; extra cards Ad, As give
-    // seat 1 aces full of kings with board cards 1, 6 and 7.
-    const deck = stackDeck(["9c 9d 8c 8s", "Kc Kd Qc Js"], "Ac 2s 7d 9h 5h Ad As");
+  it("Omaha uses exactly 2 + 3 from the whole long board", () => {
+    // Heads-up, button 1: seat 2 gets the first hole cards. The 7-card board
+    // (river 5h and extra Qh red, then 4c) holds four hearts: 2h Jh 5h Qh.
+    // Best 5 of any, seat 1's Ah would make an ace-high flush with 4 board
+    // cards, one of them an extra card. Omaha needs 2 hearts in the hand, so
+    // seat 1 has only a pair of kings, and seat 2's trip nines win.
+    const holes = { 2: "9c 9d Ts 3s", 1: "Ah Kc Kd 8s" };
+    const deck = stackDeck([holes[2], holes[1]], "2h 7c Jh 9s 5h Qh 4c");
     const s = checkDown(play(start({ 1: 1000, 2: 1000 }, 1, { ...PL, redRiver: true }, deck), "1 call"));
-    expect(s.boards[0]).toHaveLength(7);
-    expect(s.result!.payouts).toEqual([{ seat: 1, amount: 40 }]);
-    const seat1 = s.result!.showdown.find((h) => h.seat === 1)!;
-    expect(seat1.boards[0]!.high.cards.slice().sort((a, b) => a - b)).toEqual(
-      parseCards("Kc Kd Ac Ad As").sort((a, b) => a - b),
-    );
+    const board = s.boards[0]!;
+    expect(str(board)).toBe("2h 7c Jh 9s 5h Qh 4c");
+    // Under best 5 of any, seat 1 would win, and only thanks to the extra card.
+    const any = (seat: 1 | 2, cards: Card[]) => handValue(VARIANTS.NLH, parseCards(holes[seat]), cards).score;
+    expect(any(1, board)).toBeGreaterThan(any(2, board));
+    expect(any(1, board.slice(0, 5))).toBeLessThan(any(2, board.slice(0, 5)));
+    // Under Omaha, seat 2 wins with exactly 2 hole cards and 3 board cards.
+    expect(s.result!.payouts).toEqual([{ seat: 2, amount: 40 }]);
+    for (const h of s.result!.showdown) {
+      const best = h.boards[0]!.high.cards;
+      expect(best.filter((c) => h.hole.includes(c))).toHaveLength(2);
+      expect(best.filter((c) => board.includes(c))).toHaveLength(3);
+    }
+  });
+});
+
+describe("red river run-outs", () => {
+  // Heads-up, button 1: seat 2 gets As Ad, seat 1 Ks Kc. Seat 2 acts first after the flop.
+  const holes = ["As Ad", "Ks Kc"];
+  const RIT_ASK: HandConfig = { ...RR, runItTwice: "ask" };
+  const rit = (s: HandState, seat: number, accept: boolean) => applyAction(s, { type: "runItTwice", seat, accept });
+  /** Checks to the river (preflop call, then flop and turn checked through). */
+  const toRiver = (deck: Card[], config: HandConfig = RR) => {
+    let s = play(start({ 1: 1000, 2: 1000 }, 1, config, deck), "1 call", "2 check");
+    for (let i = 0; i < 2; i++) s = checkStreet(s);
+    expect(s.street).toBe("river");
+    return s;
+  };
+
+  it("all-in on the flop runs once through red rivers", () => {
+    // Turn Jh, river 5d, then Kh red, then 4s black.
+    const deck = stackDeck(holes, "2c 7d 9s Jh 5d Kh 4s");
+    for (const config of [RR, RIT_ASK]) {
+      let s = play(start({ 1: 1000, 2: 1000 }, 1, config, deck), "1 call", "2 check", "2 raise 980", "1 call");
+      if (config.runItTwice === "ask") {
+        expect(s.ritOffer).toEqual({ seats: [1, 2], accepted: [] });
+        s = rit(rit(s, 1, true), 2, false); // any decline runs it once
+      }
+      expect(s.street).toBe("complete");
+      expect(s.runOutFrom).toBe("flop");
+      expect(s.secondRun).toBeNull();
+      expect(str(s.boards[0]!)).toBe("2c 7d 9s Jh 5d Kh 4s");
+      expect(s.extraRound).toBe(2);
+      expect(s.deckIndex).toBe(4 + 7);
+      // Settled: seat 1's trip kings (with the extra Kh) win the 2000 pot.
+      expect(s.result!.payouts).toEqual([{ seat: 1, amount: 2000 }]);
+      expect(stacks(s)).toBe(2000);
+    }
+  });
+
+  it("run it twice: each run extends on its own", () => {
+    // Run 1 ends on 4s (black); run 2's river 5h is red, so it gets 6c.
+    const deck = stackDeck(holes, "2c 7h 9s Jd 4s 3c 8h Tc Qh 5h 6c");
+    const s = play(start({ 1: 1000, 2: 1000 }, 1, { ...RR, runItTwice: "always" }, deck), "1 raise 1000", "2 call");
+    expect(s.street).toBe("complete");
+    expect(s.boards.map(str)).toEqual(["2c 7h 9s Jd 4s"]);
+    expect(s.secondRun!.map(str)).toEqual(["3c 8h Tc Qh 5h 6c"]);
+    expect(s.deckIndex).toBe(4 + 11);
+    expect(s.extraRound).toBe(1);
+    expect(s.result!.pots[0]!.slices.map((sl) => [sl.run, sl.amount])).toEqual([
+      [0, 1000],
+      [1, 1000],
+    ]);
+    expect(stacks(s)).toBe(2000);
+  });
+
+  it("run it twice offered on a red river", () => {
+    // Shared river 5h. Round 1: run 1 gets Kd (red), run 2 gets 4c (black).
+    // Round 2: only run 1 still ends red, and gets 3c.
+    const deck = stackDeck(holes, "2c 7d 9h Js 5h Kd 4c 3c");
+    let s = play(toRiver(deck, RIT_ASK), "2 raise 980", "1 call");
+    expect(s.ritOffer).toEqual({ seats: [1, 2], accepted: [] });
+    expect(s.runOutFrom).toBe("river");
+    const once = rit(s, 2, false);
+    expect(once.street).toBe("complete");
+    expect(once.secondRun).toBeNull();
+    expect(str(once.boards[0]!)).toBe("2c 7d 9h Js 5h Kd 4c");
+    s = rit(rit(s, 2, true), 1, true);
+    expect(s.street).toBe("complete");
+    expect(str(s.boards[0]!)).toBe("2c 7d 9h Js 5h Kd 3c");
+    expect(str(s.secondRun![0]!)).toBe("2c 7d 9h Js 5h 4c");
+    expect(s.extraRound).toBe(2);
+    expect(stacks(s)).toBe(2000);
+  });
+
+  it("run it twice not offered on a black river", () => {
+    const deck = stackDeck(holes, "2c 7d 9h Js 5s");
+    const s = play(toRiver(deck, RIT_ASK), "2 raise 980", "1 call");
+    expect(s.street).toBe("complete");
+    expect(s.ritOffer).toBeNull();
+    expect(s.secondRun).toBeNull();
+    expect(s.boards[0]).toHaveLength(5);
+  });
+
+  it("run it twice not offered when the deck can't spare a card per board for each run", () => {
+    // 8-seat PLO5, double board: 40 + 10 = 50, so 2 cards are left. Seats 4-8
+    // and 1 fold; seat 3 (big blind) has 60. Both rivers are red.
+    const config = (runItTwice: RunItTwiceMode): HandConfig =>
+      ({ ...PL, variant: VARIANTS.PLO5, boards: 2, redRiver: true, runItTwice });
+    const deck = layDeck(40, "2c 3c 4c 2s 3s 4s 5c 5s 6h 6d 7h 7d");
+    const table = { ...seats(8), 3: 60 };
+    const preflop = ["4 fold", "5 fold", "6 fold", "7 fold", "8 fold", "1 fold", "2 call", "3 check"];
+    const toRiverEnd = (runItTwice: RunItTwiceMode) => {
+      let s = play(start(table, 1, config(runItTwice), deck), ...preflop);
+      for (let i = 0; i < 2; i++) s = checkStreet(s);
+      expect(s.street).toBe("river");
+      return s;
+    };
+
+    // All-in on the river: 2 cards cover one run (both boards) but not two.
+    let s = play(toRiverEnd("always"), "2 raise 40", "3 call");
+    expect(s.street).toBe("complete");
+    expect(s.secondRun).toBeNull();
+    expect(str(s.boards[0]!)).toBe("2c 3c 4c 5c 6h 7h");
+    expect(str(s.boards[1]!)).toBe("2s 3s 4s 5s 6d 7d");
+    expect(s.redRiverStopped).toBe(true);
+
+    // All-in in red river 1 with the deck empty: no card can come, so no offer.
+    s = checkStreet(toRiverEnd("ask"));
+    expect(s.street).toBe("extra");
+    expect(s.deckIndex).toBe(52);
+    s = play(s, "2 raise 40", "3 call");
+    expect(s.street).toBe("complete");
+    expect(s.ritOffer).toBeNull();
+    expect(s.secondRun).toBeNull();
+    expect(s.runOutFrom).toBe("extra");
+    expect(s.redRiverStopped).toBe(true);
+    expect(s.boards.map((b) => b.length)).toEqual([6, 6]);
+  });
+
+  it("Pineapple can run it twice on a red river", () => {
+    // Heads-up, button 1: seat 2 is dealt 5 cards first. River 5h is red:
+    // run 1 gets 2c and run 2 gets 3c, both black.
+    const deck = stackDeck(["As Ad Kc 7h 2d", "Ks Kd Qc 8h 3d"], "Ah Kh 9c 4s 5h 2c 3c");
+    const discard = (s: HandState, seat: number, card: string) =>
+      applyAction(s, { type: "discard", seat, card: parseCard(card) });
+    let s = start({ 1: 500, 2: 500 }, 1, { ...NL, variant: VARIANTS.PINEAPPLE, redRiver: true, runItTwice: "always" }, deck);
+    s = discard(discard(s, 1, "3d"), 2, "2d");
+    s = play(s, "1 call", "2 check");
+    s = discard(discard(s, 2, "7h"), 1, "8h");
+    s = play(s, "2 check", "1 check");
+    s = discard(discard(s, 2, "Kc"), 1, "Qc");
+    s = play(s, "2 check", "1 check");
+    expect(s.street).toBe("river");
+    s = play(s, "2 raise 480", "1 call");
+    expect(s.street).toBe("complete");
+    expect(str(s.boards[0]!)).toBe("Ah Kh 9c 4s 5h 2c");
+    expect(str(s.secondRun![0]!)).toBe("Ah Kh 9c 4s 5h 3c");
+  });
+
+  it("toggle off: run it twice deals run 1, then run 2, base cards only", () => {
+    const deck = stackDeck(holes, "2c 7h 9s Jd 4h 3c 8h Tc Qh 5h 6c");
+    const s = play(start({ 1: 1000, 2: 1000 }, 1, { ...NL, runItTwice: "always" }, deck), "1 raise 1000", "2 call");
+    expect(s.boards.map(str)).toEqual(["2c 7h 9s Jd 4h"]);
+    expect(s.secondRun!.map(str)).toEqual(["3c 8h Tc Qh 5h"]);
+    expect(s.deckIndex).toBe(4 + 10);
+    expect(s.extraRound).toBe(0);
+  });
+
+  it("rabbit after a fold on a red river", () => {
+    const deck = stackDeck(holes, "2c 7d 9h Js 5h Kd Qh 4c 3c");
+    const s = play(toRiver(deck), "2 raise 100", "1 fold");
+    expect(s.street).toBe("complete");
+    const before = structuredClone(s);
+    expect(huntable(s)).toBe(true);
+    expect(rabbitCards(s).map(str)).toEqual(["Kd Qh 4c"]);
+    expect(rabbitBacks(s)).toEqual([1]);
+    // Display only: the hand is untouched.
+    expect(s).toEqual(before);
+  });
+
+  it("rabbitBacks: missing base cards, plus 1 when a red card is showing", () => {
+    const foldOnFlop = (board: string, config = RR) => {
+      const s = play(start({ 1: 1000, 2: 1000 }, 1, config, stackDeck(holes, board)), "1 call", "2 check");
+      return play(s, "2 raise 20", "1 fold");
+    };
+    // A fold on the flop: 2 backs whatever the deck holds.
+    for (const [board, rabbit, config] of [
+      ["2c 7d 9h Jd 5h Kd 4c", "Jd 5h Kd 4c", RR],
+      ["2c 7d 9h Js 5s", "Js 5s", RR],
+      ["2c 7d 9h Jd 5h Kd 4c", "Jd 5h", NL],
+    ] as const) {
+      const s = foldOnFlop(board, config);
+      expect(huntable(s)).toBe(true);
+      expect(rabbitCards(s).map(str)).toEqual([rabbit]);
+      expect(rabbitBacks(s)).toEqual([2]);
+    }
+
+    // A fold during red river 1 (Kd showing): 1 back, though the hunt shows 3.
+    let s = checkStreet(toRiver(stackDeck(holes, "2c 7d 9h Js 5h Kd Qh Td 4c")));
+    expect(s.street).toBe("extra");
+    s = play(s, "2 raise 100", "1 fold");
+    expect(huntable(s)).toBe(true);
+    expect(rabbitCards(s).map(str)).toEqual(["Qh Td 4c"]);
+    expect(rabbitBacks(s)).toEqual([1]);
+
+    // A fold in red river 1 after a black extra card: nothing to hunt.
+    s = play(checkStreet(toRiver(stackDeck(holes, "2c 7d 9h Js 5h 4c Qh"))), "2 raise 100", "1 fold");
+    expect(huntable(s)).toBe(false);
+    expect(rabbitBacks(s)).toEqual([0]);
+
+    // A fold on a black river: nothing to hunt.
+    s = play(toRiver(stackDeck(holes, "2c 7d 9h Js 5s Kd")), "2 raise 100", "1 fold");
+    expect(huntable(s)).toBe(false);
+    expect(rabbitCards(s)).toEqual([[]]);
+    expect(rabbitBacks(s)).toEqual([0]);
+  });
+
+  it("rabbit on a double board hunts only the board that ends red", () => {
+    // B1 river 5h, extra 8h (red); B2 river 6s (black). Fold in red river 1.
+    const deck = stackDeck(holes, "2c 7d 9s 3c 8d Ts Jc Qc 5h 6s 8h 4c");
+    let s = play(start({ 1: 1000, 2: 1000 }, 1, { ...RR, boards: 2 }, deck), "1 call", "2 check");
+    for (let i = 0; i < 3; i++) s = checkStreet(s);
+    expect(s.street).toBe("extra");
+    s = play(s, "2 raise 100", "1 fold");
+    expect(rabbitCards(s).map(str)).toEqual(["4c", ""]);
+    expect(rabbitBacks(s)).toEqual([1, 0]);
+    expect(huntable(s)).toBe(true);
+  });
+
+  it("no rabbit when the deck can't spare a card for every red board", () => {
+    // 8-seat PLO5, double board: both rivers red and only 2 cards left; red
+    // river 1 takes them, so a fold there leaves nothing to hunt.
+    const config: HandConfig = { ...PL, variant: VARIANTS.PLO5, boards: 2, redRiver: true };
+    const deck = layDeck(40, "2c 3c 4c 2s 3s 4s 5c 5s 6h 6d 7h 7d");
+    let s = play(start(seats(8), 1, config, deck), "4 fold", "5 fold", "6 fold", "7 fold", "8 fold", "1 fold", "2 call", "3 check");
+    for (let i = 0; i < 3; i++) s = checkStreet(s);
+    expect(s.street).toBe("extra");
+    s = play(s, "2 raise 40", "3 fold");
+    expect(huntable(s)).toBe(false);
+    expect(rabbitCards(s)).toEqual([[], []]);
+    expect(rabbitBacks(s)).toEqual([0, 0]);
+  });
+
+  it("no rabbit after run it twice", () => {
+    const deck = stackDeck(holes, "2c 7h 9s Jd 4s 3c 8h Tc Qh 5h 6c");
+    const s = play(start({ 1: 1000, 2: 1000 }, 1, { ...RR, runItTwice: "always" }, deck), "1 raise 1000", "2 call");
+    expect(huntable(s)).toBe(false);
+    expect(rabbitCards(s)).toEqual([[]]);
   });
 });
 

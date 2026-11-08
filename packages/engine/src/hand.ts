@@ -753,14 +753,24 @@ function isRunOut(s: HandState): boolean {
   return live.length >= 2 && live.filter((p) => p.stack > 0).length <= 1;
 }
 
-/** Cards are still to come, and the deck holds enough to finish every board twice. */
+/**
+ * Cards are still to come (base cards, or a red river card on a board that
+ * ends red), and the deck holds enough for both runs: every board's missing
+ * base cards twice, plus one card per run for each board ending red (spec §4.5).
+ */
 function canRunTwice(s: HandState): boolean {
   // Pineapple: each run would need its own discards, so only once the turn
-  // discard is done (just the river to come).
-  if (s.config.variant.discard && s.street !== "turn") return false;
-  const full = boardSize(s.config.variant.board);
-  const missing = s.boards.reduce((sum, b) => sum + (full - b.length), 0);
-  return missing > 0 && s.deckIndex + 2 * missing <= s.deck.length;
+  // discard is done (the river and red river cards hold no discards).
+  if (s.config.variant.discard && (s.street === "preflop" || s.street === "flop")) return false;
+  const layout = s.config.variant.board;
+  const missing = s.boards.reduce((sum, b) => sum + missingBase(layout, b), 0);
+  const red = s.boards.filter((b) => wantsRedRiverCard(s.config, b)).length;
+  return (missing > 0 || red > 0) && s.deckIndex + 2 * missing + 2 * red <= s.deck.length;
+}
+
+/** Base cards this board still needs: 0 once the river is out. */
+function missingBase(layout: BoardLayout, board: readonly Card[]): number {
+  return Math.max(0, boardSize(layout) - board.length);
 }
 
 function decideRunItTwice(state: HandState, seat: number, accept: boolean): HandState {
@@ -778,19 +788,24 @@ function decideRunItTwice(state: HandState, seat: number, accept: boolean): Hand
 }
 
 /**
- * Deals the rest of the board(s) and settles the hand. The second run uses the
- * next cards of the same deck, dealt street by street, board by board.
+ * Deals the rest of the board(s) and settles the hand (spec §4.5). The second
+ * run uses the next cards of the same deck, dealt street by street, board by
+ * board, after run 1's. Then red river cards in rounds, across both runs,
+ * while any board ends red.
  */
 function runOutAndFinish(s: HandState, runs: 1 | 2): HandState {
   s.ritOffer = null;
   s.toAct = null;
   const from = s.street;
+  const baseDealt = from === "river" || from === "extra";
   const shared = s.boards.map((b) => b.slice());
-  while (s.street !== "river") dealNextStreet(s);
+  if (!baseDealt) while (s.street !== "river") dealNextStreet(s);
   if (runs === 2) {
     s.secondRun = shared;
-    s.deckIndex = dealStreets(s.config.variant.board, s.deck, s.deckIndex, s.secondRun, from, "river");
+    if (!baseDealt) s.deckIndex = dealStreets(s.config.variant.board, s.deck, s.deckIndex, s.secondRun, from, "river");
   }
+  const allRuns = runs === 2 ? [s.boards, s.secondRun!] : [s.boards];
+  while (dealExtraRound(s, allRuns));
   finish(s);
   return s;
 }
@@ -823,18 +838,44 @@ function dealStreets(
 
 /**
  * SPEC §2.8 rabbit hunt: the cards that would have come, per board, when a
- * hand ended before the river. Taken from the same shuffled deck in dealing
- * order (never a new shuffle); display only. Empty lists when there's nothing
- * to hunt.
+ * hand ended before the board was finished (spec §4.6): the rest of the base
+ * streets, then red river rounds while a board ends red, all or nothing as in
+ * play. Taken from the same shuffled deck in dealing order (never a new
+ * shuffle); display only, and `s` is never changed. Empty lists when there's
+ * nothing to hunt.
  */
 export function rabbitCards(s: HandState): Card[][] {
   if (s.street !== "complete") throw new EngineError("the hand isn't over");
-  const boards = s.boards.map(() => [] as Card[]);
+  const none = s.boards.map(() => [] as Card[]);
+  if (s.secondRun || s.boards.every((b) => boardFinished(s.config, b))) return none;
+  // Deal on a scratch copy: dealExtraRound moves its deck index and round count.
+  const scratch = cloneState(s);
   const layout = s.config.variant.board;
   const dealt = s.boards[0]!.length;
-  if (s.secondRun || dealt >= boardSize(layout)) return boards;
-  dealStreets(layout, s.deck, s.deckIndex, boards, streetWithDealt(layout, dealt), "river");
-  return boards;
+  if (dealt < boardSize(layout)) {
+    scratch.deckIndex = dealStreets(layout, s.deck, s.deckIndex, scratch.boards, streetWithDealt(layout, dealt), "river");
+  }
+  while (dealExtraRound(scratch, [scratch.boards]));
+  return scratch.boards.map((b, i) => b.slice(s.boards[i]!.length));
+}
+
+/** There's something to rabbit hunt: the hand is over, ran once, and cards would have come. */
+export function huntable(s: HandState): boolean {
+  return s.street === "complete" && !s.secondRun && rabbitCards(s).some((b) => b.length > 0);
+}
+
+/**
+ * Face-down backs to show per board before a rabbit hunt (spec §4.6): the
+ * missing base cards, plus 1 if the board ends red, capped at what the hunt
+ * would show. Both numbers are public, so the backs never leak the colour of
+ * an unseen card.
+ */
+export function rabbitBacks(s: HandState): number[] {
+  const layout = s.config.variant.board;
+  const cards = rabbitCards(s);
+  return s.boards.map((board, b) =>
+    Math.min(cards[b]!.length, missingBase(layout, board) + (wantsRedRiverCard(s.config, board) ? 1 : 0)),
+  );
 }
 
 /** Returns the part of the biggest bet on this street that nobody matched. */
