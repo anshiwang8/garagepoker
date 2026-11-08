@@ -100,9 +100,20 @@ function playHand(params: HandParams): void {
 
   let s = startHand({ config, players, button, deck });
   const actions: PlayerAction[] = [];
+  // Each board's length when the run-out began. The run-out starts inside the
+  // action that closes the betting, before it deals anything, so that is the
+  // board the state had just before that action.
+  // A bomb pot's antes can put everyone all-in at the deal itself, and the whole
+  // hand then runs inside startHand: the run-out begins with the base cards of
+  // the street it started on.
+  const [flopCards, turnCards] = variant.board.streets;
+  const baseAt = { preflop: 0, flop: flopCards, turn: flopCards + turnCards, river: full, extra: full, complete: full };
+  let runOutLens: number[] | null = s.runOutFrom !== null ? s.boards.map(() => baseAt[s.runOutFrom!]) : null;
   const act = (a: PlayerAction) => {
     actions.push(a);
+    const before = s;
     s = applyAction(s, a);
+    if (runOutLens === null && s.runOutFrom !== null) runOutLens = before.boards.map((b) => b.length);
   };
   let steps = 0;
   const conserved = (st: HandState) =>
@@ -161,8 +172,6 @@ function playHand(params: HandParams): void {
   // Run it twice: only when enabled, only after a run-out, and only if every
   // player in the pot accepted (or it's "always"). Run 2 shares the cards that
   // were out when the run-out began and deals the rest fresh.
-  const [flop, turn] = variant.board.streets;
-  const shared = { preflop: 0, flop, turn: flop + turn, river: full, extra: full, complete: full }[s.runOutFrom ?? "river"];
   const runTwoCards: number[] = [];
   if (s.secondRun) {
     expect(config.runItTwice).not.toBe("no");
@@ -172,14 +181,12 @@ function playHand(params: HandParams): void {
       expect(answers.every((e) => e.type === "ritAccept")).toBe(true);
     }
     s.secondRun.forEach((board, b) => {
-      // Red river lets boards grow past `full`, and an all-in during an extra
-      // round shares those extra cards too: measure the shared prefix from the
-      // boards (cards are unique, so it ends exactly where the runs diverge).
+      // Run 2 shares exactly the cards that were out when the run-out began
+      // (red river extras included) and everything after is its own.
+      const shared = runOutLens![b]!;
       expect(board.length).toBeGreaterThanOrEqual(full);
-      let common = 0;
-      while (common < board.length && common < s.boards[b]!.length && board[common] === s.boards[b]![common]) common++;
-      expect(common).toBeGreaterThanOrEqual(shared);
-      runTwoCards.push(...board.slice(common));
+      expect(board.slice(0, shared)).toEqual(s.boards[b]!.slice(0, shared));
+      runTwoCards.push(...board.slice(shared));
     });
   }
   for (const pot of result.pots) {
