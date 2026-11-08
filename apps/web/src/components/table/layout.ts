@@ -62,7 +62,14 @@ export interface Sizes {
   boardCardW: number;
   boardCardH: number;
   boardGap: number;
+  /** Between rows (boards and runs). The lines of one wrapped row are boardGap apart. */
   rowGap: number;
+  /**
+   * Cards per line before a row wraps (red river boards can be longer than
+   * 5): the longest row's length when it fits on one line. Never fewer than 5.
+   * Grids: GRID_SIZE.
+   */
+  boardPerLine: number;
   /** Room for "B1"/"B2" left of each row (0 for one board, or grids). */
   boardLabelW: number;
   /** Grid boards (Tic-Tac-Toe): space between grids, and the "B1"/"R1" line above each (0 for one grid). */
@@ -106,12 +113,30 @@ export interface LayoutInput {
   holeCards: number;
   /** Board rows: boards × runs (1–4). With `grid`, that many grids side by side. */
   boardRows: number;
+  /** Cards in the longest row, counting rabbit-hunt backs or cards (at least 5; red river makes it longer). Ignored for grids. */
+  boardLength: number;
   /** Each board is a 3×3 grid (Tic-Tac-Toe) instead of a row of 5. */
   grid?: boolean;
   /** Extra height under the table info (e.g. the Copy link button), at full size. */
   infoExtra: number;
   /** A hand is running, so seats may have bets out. Without one, no room is kept for bet chips. Default true. */
   bets?: boolean;
+  /**
+   * Width at scale 1 of the badge row above the pot (bomb-pot and red-river
+   * badges, the "total" tag), when it has a badge: see `tagRowWidth`. The row
+   * is then kept clear of the seats beside the pot. Omitted: no badge.
+   */
+  tagW?: number;
+}
+
+/**
+ * The badge row's width at scale 1, from its text: badges are 10 px bold,
+ * widely spaced capitals in a pill; "total X" is 11 px. A generous estimate
+ * (the row is at least 140 px, its badges at its left end, the total at its right).
+ */
+export function tagRowWidth(badges: string[], total: string | null): number {
+  const pills = badges.reduce((sum, b) => sum + 16 + 7.2 * b.length, 0) + 4 * Math.max(0, badges.length - 1);
+  return Math.max(140, pills + (total ? 8 + 5.5 * total.length : 0));
 }
 
 /** Phones: how many opponents go up the left side, along the top and down the right. */
@@ -142,6 +167,9 @@ export function fanStep(n: number, cw: number, maxW?: number): number {
 /** Squares per side of a grid board. */
 export const GRID_SIZE = 3;
 
+/** The smallest legible board card at scale 1, before a long row wraps: the double-board row's size. */
+const MIN_BOARD_CARD = { phone: 52, desktop: 60 };
+
 function sizes(
   mode: "phone" | "desktop",
   k: number,
@@ -150,9 +178,15 @@ function sizes(
   w: number,
   s: number,
   grid = false,
-  /** Grid boards only: shrinks the squares when nothing fits at their full size. */
-  gridScale = 1,
+  /**
+   * When nothing fits at full size. Grids: shrinks the squares. Long rows:
+   * shrinks the smallest card size allowed before wrapping, below the usual
+   * minimum (extreme cases only).
+   */
+  shrink = 1,
+  boardLength = 5,
 ): Sizes {
+  const gridScale = grid ? shrink : 1;
   const fan = holeCards > 2;
   const tier = k <= 3 ? 0 : k <= 5 ? 1 : 2;
   const pick = <T,>(a: [T, T, T]) => a[tier]!;
@@ -172,7 +206,8 @@ function sizes(
     : d
       ? [72, 60, 46][Math.min(rows, 3) - 1]!
       : [62, 52, 40][Math.min(rows, 3) - 1]!;
-  const boardGap = grid ? 4 : rows >= 3 ? 6 : 8;
+  // A long red river row (or 3+ rows) packs its cards a little closer.
+  const boardGap = grid ? 4 : rows >= 3 || boardLength > 5 ? 6 : 8;
   const boardLabelW = !grid && rows > 1 ? 22 : 0;
   const z: Sizes = {
     s,
@@ -198,6 +233,7 @@ function sizes(
     boardCardH: 0,
     boardGap,
     rowGap: 6,
+    boardPerLine: grid ? GRID_SIZE : 5,
     boardLabelW,
     gridGap: grid ? 14 : 0,
     gridLabelH: grid && rows > 1 ? 14 : 0,
@@ -211,18 +247,45 @@ function sizes(
     tagsBelow: 26,
   };
   // Scale everything, then fit the board to the width (as large as fits).
-  for (const key of Object.keys(z) as (keyof Sizes)[]) if (key !== "s" && key !== "gridCols") z[key] = z[key] * s;
+  for (const key of Object.keys(z) as (keyof Sizes)[]) if (key !== "s" && key !== "gridCols" && key !== "boardPerLine") z[key] = z[key] * s;
   const across = Math.min(w, d ? 1200 : w) - (d ? 120 : 40);
-  const maxBoardW = grid
-    ? (across - (gridCols - 1) * z.gridGap - gridCols * (GRID_SIZE - 1) * z.boardGap) / (gridCols * GRID_SIZE)
-    : (across - z.boardLabelW - 4 * z.boardGap) / 5;
-  z.boardCardW = Math.floor(Math.min(z.boardCardW, maxBoardW));
+  if (grid) {
+    const maxBoardW = (across - (gridCols - 1) * z.gridGap - gridCols * (GRID_SIZE - 1) * z.boardGap) / (gridCols * GRID_SIZE);
+    z.boardCardW = Math.floor(Math.min(z.boardCardW, maxBoardW));
+  } else {
+    // Rows (spec §5): one line, as large as fits. A long red river row may
+    // shrink to the double-board size; past that it wraps, as many to a line
+    // as fit at that size (never fewer than 5, so a 5-card row never wraps).
+    const length = Math.max(5, boardLength);
+    const fit = (n: number) => (across - z.boardLabelW - (n - 1) * z.boardGap) / n;
+    const minW = Math.min(z.boardCardW, MIN_BOARD_CARD[mode] * s) * shrink;
+    let perLine = length;
+    if (length > 5 && fit(length) < minW) {
+      perLine = Math.min(length, Math.max(5, Math.floor((across - z.boardLabelW + z.boardGap) / (minW + z.boardGap))));
+    }
+    z.boardPerLine = perLine;
+    z.boardCardW = Math.floor(Math.min(z.boardCardW, fit(perLine)));
+  }
   z.boardCardH = Math.round(z.boardCardW * 1.42);
   return z;
 }
 
-/** The board area's size: rows of 5 stacked, or grids side by side. */
-export function boardBlock(inp: Pick<LayoutInput, "boardRows" | "grid">, z: Sizes): { w: number; h: number } {
+/** Lines a row of `length` cards takes: it wraps after `z.boardPerLine`. */
+export function rowLines(length: number, z: Pick<Sizes, "boardPerLine">): number {
+  return Math.max(1, Math.ceil(length / Math.max(1, z.boardPerLine)));
+}
+
+/** A row's height on the felt: its lines, boardGap apart. */
+export function rowHeight(length: number, z: Sizes): number {
+  const lines = rowLines(length, z);
+  return lines * z.boardCardH + (lines - 1) * z.boardGap;
+}
+
+/**
+ * The board area's size: rows stacked (each as tall as the longest needs,
+ * wrapped after `boardPerLine`), or grids side by side.
+ */
+export function boardBlock(inp: Pick<LayoutInput, "boardRows" | "grid" | "boardLength">, z: Sizes): { w: number; h: number } {
   const n = Math.max(1, inp.boardRows);
   if (inp.grid) {
     const side = (len: number) => GRID_SIZE * len + (GRID_SIZE - 1) * z.boardGap;
@@ -233,7 +296,9 @@ export function boardBlock(inp: Pick<LayoutInput, "boardRows" | "grid">, z: Size
       h: lines * (z.gridLabelH + side(z.boardCardH)) + (lines - 1) * z.rowGap,
     };
   }
-  return { w: 5 * z.boardCardW + 4 * z.boardGap + z.boardLabelW, h: n * z.boardCardH + (n - 1) * z.rowGap };
+  const length = Math.max(5, inp.boardLength);
+  const perLine = Math.min(length, z.boardPerLine);
+  return { w: perLine * z.boardCardW + (perLine - 1) * z.boardGap + z.boardLabelW, h: n * rowHeight(length, z) + (n - 1) * z.rowGap };
 }
 
 /** The bottom seat (you, or seat 1 for someone watching) and everything it needs above it. */
@@ -260,10 +325,10 @@ function bottomSeat(inp: LayoutInput, z: Sizes, m: number) {
 
 const overlapsX = (a: { x: number; w: number }, b: { x: number; w: number }, pad = 0) => a.x < b.x + b.w + pad && b.x < a.x + a.w + pad;
 
-function phoneLayout(inp: LayoutInput, s: number, gridScale = 1): FeltLayout | null {
+function phoneLayout(inp: LayoutInput, s: number, shrink = 1): FeltLayout | null {
   const { w, h } = inp;
   const k = inp.seats.length - 1;
-  const z = sizes("phone", k, inp.holeCards, inp.boardRows, w, s, inp.grid, gridScale);
+  const z = sizes("phone", k, inp.holeCards, inp.boardRows, w, s, inp.grid, shrink, inp.boardLength);
   const m = 4 * s;
   const g = 6 * s;
   const [leftN, topN, rightN] = PHONE_SLOTS[Math.min(8, Math.max(0, k))]!;
@@ -303,10 +368,19 @@ function phoneLayout(inp: LayoutInput, s: number, gridScale = 1): FeltLayout | n
   const infoH = z.infoH + inp.infoExtra * s;
   // Under each opponent's plate: their bet during a hand, showdown tags after it.
   const below = Math.max(4 * s + z.chipH, z.tagsBelow);
-  const boardTopMin = () => Math.max(hasU ? uPlateY + ph + below + g : 0, (topN ? topBottom + 2 * s : m) + aboveBoard);
+  const bets = inp.bets ?? true;
+  // A badge row wider than the gap between the upper side seats (and their
+  // bets) goes below them, rather than over them.
+  const sideInner = m + Math.max(pw, bets ? 0.62 * pw + chipW / 2 : 0);
+  const tagUnder = hasU && inp.tagW !== undefined && w / 2 - (inp.tagW * s) / 2 < sideInner + 2 * s;
+  const boardTopMin = () =>
+    Math.max(
+      hasU ? uPlateY + ph + below + g : 0,
+      tagUnder ? uPlateY + ph + below + 2 * s + aboveBoard : 0,
+      (topN ? topBottom + 2 * s : m) + aboveBoard,
+    );
 
   let boardTop = boardTopMin();
-  const bets = inp.bets ?? true;
   // Lower side seats sit under the board. Their bet chip is beside the plate at
   // mid-height, so with a tall info block (Copy link, "Changes apply next
   // hand") they move down until the chip clears it, rather than not fitting.
@@ -377,10 +451,10 @@ function phoneLayout(inp: LayoutInput, s: number, gridScale = 1): FeltLayout | n
   return finish("phone", inp, z, felt, Math.min(120 * s, felt.w / 2, felt.h / 2), bottom, seats, boardTop, boardH, aboveBoard);
 }
 
-function desktopLayout(inp: LayoutInput, s: number, gridScale = 1): FeltLayout | null {
+function desktopLayout(inp: LayoutInput, s: number, shrink = 1): FeltLayout | null {
   const { w, h } = inp;
   const k = inp.seats.length - 1;
-  const z = sizes("desktop", k, inp.holeCards, inp.boardRows, w, s, inp.grid, gridScale);
+  const z = sizes("desktop", k, inp.holeCards, inp.boardRows, w, s, inp.grid, shrink, inp.boardLength);
   const m = 8 * s;
   const { plateW: pw, plateH: ph } = z;
   const bottom = inp.seats.length > 0 ? bottomSeat(inp, z, m) : null;
@@ -421,7 +495,9 @@ function desktopLayout(inp: LayoutInput, s: number, gridScale = 1): FeltLayout |
   const seats: SeatSlot[] = [];
   let centerTopMin = m;
   const boardW = boardBlock(inp, z).w;
-  const column = { x: cx - Math.max(boardW, 260 * s) / 2, w: Math.max(boardW, 260 * s) };
+  // The centre column: the board, or the pot and its badge row if wider.
+  const columnW = Math.max(boardW, 260 * s, (inp.tagW ?? 0) * s);
+  const column = { x: cx - columnW / 2, w: columnW };
   const blocks: Box[] = [];
   for (let i = 0; i < k; i++) {
     const [px, py] = k === 1 ? [cx, cy - R] : along(((i + 1) * perimeter) / (k + 1));
@@ -516,18 +592,23 @@ export function layoutMode(w: number, h: number): "phone" | "desktop" {
 /**
  * The largest layout that fits, shrinking in small steps. A grid board is
  * three cards tall, so if no scale fits at all (a full rail on a phone), its
- * squares shrink too, a step at a time, before giving up.
+ * squares shrink too, a step at a time, before giving up. A long red river
+ * board does the same: its smallest card size steps down below the usual
+ * minimum, so more fit to a line and it needs fewer lines (spec §5: the
+ * layout always wins over card size).
  */
 export function layoutFelt(inp: LayoutInput): FeltLayout | null {
   if (inp.w <= 0 || inp.h <= 0) return null;
   const mode = layoutMode(inp.w, inp.h);
   const max = mode === "desktop" ? Math.min(1.35, Math.max(1, inp.h / 600)) : Math.min(1.12, inp.w / 390);
   const fn = mode === "desktop" ? desktopLayout : phoneLayout;
-  for (const gridScale of inp.grid ? [1, 0.85, 0.7, 0.55] : [1]) {
+  const shrinks = inp.grid ? [1, 0.85, 0.7, 0.55] : inp.boardLength > 5 ? [1, 0.85, 0.7, 0.55, 0.4] : [1];
+  for (const shrink of shrinks) {
     for (let s = max; s >= 0.5; s -= 0.02) {
-      const l = fn(inp, s, gridScale);
+      const l = fn(inp, s, shrink);
       if (l) return l;
     }
   }
-  return fn(inp, 0.5) ?? phoneLayout(inp, 0.5);
+  const last = shrinks[shrinks.length - 1];
+  return fn(inp, 0.5, last) ?? phoneLayout(inp, 0.5, last);
 }

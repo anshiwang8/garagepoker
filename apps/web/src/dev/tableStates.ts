@@ -454,6 +454,166 @@ function tttSpectator(): TableView {
   return you(v, { seat: null, isOwner: false, playerId: "pwatcher0001" });
 }
 
+/** Log entries of one red river round (street "extra"). */
+const extra = (round: number, entries: [number, LogEntryView["type"], number, number?][]): LogEntryView[] =>
+  log(entries.map(([s, type, amount, to]) => ["extra", s, type, amount, to] as [LogEntryView["street"], number, LogEntryView["type"], number, number?])).map((e) => ({
+    ...e,
+    extraRound: round,
+  }));
+
+const RED_RIVER = { ...cents, redRiver: true };
+
+/** t) Red river 1 on a single board: the river (Qd) was red, so a 6th card came, with its own betting. */
+function redRiverOne(): TableView {
+  const seats = [
+    seat(1, "anshi", 1720, { isOwner: true, inHand: true, cards: ["Qs", "Jh"], lastAction: null }),
+    seat(2, "Richard", 1660, { inHand: true, bet: 80, cards: [null, null], lastAction: { type: "bet", amount: 80, to: 80 } }),
+    seat(3, "Maya", 2100, { inHand: true, folded: true, cards: [null, null] }),
+  ];
+  const v = table([...seats, null, null, null], {
+    settings: RED_RIVER,
+    buttonSeat: 3,
+    hand: hand({
+      street: "extra",
+      extraRound: 1,
+      redRiver: true,
+      boards: [["Kc", "7s", "2d", "9h", "Qd", "5h"]],
+      pot: 600,
+      boardShares: [600],
+      currentBet: 80,
+      toAct: 1,
+      ...turn(0.7),
+      log: [
+        ...log([["preflop", 2, "smallBlind", 10], ["preflop", 1, "bigBlind", 20], ["preflop", 3, "call", 20], ["preflop", 2, "call", 10], ["preflop", 1, "check", 0]]),
+        ...log([["flop", 2, "bet", 40, 40], ["flop", 1, "call", 40], ["flop", 3, "fold", 0], ["turn", 2, "check", 0], ["turn", 1, "bet", 100, 100], ["turn", 2, "call", 100]]),
+        ...log([["river", 2, "bet", 120, 120], ["river", 1, "call", 120]]),
+        ...extra(1, [[2, "bet", 80, 80]]),
+      ],
+    }),
+  });
+  return you(v, { labels: ["Pair"], legal: { seat: 1, canCheck: false, callAmount: 80, canRaise: true, minRaiseTo: 160, maxRaiseTo: 1720 } });
+}
+
+/** u) Double-board bomb pot with red river, round 2: board 1 ran red twice (7 cards), board 2 stopped at 5. Both badges. */
+function redRiverDouble(): TableView {
+  const seats = [
+    seat(1, "anshi", 1480, { isOwner: true, inHand: true, cards: ["Ah", "Kh"], lastAction: { type: "check", amount: 0 } }),
+    seat(2, "Richard", 1720, { inHand: true, bet: 100, cards: [null, null], lastAction: { type: "bet", amount: 100, to: 100 } }),
+    seat(3, "Maya", 1900, { inHand: true, cards: [null, null] }),
+    seat(4, "Theo", 820, { inHand: true, folded: true, cards: [null, null] }),
+    seat(5, "Priya", 2040, { inHand: true, cards: [null, null], lastAction: { type: "check", amount: 0 } }),
+  ];
+  const v = table([...seats, null], {
+    settings: { ...RED_RIVER, boards: 2, bombPotMode: "everyHand" },
+    buttonSeat: 4,
+    hand: hand({
+      street: "extra",
+      extraRound: 2,
+      redRiver: true,
+      bombPot: true,
+      boards: [
+        ["8c", "3h", "Jd", "5s", "6d", "2h", "9s"],
+        ["Tc", "4d", "Ks", "7c", "As"],
+      ],
+      pot: 1100,
+      boardShares: [550, 550],
+      currentBet: 100,
+      toAct: 3,
+      ...turn(0.5),
+    }),
+  });
+  return you(v, { labels: ["High card", "Pair"] });
+}
+
+/** v) Run it twice with red river: run 1's river was black (5 cards); run 2's ran red three times (8). */
+function redRiverTwoRuns(): TableView {
+  const seats = [seat(1, "anshi", 2000, { isOwner: true }), seat(2, "Richard", 2000), seat(3, "Maya", 1500)];
+  const v = table([...seats, null, null, null], {
+    settings: { ...RED_RIVER, runItTwice: "ask" },
+    buttonSeat: 3,
+    lastHand: last({
+      redRiver: true,
+      boards: [["Qc", "8h", "3s", "Tc", "4s"]],
+      secondRun: [["Qc", "8h", "3s", "Jd", "2h", "6d", "9h", "Kc"]],
+      pots: [
+        {
+          amount: 4000,
+          slices: [
+            { run: 0, board: 0, half: null, amount: 2000, winners: [{ seat: 1, amount: 2000 }] },
+            { run: 1, board: 0, half: null, amount: 2000, winners: [{ seat: 2, amount: 2000 }] },
+          ],
+        },
+      ],
+      shown: [
+        { seat: 1, nickname: "anshi", cards: ["Ac", "Ad"], labels: ["Pair"], secondRunLabels: ["Pair"], best: [["Ac", "Ad", "Qc", "Tc", "8h"]], secondRunBest: [["Ac", "Ad", "Kc", "Qc", "Jd"]] },
+        { seat: 2, nickname: "Richard", cards: ["Kh", "Ks"], labels: ["Pair"], secondRunLabels: ["Three of a kind"], best: [["Kh", "Ks", "Qc", "Tc", "8h"]], secondRunBest: [["Kh", "Ks", "Kc", "Qc", "Jd"]] },
+      ],
+      nets: [{ seat: 1, net: 0 }, { seat: 2, net: 0 }, { seat: 3, net: 0 }],
+    }),
+  });
+  return v;
+}
+
+/** w) Won uncontested on a red river with rabbit hunt on: 1 back, because red river wanted another card. */
+function redRiverRabbit(): TableView {
+  const seats = [seat(1, "anshi", 2180, { isOwner: true }), seat(2, "Richard", 1820), seat(3, "Maya", 2000)];
+  const v = table([...seats, null, null, null], {
+    settings: { ...RED_RIVER, rabbitHunt: true },
+    buttonSeat: 2,
+    lastHand: last({
+      redRiver: true,
+      boards: [["9s", "6c", "Jd", "3c", "Qh"]],
+      pots: [{ amount: 360, slices: [{ run: null, board: null, half: null, amount: 360, winners: [{ seat: 1, amount: 360 }] }] }],
+      rabbitAvailable: true,
+      rabbitBacks: [1],
+      nets: [{ seat: 1, net: 180 }, { seat: 2, net: -180 }, { seat: 3, net: 0 }],
+      log: log([["preflop", 2, "smallBlind", 10], ["preflop", 3, "bigBlind", 20], ["preflop", 1, "raise", 60, 60], ["preflop", 2, "call", 50], ["preflop", 3, "fold", 0], ["flop", 2, "check", 0], ["flop", 1, "bet", 60, 60], ["flop", 2, "call", 60], ["turn", 2, "check", 0], ["turn", 1, "check", 0], ["river", 2, "check", 0], ["river", 1, "bet", 120, 120], ["river", 2, "fold", 0], ["river", 1, "uncalled", 120]]),
+    }),
+  });
+  return you(v, { showable: ["Td", "Tc"] });
+}
+
+/** x) Stress: double board run twice, rows of 12, 7, 12 and 5; then the deck ran dry (the log notes it). */
+function redRiverStress(): TableView {
+  const seats = [seat(1, "anshi", 3000, { isOwner: true }), seat(2, "Richard", 0), seat(3, "Maya", 3000), seat(4, "Theo", 2000), seat(5, "Priya", 2000), seat(6, "Sam", 2000)];
+  const v = table(seats, {
+    settings: { ...RED_RIVER, boards: 2, runItTwice: "ask" },
+    buttonSeat: 2,
+    lastHand: last({
+      redRiver: true,
+      redRiverStopped: true,
+      boards: [
+        ["Ks", "9c", "3s", "Jc", "2h", "4d", "7h", "Td", "8h", "Qd", "6h", "5c"],
+        ["Ac", "8s", "4c", "Th", "3d", "9d", "Ts"],
+      ],
+      secondRun: [
+        ["Ks", "9c", "3s", "2c", "Kh", "5d", "Jh", "Ad", "4h", "Kd", "9h", "8d"],
+        ["Ac", "8s", "4c", "6c", "Js"],
+      ],
+      pots: [
+        {
+          amount: 4000,
+          slices: [
+            { run: 0, board: 0, half: null, amount: 1000, winners: [{ seat: 1, amount: 1000 }] },
+            { run: 0, board: 1, half: null, amount: 1000, winners: [{ seat: 2, amount: 1000 }] },
+            { run: 1, board: 0, half: null, amount: 1000, winners: [{ seat: 2, amount: 1000 }] },
+            { run: 1, board: 1, half: null, amount: 1000, winners: [{ seat: 1, amount: 1000 }] },
+          ],
+        },
+      ],
+      shown: [
+        { seat: 1, nickname: "anshi", cards: ["Qs", "Qh"], labels: ["Three of a kind", "Pair"], secondRunLabels: ["Pair", "Pair"], best: [], secondRunBest: [] },
+        { seat: 2, nickname: "Richard", cards: ["As", "8c"], labels: ["Pair", "Two pair"], secondRunLabels: ["Two pair", "Two pair"], best: [], secondRunBest: [] },
+      ],
+      nets: [{ seat: 1, net: 0 }, { seat: 2, net: 0 }],
+      log: [
+        ...log([["preflop", 1, "smallBlind", 10], ["preflop", 2, "bigBlind", 20], ["preflop", 1, "call", 10], ["preflop", 2, "check", 0], ["flop", 1, "bet", 1980, 1980], ["flop", 2, "call", 1980]]),
+      ],
+    }),
+  });
+  return v;
+}
+
 export interface DevState {
   id: string;
   title: string;
@@ -481,4 +641,9 @@ export const DEV_STATES: DevState[] = [
   { id: "q", title: "Tic-Tac-Toe double board run twice", view: tttTwoRuns() },
   { id: "r", title: "Tic-Tac-Toe, new table, nobody seated", view: tttEmpty() },
   { id: "s", title: "Tic-Tac-Toe, spectator, 9 seats", view: tttSpectator() },
+  { id: "t", title: "Red river 1, single board (6 cards), hero to act", view: redRiverOne() },
+  { id: "u", title: "Red river 2, double-board bomb pot (7 and 5 cards)", view: redRiverDouble() },
+  { id: "v", title: "Red river, run twice (5 and 8 cards)", view: redRiverTwoRuns() },
+  { id: "w", title: "Red river rabbit hunt: 1 back after a red river", view: redRiverRabbit() },
+  { id: "x", title: "Red river stress: double board run twice, 12-card rows, deck ran dry", view: redRiverStress() },
 ];
