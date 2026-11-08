@@ -22,11 +22,25 @@ for (const id of STATES) {
       const small = [...(actions?.querySelectorAll("button") ?? [])]
         .filter((b) => b.getBoundingClientRect().height > 0 && b.getBoundingClientRect().height < 44)
         .map((b) => `${(b.getAttribute("aria-label") || b.textContent || "").trim()} ${Math.round(b.getBoundingClientRect().height)}px`);
-      return { hscroll: document.documentElement.scrollWidth > innerWidth, overlaps, small };
+      // Row labels ("B1", "R2 B2"): one line, inside their column, beside the row's first line of cards.
+      const labels = [...document.querySelectorAll("[data-box=board-label]")].flatMap((l) => {
+        const range = document.createRange();
+        range.selectNodeContents(l);
+        const text = [...range.getClientRects()];
+        const row = l.closest("[data-box=board]")!.getBoundingClientRect();
+        const firstCard = l.nextElementSibling?.getBoundingClientRect();
+        const out: string[] = [];
+        if (text.length !== 1) out.push(`${l.textContent} on ${text.length} lines`);
+        if (l.scrollWidth > l.clientWidth + 0.5) out.push(`${l.textContent} wider than its column`);
+        if (Math.abs(l.getBoundingClientRect().top - row.top) > 1 || (firstCard && Math.abs(firstCard.top - row.top) > 1)) out.push(`${l.textContent} not on the first line`);
+        return out;
+      });
+      return { hscroll: document.documentElement.scrollWidth > innerWidth, overlaps, small, labels };
     });
     expect(r.hscroll).toBe(false);
     expect(r.overlaps).toEqual([]);
     expect(r.small).toEqual([]);
+    expect(r.labels).toEqual([]);
   });
 }
 

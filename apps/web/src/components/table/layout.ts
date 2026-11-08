@@ -62,7 +62,11 @@ export interface Sizes {
   boardCardW: number;
   boardCardH: number;
   boardGap: number;
-  /** Between rows (boards and runs). The lines of one wrapped row are boardGap apart. */
+  /**
+   * Between rows (boards and runs). The lines of one wrapped row are boardGap
+   * apart; once a row wraps, rows are WRAPPED_ROW_GAP apart, clearly more, so
+   * each row's lines read as one board.
+   */
   rowGap: number;
   /**
    * Cards per line before a row wraps (red river boards can be longer than
@@ -167,6 +171,9 @@ export function fanStep(n: number, cw: number, maxW?: number): number {
 /** Squares per side of a grid board. */
 export const GRID_SIZE = 3;
 
+/** Between rows at scale 1 once a row wraps: well over boardGap (6), so a wrapped row's lines stay together. */
+const WRAPPED_ROW_GAP = 16;
+
 /** The smallest legible board card at scale 1, before a long row wraps: the double-board row's size. */
 const MIN_BOARD_CARD = { phone: 52, desktop: 60 };
 
@@ -264,6 +271,7 @@ function sizes(
       perLine = Math.min(length, Math.max(5, Math.floor((across - z.boardLabelW + z.boardGap) / (minW + z.boardGap))));
     }
     z.boardPerLine = perLine;
+    if (perLine < length) z.rowGap = WRAPPED_ROW_GAP * s;
     z.boardCardW = Math.floor(Math.min(z.boardCardW, fit(perLine)));
   }
   z.boardCardH = Math.round(z.boardCardW * 1.42);
@@ -273,6 +281,14 @@ function sizes(
 /** Lines a row of `length` cards takes: it wraps after `z.boardPerLine`. */
 export function rowLines(length: number, z: Pick<Sizes, "boardPerLine">): number {
   return Math.max(1, Math.ceil(length / Math.max(1, z.boardPerLine)));
+}
+
+/**
+ * Cards on each line of a row of `length`: as even as its lines allow (7 to a
+ * line of 6 goes 4 + 3, not 6 + 1). Same number of lines, never wider.
+ */
+export function cardsPerLine(length: number, z: Pick<Sizes, "boardPerLine">): number {
+  return Math.ceil(Math.max(1, length) / rowLines(length, z));
 }
 
 /** A row's height on the felt: its lines, boardGap apart. */

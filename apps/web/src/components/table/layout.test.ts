@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import FIVE_CARDS from "./__fixtures__/layout-5-cards.json";
-import { boardBlock, type Box, type FeltLayout, layoutFelt, type LayoutInput } from "./layout";
+import { boardBlock, type Box, cardsPerLine, type FeltLayout, layoutFelt, type LayoutInput, rowLines } from "./layout";
 
 /** Screens to cover, with the felt's height on each (the page minus the top bar and action zone, ~164 px). */
 const SCREENS = [
@@ -113,6 +113,16 @@ describe("felt layout", () => {
     expect(bad).toEqual([]);
   });
 
+  it("keeps a wrapped row's lines together: rows are clearly further apart than a row's lines", () => {
+    const bad: string[] = [];
+    for (const inp of SWEEP) {
+      if (inp.grid) continue;
+      const { z } = inp.l!;
+      if (rowLines(inp.boardLength, z) > 1 && !(z.rowGap >= 2 * z.boardGap)) bad.push(`${inp.label}: rowGap ${z.rowGap}, boardGap ${z.boardGap}`);
+    }
+    expect(bad).toEqual([]);
+  });
+
   it("keeps the board between the pot and the table info", () => {
     const bad: string[] = [];
     for (const inp of SWEEP) {
@@ -214,6 +224,17 @@ describe("long boards (red river)", () => {
     const { h, w } = boardBlock(inp, l.z);
     expect(h).toBeCloseTo(2 * (lines * l.z.boardCardH + (lines - 1) * l.z.boardGap) + l.z.rowGap, 6);
     expect(w).toBeCloseTo(l.z.boardLabelW + l.z.boardPerLine * l.z.boardCardW + (l.z.boardPerLine - 1) * l.z.boardGap, 6);
+  });
+
+  it("splits a wrapped row evenly over the same lines, never wider than a line", () => {
+    const z = { boardPerLine: 6 };
+    expect([5, 6, 7, 8, 11, 12, 13].map((n) => cardsPerLine(n, z))).toEqual([5, 6, 4, 4, 6, 6, 5]);
+    for (const per of [5, 6, 7, 10, 12])
+      for (let n = 1; n <= 30; n++) {
+        const each = cardsPerLine(n, { boardPerLine: per });
+        expect(each).toBeLessThanOrEqual(per);
+        expect(Math.ceil(n / each)).toBe(rowLines(n, { boardPerLine: per }));
+      }
   });
 
   it("an extreme board (4 rows of 16 on a 360 px phone) still draws, smaller than the usual minimum", () => {

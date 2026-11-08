@@ -7,7 +7,7 @@ import { useLayoutEffect, useRef, useState } from "react";
 import { formatChips } from "@/lib/chips";
 import { CopyLinkButton } from "../ui";
 import { wonBySeat } from "./HandResult";
-import { boardBlock, type FeltLayout, fanStep, GRID_SIZE, layoutFelt, rowHeight, type SeatSlot, tagRowWidth } from "./layout";
+import { boardBlock, cardsPerLine, type FeltLayout, fanStep, GRID_SIZE, layoutFelt, rowHeight, type SeatSlot, tagRowWidth } from "./layout";
 import { byRank, CardBack, CardFan, type Deal, PlayingCard } from "./PlayingCard";
 import { BetChip, type Countdown, DealerButton, HandTags, NamePlate, SitButton } from "./Seat";
 import { resultSummary, showingResult, tableStateText, VARIANT_SHORT } from "./tableText";
@@ -586,19 +586,25 @@ function BoardRow({
     ...row.hunted.map((card) => ({ kind: "hunted" as const, card })),
     ...Array.from({ length: row.backs }, () => ({ kind: "back" as const })),
   ];
-  const per = Math.max(1, z.boardPerLine);
+  // Wrapped rows split evenly (7 → 4 + 3), on the same number of lines.
+  const per = cardsPerLine(items.length, z);
   const lines = Array.from({ length: Math.max(1, Math.ceil(items.length / per)) }, (_, l) => items.slice(l * per, (l + 1) * per));
   // Backs come last, so on each line they're one run with a Reveal strip across it; the first strip is the labelled button.
   const firstBacks = lines.findIndex((line) => line.some((it) => it.kind === "back"));
   return (
     <div
       data-box="board"
-      className="absolute flex items-center"
+      className="absolute flex items-start"
       style={{ left: box.x, top: box.y, width: box.w, height: box.h }}
       aria-label={row.label || "Board"}
     >
+      {/* Beside the row's first line, on one line ("R2 B2" a little smaller to fit). */}
       {z.boardLabelW > 0 && (
-        <span className="shrink-0 text-center font-bold leading-none text-white/70" style={{ width: z.boardLabelW, fontSize: (row.label.length > 2 ? 8 : 10) * z.s }}>
+        <span
+          data-box="board-label"
+          className="flex shrink-0 items-center justify-center whitespace-nowrap font-bold leading-none tracking-tighter text-white/70"
+          style={{ width: z.boardLabelW, height: z.boardCardH, fontSize: (row.label.length > 2 ? 7 : 10) * z.s }}
+        >
           {row.label}
         </span>
       )}
