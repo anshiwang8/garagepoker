@@ -19,6 +19,7 @@ import {
 	scheduleAlarm,
 } from "./limits.js";
 import { buildReplay } from "./replay.js";
+import { upgradeTableData } from "./upgrade.js";
 import { buildView } from "./view.js";
 
 export { RateLimiter } from "./rateLimit.js";
@@ -47,6 +48,8 @@ export class TableRoom extends DurableObject<Env> {
 		super(ctx, env);
 		ctx.blockConcurrencyWhile(async () => {
 			this.data = (await ctx.storage.get<TableData>("table")) ?? null;
+			// Saves from an older deploy get any newer fields filled in; written back on the next change.
+			if (this.data) upgradeTableData(this.data);
 		});
 		// Keep-alive pings are answered without waking the object.
 		ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair("ping", "pong"));
