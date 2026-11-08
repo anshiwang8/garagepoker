@@ -3,9 +3,11 @@ import { describe, expect, it } from "vitest";
 import {
   applyAction,
   type BoardLayout,
+  boardFinished,
   boardSize,
   type HandConfig,
   type HandState,
+  isRed,
   legalActions,
   makeDeck,
   type PlayerAction,
@@ -23,6 +25,7 @@ const handArb = fc.record({
   // A third of hands are bomb pots, with a 1-3 BB ante.
   bombPotBB: fc.oneof(fc.constant(0), fc.constant(0), fc.integer({ min: 1, max: 3 })),
   runItTwice: fc.constantFrom("no" as const, "ask" as const, "always" as const),
+  redRiver: fc.boolean(),
   bigBlind: fc.integer({ min: 2, max: 100 }),
   sbPercent: fc.integer({ min: 0, max: 100 }),
   antePercent: fc.oneof(fc.constant(0), fc.integer({ min: 1, max: 100 })),
@@ -79,6 +82,7 @@ function playHand(params: HandParams): void {
     boards: params.boards,
     bombPot: params.bombPotBB > 0 ? { ante: params.bombPotBB * bb } : null,
     runItTwice: params.runItTwice,
+    redRiver: params.redRiver,
   };
   // Deck math for one run: seats × hole + boards × board cards ≤ deck size. (Not
   // capped for two runs, so hands where the deck can't cover run it twice happen too.)
@@ -168,14 +172,39 @@ function playHand(params: HandParams): void {
       expect(answers.every((e) => e.type === "ritAccept")).toBe(true);
     }
     s.secondRun.forEach((board, b) => {
-      expect(board).toHaveLength(full);
-      expect(board.slice(0, shared)).toEqual(s.boards[b]!.slice(0, shared));
-      runTwoCards.push(...board.slice(shared));
+      // Red river lets boards grow past `full`, and an all-in during an extra
+      // round shares those extra cards too: measure the shared prefix from the
+      // boards (cards are unique, so it ends exactly where the runs diverge).
+      expect(board.length).toBeGreaterThanOrEqual(full);
+      let common = 0;
+      while (common < board.length && common < s.boards[b]!.length && board[common] === s.boards[b]![common]) common++;
+      expect(common).toBeGreaterThanOrEqual(shared);
+      runTwoCards.push(...board.slice(common));
     });
   }
   for (const pot of result.pots) {
     for (const slice of pot.slices) if (slice.run !== null) expect(slice.run).toBeLessThan(s.secondRun ? 2 : 1);
   }
+
+  // Red river: every extra card follows a red card, and a board that reaches
+  // showdown ends black unless the deck ran short (redRiverStopped). A hand won
+  // by folds may end with a board unfinished.
+  const endedByFolds = result.showdown.length === 0;
+  for (const boards of s.secondRun ? [s.boards, s.secondRun] : [s.boards]) {
+    for (const board of boards) {
+      if (!config.redRiver || (variant.board as BoardLayout).grid) {
+        if (!endedByFolds) expect(board).toHaveLength(full);
+        continue;
+      }
+      for (let i = full; i < board.length; i++) expect(isRed(board[i - 1]!)).toBe(true);
+      if (!endedByFolds) {
+        expect(board.length).toBeGreaterThanOrEqual(full);
+        expect(!isRed(board.at(-1)!) || s.redRiverStopped).toBe(true);
+        expect(boardFinished(config, board) || s.redRiverStopped).toBe(true);
+      }
+    }
+  }
+  if (!config.redRiver) expect(s.redRiverStopped).toBe(false);
 
   // No card dealt twice, across hole cards, every board and the second run.
   const dealt = [...s.players.flatMap((p) => [...p.hole, ...p.discards]), ...s.boards.flat(), ...runTwoCards];
@@ -201,7 +230,7 @@ function playHand(params: HandParams): void {
 
   // Showdown: full boards; Omaha hands (high and low) use exactly 2 hole + 3 board on each board.
   if (result.showdown.length > 0) {
-    for (const board of s.boards) expect(board).toHaveLength(full);
+    for (const board of s.boards) expect(board.length).toBeGreaterThanOrEqual(full);
     if (variant.handRule === "omaha") {
       for (const { hole, boards, secondRun } of result.showdown) {
         const runs = secondRun ? [[boards, s.boards], [secondRun, s.secondRun!]] as const : [[boards, s.boards]] as const;
@@ -239,5 +268,10 @@ function playHand(params: HandParams): void {
 describe("hand state machine properties", () => {
   it("over 100k random hands (incl. hi/lo, double board, bomb pots, run it twice, Pineapple, short deck, Tic-Tac-Toe): chips conserved, no card dealt twice", () => {
     fc.assert(fc.property(handArb, playHand), { numRuns: 100_000 });
+  }, 600_000);
+
+  it("red river boards: every extra card follows a red card; each finished board ends black unless redRiverStopped", () => {
+    // Red river forced on; playHand checks the board invariants and the usual ones.
+    fc.assert(fc.property(handArb.map((p) => ({ ...p, redRiver: true })), playHand), { numRuns: 10_000 });
   }, 600_000);
 });

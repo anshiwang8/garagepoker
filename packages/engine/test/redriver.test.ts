@@ -15,10 +15,12 @@ import {
   makeDeck,
   parseCard,
   parseCards,
+  type PlayerAction,
   ROW_BOARD,
   rabbitBacks,
   rabbitCards,
   redRiverApplies,
+  replayHand,
   type RunItTwiceMode,
   streetOfPosition,
   streetWithDealt,
@@ -234,8 +236,10 @@ describe("red river live play", () => {
     // (river 5h and extra Qh red, then 4c) holds four hearts: 2h Jh 5h Qh.
     // Best 5 of any, seat 1's Ah would make an ace-high flush with 4 board
     // cards, one of them an extra card. Omaha needs 2 hearts in the hand, so
-    // seat 1 has only a pair of kings, and seat 2's trip nines win.
-    const holes = { 2: "9c 9d Ts 3s", 1: "Ah Kc Kd 8s" };
+    // seat 1 has only a pair of kings. Seat 2's pair of queens loses to that on
+    // the first 5 cards, but the extra Qh (board card 6) makes trips, so seat 2
+    // wins only if the evaluator sees the whole board.
+    const holes = { 2: "Qs Qd Ts 3s", 1: "Ah Kc Kd 8s" };
     const deck = stackDeck([holes[2], holes[1]], "2h 7c Jh 9s 5h Qh 4c");
     const s = checkDown(play(start({ 1: 1000, 2: 1000 }, 1, { ...PL, redRiver: true }, deck), "1 call"));
     const board = s.boards[0]!;
@@ -243,14 +247,19 @@ describe("red river live play", () => {
     // Under best 5 of any, seat 1 would win, and only thanks to the extra card.
     const any = (seat: 1 | 2, cards: Card[]) => handValue(VARIANTS.NLH, parseCards(holes[seat]), cards).score;
     expect(any(1, board)).toBeGreaterThan(any(2, board));
-    expect(any(1, board.slice(0, 5))).toBeLessThan(any(2, board.slice(0, 5)));
-    // Under Omaha, seat 2 wins with exactly 2 hole cards and 3 board cards.
+    // Under Omaha, seat 1 wins on the first 5 cards, but seat 2 wins on all 7.
+    const omaha = (seat: 1 | 2, cards: Card[]) => handValue(VARIANTS.PLO, parseCards(holes[seat]), cards).score;
+    expect(omaha(1, board.slice(0, 5))).toBeGreaterThan(omaha(2, board.slice(0, 5)));
+    expect(omaha(2, board)).toBeGreaterThan(omaha(1, board));
     expect(s.result!.payouts).toEqual([{ seat: 2, amount: 40 }]);
     for (const h of s.result!.showdown) {
       const best = h.boards[0]!.high.cards;
       expect(best.filter((c) => h.hole.includes(c))).toHaveLength(2);
       expect(best.filter((c) => board.includes(c))).toHaveLength(3);
     }
+    // Seat 2's winning five uses an extra-round card.
+    const winner = s.result!.showdown.find((h) => h.seat === 2)!;
+    expect(winner.boards[0]!.high.cards).toContain(board[5]);
   });
 });
 
@@ -301,6 +310,24 @@ describe("red river run-outs", () => {
       [0, 1000],
       [1, 1000],
     ]);
+    expect(stacks(s)).toBe(2000);
+  });
+
+  it("run it twice extra order: r1b1, r1b2, r2b1, r2b2", () => {
+    // Preflop all-in, double board, always run it twice. Run 1: flops, turns, rivers
+    // (5h, 6d: both red). Run 2 the same (Jd, Qd: both red). Then one extra round,
+    // dealt run 1 board 1, run 1 board 2, run 2 board 1, run 2 board 2 (all black).
+    const deck = stackDeck(
+      ["As Ad", "Ks Kd"],
+      "2c 7d 9s 3c 8d Ts Jc Qc 5h 6d  2d 3h 4c 5c 6c 7c 8c 9c Jd Qd  2s 3s 4s 5s",
+    );
+    const config: HandConfig = { ...RR, boards: 2, runItTwice: "always" };
+    const s = play(start({ 1: 1000, 2: 1000 }, 1, config, deck), "1 raise 1000", "2 call");
+    expect(s.street).toBe("complete");
+    expect(s.boards.map(str)).toEqual(["2c 7d 9s Jc 5h 2s", "3c 8d Ts Qc 6d 3s"]);
+    expect(s.secondRun!.map(str)).toEqual(["2d 3h 4c 8c Jd 4s", "5c 6c 7c 9c Qd 5s"]);
+    expect(s.extraRound).toBe(1);
+    expect(s.deckIndex).toBe(4 + 24);
     expect(stacks(s)).toBe(2000);
   });
 
@@ -489,5 +516,51 @@ describe("red river board positions", () => {
     expect(extraRoundOfPosition(ROW_BOARD, 6)).toBe(2);
     expect(streetWithDealt(ROW_BOARD, 5)).toBe("river");
     expect(streetWithDealt(ROW_BOARD, 7)).toBe("extra");
+  });
+});
+
+describe("red river replay", () => {
+  const players = [
+    { seat: 1, stack: 1000, postBlind: false },
+    { seat: 2, stack: 1000, postBlind: false },
+  ];
+  // Heads-up, button 1: seat 2 (As Ad) acts first after the flop. River 5h is red.
+  const deck = stackDeck(["As Ad", "Ks Kc"], "2c 7d 9s Jh 5h 4s");
+  const checks = (seats: number[]): PlayerAction[] => seats.map((seat) => ({ type: "check", seat }));
+  const actions: PlayerAction[] = [
+    { type: "call", seat: 1 },
+    ...checks([2]),
+    ...checks([2, 1, 2, 1, 2, 1]), // flop, turn, river
+  ];
+
+  it("replays an old record identically", () => {
+    // A record saved before red river existed: no redRiver key in its config.
+    const record = { input: { config: NL, players, button: 1, deck }, actions };
+    expect("redRiver" in record.input.config).toBe(false);
+    const s = replayHand(record).at(-1)!;
+    expect(s.street).toBe("complete");
+    expect(s.boards[0]!).toHaveLength(5);
+    expect(str(s.boards[0]!)).toBe("2c 7d 9s Jh 5h");
+    expect(s.result!.payouts).toEqual([{ seat: 2, amount: 40 }]);
+    expect(s.players.map((p) => [p.seat, p.stack])).toEqual([
+      [1, 980],
+      [2, 1020],
+    ]);
+  });
+
+  it("replayHand reproduces a red river hand", () => {
+    const config = { ...NL, redRiver: true };
+    let live = start({ 1: 1000, 2: 1000 }, 1, config, deck);
+    const record = { input: { config, players, button: 1, deck }, actions: [] as PlayerAction[] };
+    for (const a of [...actions, ...checks([2, 1])]) {
+      record.actions.push(a);
+      live = applyAction(live, a);
+    }
+    expect(live.street).toBe("complete");
+    expect(str(live.boards[0]!)).toBe("2c 7d 9s Jh 5h 4s");
+    expect(live.extraRound).toBe(1);
+    const states = replayHand(record);
+    expect(states).toHaveLength(record.actions.length + 1);
+    expect(states.at(-1)).toEqual(live);
   });
 });
