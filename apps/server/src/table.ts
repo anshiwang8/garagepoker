@@ -10,7 +10,6 @@ import {
   rankOf,
   suitOf,
   type BoardGrid,
-  boardSize,
   type Card,
   EngineError,
   type HandState,
@@ -22,6 +21,7 @@ import {
   lowestCard,
   parseCard,
   rabbitCards,
+  huntable,
   isBombPotHand,
   LedgerError,
   type LedgerEvent,
@@ -1209,7 +1209,8 @@ export class Table {
 
 /**
  * Whether a seated player may rabbit hunt the last hand right now: it's on,
- * we're between hands, and that hand ended before the river (SPEC §2.8).
+ * we're between hands, and that hand ended before its board was finished
+ * (SPEC §2.8): before the river, or with red river wanting another card.
  */
 export function rabbitAvailable(d: TableData): boolean {
   const last = d.lastHand;
@@ -1220,9 +1221,8 @@ export function rabbitAvailable(d: TableData): boolean {
     !!d.prevHand &&
     last.number === d.handNumber &&
     !last.rabbit &&
-    !last.secondRun &&
     // The hand that was played: the settings may have changed since.
-    last.boards[0]!.length < boardSize(d.prevHand.config.variant.board)
+    huntable(d.prevHand)
   );
 }
 

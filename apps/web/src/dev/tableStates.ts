@@ -54,6 +54,9 @@ function hand(over: Partial<HandView>): HandView {
   return {
     number: 12,
     street: "preflop",
+    extraRound: 0,
+    redRiver: false,
+    redRiverStopped: false,
     boards: [[]],
     bombPot: false,
     pot: 0,
@@ -74,6 +77,8 @@ function last(over: Partial<LastHandView>): LastHandView {
   return {
     number: 12,
     bombPot: false,
+    redRiver: false,
+    redRiverStopped: false,
     hiLo: false,
     bounty: null,
     grid: null,
@@ -83,6 +88,7 @@ function last(over: Partial<LastHandView>): LastHandView {
     showed: [],
     secondRun: null,
     rabbitAvailable: false,
+    rabbitBacks: [],
     rabbit: null,
     fairness: null,
     nets: [],
@@ -220,6 +226,7 @@ function wonUncontested(): TableView {
       boards: [["Jd", "8c", "4s"]],
       pots: [{ amount: 120, slices: [{ run: null, board: null, half: null, amount: 120, winners: [{ seat: 1, amount: 120 }] }] }],
       rabbitAvailable: true,
+      rabbitBacks: [2],
       nets: [{ seat: 1, net: 60 }, { seat: 2, net: -60 }],
       log: log([["preflop", 1, "smallBlind", 10], ["preflop", 2, "bigBlind", 20], ["preflop", 1, "raise", 50, 60], ["preflop", 2, "call", 40], ["flop", 2, "check", 0], ["flop", 1, "bet", 40, 40], ["flop", 2, "fold", 0], ["flop", 1, "uncalled", 40]]),
     }),
@@ -378,6 +385,7 @@ function tttRabbit(): TableView {
       boards: [grid("Jd 2c 8c / x x x / 4s x Ah", 4), grid("Kh 3d 9s / x x x / 6c x 2s", 4)],
       pots: [{ amount: 160, slices: [{ run: null, board: null, half: null, amount: 160, winners: [{ seat: 1, amount: 160 }] }] }],
       rabbitAvailable: true,
+      rabbitBacks: [5, 5],
       nets: [{ seat: 1, net: 100 }, { seat: 2, net: -60 }, { seat: 3, net: -20 }, { seat: 4, net: -20 }],
     }),
   });

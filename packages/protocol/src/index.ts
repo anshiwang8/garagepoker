@@ -136,7 +136,7 @@ export const clientMessageSchema = z.discriminatedUnion("type", [
   msg("leaveSeat", {}),
   /** Answer the run-it-twice prompt (anyone in the pot, within 5 s). */
   msg("runItTwice", { hand: z.number().int().min(1), accept: z.boolean() }),
-  /** After a hand that ended before the river: show what would have come. */
+  /** After a hand that ended before its board was finished: show what would have come. */
   msg("rabbitHunt", { hand: z.number().int().min(1) }),
   /**
    * After a hand, until the next deal: show some or all of the cards you held
@@ -357,11 +357,37 @@ export interface LogEntryView {
   /** For bet / raise: the player's total bet on the street. */
   to?: number;
   allIn?: boolean;
+  /** Set when `street` is "extra": the red river round (1, 2, …). */
+  extraRound?: number;
+}
+
+/** "Flop", or "Red river 2" for a red river extra round; "" once the hand is complete. */
+export function streetTitle(street: Street, extraRound?: number): string {
+  switch (street) {
+    case "preflop":
+      return "Preflop";
+    case "flop":
+      return "Flop";
+    case "turn":
+      return "Turn";
+    case "river":
+      return "River";
+    case "extra":
+      return extraRound ? `Red river ${extraRound}` : "Red river";
+    case "complete":
+      return "";
+  }
 }
 
 export interface HandView {
   number: number;
   street: Street;
+  /** The red river round being played (1, 2, …) while `street` is "extra"; 0 before any. */
+  extraRound: number;
+  /** Red river is on for this hand (settings changed mid-hand apply from the next one). */
+  redRiver: boolean;
+  /** The deck ran out of cards to spare, so red river stopped (log note: "No cards left: red river stops."). */
+  redRiverStopped: boolean;
   /** One board, or two with double board. */
   boards: string[][];
   bombPot: boolean;
@@ -406,6 +432,10 @@ export interface SliceView {
 export interface LastHandView {
   number: number;
   bombPot: boolean;
+  /** Red river was on for this hand. */
+  redRiver: boolean;
+  /** The deck ran out of cards to spare, so red river stopped (log note: "No cards left: red river stops."). */
+  redRiverStopped: boolean;
   /** The hand was Hi/Lo (so a board with only a high slice had no qualifying low). */
   hiLo: boolean;
   /** House rule: a 7-2 bounty paid for this hand. */
@@ -433,6 +463,12 @@ export interface LastHandView {
   secondRun: string[][] | null;
   /** A seated player can ask to see the rest of the board (rabbit hunt is on and the hand ended early). */
   rabbitAvailable: boolean;
+  /**
+   * Face-down backs per board to show before a rabbit hunt: the base cards
+   * still to come, plus 1 if the board ends red with red river on. Never the
+   * exact count of red river cards. Empty when there's nothing to hunt.
+   */
+  rabbitBacks: number[];
   /** The rabbit-hunted cards per board, once someone asked. Display only. */
   rabbit: { boards: string[][]; by: string } | null;
   /** Everything needed to check this hand's cards against its commitment. */
@@ -554,7 +590,8 @@ export async function verifyFairness(
 /** What happened between two replay frames. Amounts are integer cents. */
 export type ReplayEvent =
   | { kind: "action"; seat: number; type: LogType; amount: number; to?: number; allIn?: boolean }
-  | { kind: "deal"; street: Street; run: number; board: number; cards: string[] }
+  /** `extraRound` is set when `street` is "extra": the red river round. */
+  | { kind: "deal"; street: Street; extraRound?: number; run: number; board: number; cards: string[] }
   | { kind: "showdown"; seat: number; cards: string[]; labels: string[] }
   /** A player chose to show cards after the hand. */
   | { kind: "show"; seat: number; cards: string[] }
@@ -564,6 +601,8 @@ export type ReplayEvent =
 export interface ReplayFrame {
   events: ReplayEvent[];
   street: Street;
+  /** Set when `street` is "extra": the red river round. */
+  extraRound?: number;
   boards: string[][];
   secondRun: string[][] | null;
   pot: number;
@@ -584,4 +623,6 @@ export interface ReplayView {
   /** The deal first, then one frame per action. */
   frames: ReplayFrame[];
   pots: { amount: number; slices: SliceView[] }[];
+  /** The deck ran out of cards to spare, so red river stopped. */
+  redRiverStopped: boolean;
 }

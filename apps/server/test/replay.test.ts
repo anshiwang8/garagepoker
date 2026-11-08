@@ -1,9 +1,10 @@
-import { cardToString, type HandState } from "@garagepoker/engine";
-import type { ClientMessage } from "@garagepoker/protocol";
+import { cardToString, type HandState, legalActions } from "@garagepoker/engine";
+import { type ClientMessage, type ReplayEvent, streetTitle } from "@garagepoker/protocol";
 import { env, evictDurableObject, runInDurableObject } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import type { TableRoom } from "../src/index.js";
-import { Client, createTable, step, token } from "./helpers.js";
+import { buildReplay, replayText } from "../src/replay.js";
+import { Client, createTable, harness, isRedText, seededHand, step, token } from "./helpers.js";
 
 const ALICE = token("alice");
 const BOB = token("bob");
@@ -151,5 +152,77 @@ describe("last-hand replay", () => {
 		const replay = (await bob.replay())!;
 		expect(replay.hand).toBe(2);
 		expect(replay.frames.at(-1)!.seats.map((s) => s.stack)).toEqual(alice.view.seats.slice(0, 2).map((s) => s!.stack));
+	});
+});
+
+describe("red river replay", () => {
+	const red = isRedText;
+	/** Everyone checks or calls until the hand is over. */
+	function checkDownHarness(h: ReturnType<typeof harness>) {
+		while (h.data.hand) h.act(legalActions(h.data.hand)!.canCheck ? { type: "check" } : { type: "call" });
+	}
+	const deals = (events: ReplayEvent[]) => events.filter((e): e is Extract<ReplayEvent, { kind: "deal" }> => e.kind === "deal");
+	const text = (h: ReturnType<typeof harness>, viewer: string) =>
+		replayText(buildReplay(h.data, viewer)!, { variant: "No-limit Hold'em", endedAt: 0, cents: false, viewerSeat: 1 });
+
+	it("names every street", () => {
+		expect(["preflop", "flop", "turn", "river"].map((s) => streetTitle(s as "flop"))).toEqual(["Preflop", "Flop", "Turn", "River"]);
+		expect(streetTitle("extra", 1)).toBe("Red river 1");
+		expect(streetTitle("extra", 3)).toBe("Red river 3");
+		expect(streetTitle("complete")).toBe("");
+	});
+
+	it("red river deal events carry extraRound", () => {
+		const { h, ids } = seededHand({ redRiver: true }, (r) => red(r[4]!) && red(r[5]!) && !red(r[6]!));
+		const rest = h.data.hand!.deck.slice(h.data.hand!.deckIndex).map(cardToString);
+		checkDownHarness(h);
+		const replay = buildReplay(h.data, ids[0]!)!;
+		const dealt = deals(replay.frames.flatMap((f) => f.events));
+		expect(dealt.map((e) => [e.street, e.extraRound, e.cards])).toEqual([
+			["flop", undefined, rest.slice(0, 3)],
+			["turn", undefined, [rest[3]]],
+			["river", undefined, [rest[4]]],
+			["extra", 1, [rest[5]]],
+			["extra", 2, [rest[6]]],
+		]);
+		expect(dealt.filter((e) => e.street !== "extra").every((e) => !("extraRound" in e))).toBe(true);
+		const extraFrames = replay.frames.filter((f) => f.street === "extra");
+		expect(new Set(extraFrames.map((f) => f.extraRound))).toEqual(new Set([1, 2]));
+		expect(replay.frames.filter((f) => f.street !== "extra").every((f) => f.extraRound === undefined)).toBe(true);
+		expect(replay.frames.at(-1)!.boards[0]).toEqual(rest.slice(0, 7));
+		expect(replay.redRiverStopped).toBe(false);
+	});
+
+	it("export text names Red river 1", () => {
+		const { h, ids } = seededHand({ redRiver: true }, (r) => red(r[4]!) && !red(r[5]!));
+		const rest = h.data.hand!.deck.slice(h.data.hand!.deckIndex).map(cardToString);
+		checkDownHarness(h);
+		const lines = text(h, ids[0]!).split("\n");
+		expect(lines).toContain(`River: ${rest[4]}`);
+		expect(lines).toContain(`Red river 1: ${rest[5]}`);
+		expect(lines.join("\n")).not.toContain("extra");
+		expect(lines.join("\n")).not.toContain("No cards left");
+	});
+
+	it("export text notes when the deck runs out", () => {
+		// 9 seats of PLO5: 45 hole cards and 5 board cards leave 2 to spare.
+		const players = ["owner", "b", "c", "d", "e", "f", "g", "i", "j"];
+		const { h, ids } = seededHand(
+			{ variant: "PLO5", seats: 9, redRiver: true },
+			(r) => r.length === 7 && red(r[4]!) && red(r[5]!) && red(r[6]!),
+			players,
+		);
+		checkDownHarness(h);
+		expect(h.data.prevHand!.boards[0]).toHaveLength(7);
+		expect(h.view(ids[0]!).lastHand).toMatchObject({ redRiver: true, redRiverStopped: true });
+		const replay = buildReplay(h.data, ids[0]!)!;
+		expect(replay.redRiverStopped).toBe(true);
+		const lines = text(h, ids[0]!).split("\n");
+		const note = lines.indexOf("No cards left: red river stops.");
+		expect(note).toBeGreaterThan(lines.findIndex((l) => l.startsWith("Red river 2:")));
+		expect(lines.filter((l) => l.startsWith("No cards left"))).toHaveLength(1);
+		// After the last round's betting, before the showdown.
+		expect(lines.slice(note + 1).every((l) => !/checks|calls/.test(l))).toBe(true);
+		expect(lines[note + 1]).toMatch(/shows/);
 	});
 });

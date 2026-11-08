@@ -3,7 +3,17 @@
  * assembled field by field (never by spreading engine state), so the deck and
  * other players' hole cards can't leak by accident.
  */
-import { cardToString, handLabel, ledgerRows, legalActions, potTotal, settleUp, splitEven } from "@garagepoker/engine";
+import {
+  cardToString,
+  handLabel,
+  huntable,
+  ledgerRows,
+  legalActions,
+  potTotal,
+  rabbitBacks,
+  settleUp,
+  splitEven,
+} from "@garagepoker/engine";
 import type { HandState, LogEntry } from "@garagepoker/engine";
 import type { LogEntryView, RequestView, SeatView, TableView } from "@garagepoker/protocol";
 import { proofFor } from "./fairness.js";
@@ -24,6 +34,7 @@ function logView(log: readonly LogEntry[]): LogEntryView[] {
     amount: e.amount,
     ...(e.to !== undefined && { to: e.to }),
     ...(e.allIn !== undefined && { allIn: e.allIn }),
+    ...(e.extraRound !== undefined && { extraRound: e.extraRound }),
   }));
 }
 
@@ -74,7 +85,10 @@ export function buildView(
     const seat = i + 1;
     const hp = hand?.players.find((p) => p.seat === seat);
     const mine = seat === viewerSeat;
-    const last = hand?.log.findLast((e) => e.seat === seat && e.street === hand.street);
+    // This street's actions only (in red river, this round's).
+    const last = hand?.log.findLast(
+      (e) => e.seat === seat && e.street === hand.street && (e.extraRound ?? 0) === (hand.extraRound ?? 0),
+    );
     return {
       seat,
       playerId: s.playerId,
@@ -140,6 +154,10 @@ export function buildView(
       ? {
           number: data.handNumber,
           street: hand.street,
+          // (Hands dealt before red river existed have neither field.)
+          extraRound: hand.extraRound ?? 0,
+          redRiver: !!hand.config.redRiver,
+          redRiverStopped: hand.redRiverStopped ?? false,
           boards: hand.boards.map(cards),
           bombPot: hand.bombPot,
           pot: potTotal(hand),
@@ -164,6 +182,9 @@ export function buildView(
       ? {
           number: lastHand.number,
           bombPot: lastHand.bombPot,
+          // prevHand is the same hand's final state: the config it was dealt with.
+          redRiver: !!data.prevHand?.config.redRiver,
+          redRiverStopped: data.prevHand?.redRiverStopped ?? false,
           hiLo: lastHand.hiLo,
           bounty: lastHand.bounty ?? null,
           grid: lastHand.grid ?? null,
@@ -193,6 +214,8 @@ export function buildView(
           showed: (lastHand.showed ?? []).map((x) => ({ seat: x.seat, nickname: x.nickname, cards: cards(x.cards) })),
           secondRun: lastHand.secondRun?.map(cards) ?? null,
           rabbitAvailable: rabbitAvailable(data),
+          // Public counts only (spec §4.6): the exact number of red river cards waits for the hunt.
+          rabbitBacks: data.prevHand && huntable(data.prevHand) ? rabbitBacks(data.prevHand) : [],
           // Rabbit cards appear only once a seated player asked for them.
           rabbit: lastHand.rabbit ? { boards: lastHand.rabbit.boards.map(cards), by: lastHand.rabbit.by } : null,
           fairness: fairnessProof(data),

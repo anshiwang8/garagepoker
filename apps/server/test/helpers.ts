@@ -1,4 +1,4 @@
-import { DEFAULT_SETTINGS, type RandomSource, type TableSettings } from "@garagepoker/engine";
+import { cardToString, DEFAULT_SETTINGS, type RandomSource, type TableSettings } from "@garagepoker/engine";
 import type { ClientMessage, ServerMessage, TableView } from "@garagepoker/protocol";
 import { SELF } from "cloudflare:test";
 import { expect } from "vitest";
@@ -25,8 +25,8 @@ export const token = (name: string) => `${name}-token-0123456789`.slice(0, 32);
  * A Table driven directly, with a fake clock and a fake set of connections.
  * `send` mirrors TableRoom.mutate: handle, then sync presence, then tick.
  */
-export function harness(settings: Partial<TableSettings> = {}) {
-	const random = seededRandom(42);
+export function harness(settings: Partial<TableSettings> = {}, seed = 42) {
+	const random = seededRandom(seed);
 	const clock = { now: 1_000_000 };
 	const connected = new Set<string>();
 	const data: TableData = newTableData(
@@ -95,6 +95,30 @@ export function harness(settings: Partial<TableSettings> = {}) {
 	connected.add(h.ownerId);
 	settle();
 	return h;
+}
+
+/** Red: hearts or diamonds. */
+export const isRedText = (card: string) => card[1] === "h" || card[1] === "d";
+
+/**
+ * A table whose first hand deals the board you need, without a test-only hook:
+ * tries seeds until the undealt cards (`rest`, the next board card first) pass
+ * `want`. Seats `players` (the owner in seat 1) and starts the game.
+ */
+export function seededHand(
+	settings: Partial<TableSettings>,
+	want: (rest: string[]) => boolean,
+	players = ["owner", "bob"],
+	stack = 100_000,
+) {
+	for (let seed = 1; seed < 20_000; seed++) {
+		const h = harness(settings, seed);
+		const ids = players.map((name, i) => h.seat(name, i + 1, stack));
+		h.send(h.ownerId, { type: "startGame" });
+		const hand = h.data.hand!;
+		if (want(hand.deck.slice(hand.deckIndex).map(cardToString))) return { h, ids, seed };
+	}
+	throw new Error("no seed deals that board");
 }
 
 // ---------------------------------------------------------------------------
