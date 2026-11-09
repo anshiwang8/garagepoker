@@ -172,6 +172,16 @@ describe("red river replay", () => {
 		expect(streetTitle("complete")).toBe("");
 	});
 
+	it("export text lists an NLH viewer's two hole cards, as the first frame shows them", () => {
+		const { h, ids } = seededHand({}, () => true);
+		checkDownHarness(h);
+		const replay = buildReplay(h.data, ids[0]!)!;
+		const mine = replay.frames[0]!.seats.find((s) => s.seat === 1)!.cards;
+		expect(mine).toHaveLength(2);
+		const line = text(h, ids[0]!).split("\n").find((l) => l.startsWith("Your cards:"));
+		expect(line).toBe(`Your cards: ${mine.join(" ")}`);
+	});
+
 	it("red river deal events carry extraRound", () => {
 		const { h, ids } = seededHand({ redRiver: true }, (r) => red(r[4]!) && red(r[5]!) && !red(r[6]!));
 		const rest = h.data.hand!.deck.slice(h.data.hand!.deckIndex).map(cardToString);

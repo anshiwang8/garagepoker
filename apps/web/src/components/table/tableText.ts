@@ -11,6 +11,7 @@ export const VARIANT_SHORT: Record<VariantName, string> = {
   PLOHL: "PLO HL",
   PLO5HL: "PLO5 HL",
   PINEAPPLE: "Pineapple",
+  REVERSE_PINEAPPLE: "Rev. Pineapple",
   SHORT: "Short deck",
   TICTACTOE: "Tic-Tac-Toe",
 };

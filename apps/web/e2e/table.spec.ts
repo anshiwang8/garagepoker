@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 /** Every dev preview: hero to act, raise panel, results, double board, Tic-Tac-Toe grids, spectators… */
-const STATES = "abcdefghijklmnopqrstuvwx".split("");
+const STATES = "abcdefghijklmnopqrstuvwxyzA".split("");
 
 for (const id of STATES) {
   test(`table preview ${id}: drawn, no sideways scroll, nothing over the board, big action buttons`, async ({ page }) => {
@@ -110,4 +110,17 @@ test("the sent state stops a second tap", async ({ page }) => {
   // The dev preview has no server, so the table never moves on: the buttons stay sent.
   await expect(call).toBeDisabled();
   await expect(page.getByRole("group", { name: "Your turn" })).toHaveAttribute("aria-busy", "true");
+});
+
+test("Reverse Pineapple river preview: the hero holds 5 cards and the opponents show 5 backs", async ({ page }) => {
+  await page.goto("/dev/table-states?state=z");
+  await expect(page.locator("[data-mode]")).toHaveCount(1);
+  await expect(page.locator("[data-box=hero-cards] > div.relative > div")).toHaveCount(5);
+  // Opponents still in the hand show 5 backs each (the folded one shows none).
+  const opps = await page.locator("[data-box=cards]").evaluateAll((els) => els.map((e) => e.querySelectorAll(":scope > div.relative > div").length));
+  expect(opps.length).toBeGreaterThan(0);
+  expect(opps.every((n) => n === 5)).toBe(true);
+  await page.goto("/dev/table-states?state=y");
+  await expect(page.locator("[data-mode]")).toHaveCount(1);
+  await expect(page.locator("[data-box=hero-cards] > div.relative > div")).toHaveCount(3);
 });

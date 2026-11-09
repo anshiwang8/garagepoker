@@ -176,8 +176,15 @@ export function replayText(replay: ReplayView, meta: { variant: string; endedAt:
 	const name = (seat: number) => names.get(seat) ?? `Seat ${seat}`;
 	const lines = [`Hand #${replay.hand} · ${meta.variant} · ${new Date(meta.endedAt).toISOString().replace("T", " ").slice(0, 16)} UTC`];
 	lines.push(`Seats: ${first.seats.map((s) => `${s.seat} ${s.nickname} (${chips(s.stack + s.bet, meta.cents)})`).join(" · ")}`);
-	const mine = meta.viewerSeat !== null ? first.seats.find((s) => s.seat === meta.viewerSeat) : undefined;
-	if (mine && mine.cards.every(Boolean)) lines.push(`Your cards: ${mine.cards.join(" ")}`);
+	// Every hole card the viewer held: the frame with the most (later streets add cards in Reverse Pineapple; Pineapple's discard only shrinks the hand, so its first frame still wins).
+	let mine: (typeof first.seats)[number] | undefined;
+	if (meta.viewerSeat !== null) {
+		for (const f of replay.frames) {
+			const seat = f.seats.find((s) => s.seat === meta.viewerSeat);
+			if (seat && seat.cards.every(Boolean) && (!mine || seat.cards.length > mine.cards.length)) mine = seat;
+		}
+	}
+	if (mine && mine.cards.length > 0) lines.push(`Your cards: ${mine.cards.join(" ")}`);
 	lines.push(`${streetTitle("preflop")}:`);
 	// Red river stopped once the last round's cards and betting were done, so the note goes before the result.
 	let stopNoted = !replay.redRiverStopped;

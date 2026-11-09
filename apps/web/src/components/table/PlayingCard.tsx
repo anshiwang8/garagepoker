@@ -89,9 +89,10 @@ export function PlayingCard({
 /**
  * How a seat's cards are dealt: from (x, y), relative to the fan's top left,
  * one card per player per round, starting with the seat `slot` places left of
- * the button's left.
+ * the button's left. Cards from index `first` on are dealt later, one per
+ * player, so they wait only for their turn among the players.
  */
-export type Deal = { x: number; y: number; slot: number; players: number; gap: number };
+export type Deal = { x: number; y: number; slot: number; players: number; gap: number; first: number };
 
 /**
  * Cards held at a seat: overlapping and fanned about their bottom centre.
@@ -133,7 +134,7 @@ export function CardFan({
             ...(deal && {
               "--deal-dx": `${deal.x - (i * step + w / 2)}px`,
               "--deal-dy": `${deal.y - h / 2}px`,
-              animationDelay: `${(i * deal.players + deal.slot) * deal.gap}ms`,
+              animationDelay: `${((i < deal.first ? i * deal.players : 0) + deal.slot) * deal.gap}ms`,
             }),
           }}
         >
