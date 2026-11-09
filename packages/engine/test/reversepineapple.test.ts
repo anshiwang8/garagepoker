@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   EngineError,
   holeCardsOnStreet,
+  isRed,
   makeDeck,
   parseCards,
   rabbitCards,
@@ -127,7 +128,7 @@ describe("Reverse Pineapple", () => {
 
     it("runs twice for a red river card on the river", () => {
       const cfg = { ...rit, redRiver: true };
-      // 2 players, button 1. Board 2c 3c 4c 5c then a red river; spare black cards follow.
+      // 2 players, button 1. Board 9c Tc Jc Qc Kd (red river); spare black cards follow.
       const order = [
         ...parseCards("2d 3d"), // seat 2
         ...parseCards("2h 3h"), // seat 1
@@ -148,6 +149,8 @@ describe("Reverse Pineapple", () => {
       s = play(s, "2 raise 980", "1 call");
       expect(s.secondRun).not.toBeNull();
       expect(s.street).toBe("complete");
+      expect(!isRed(s.boards[0]!.at(-1)!) || s.redRiverStopped).toBe(true);
+      expect(!isRed(s.secondRun![0]!.at(-1)!) || s.redRiverStopped).toBe(true);
     });
   });
 
@@ -180,9 +183,11 @@ describe("Reverse Pineapple", () => {
         button: 1,
         deck,
       });
+    expect(bad({ laterHole: [1, 1, 3] })).toThrow(/must leave some for the preflop/);
+    expect(bad({ discard: true })).toThrow(/discards aren't available with later hole cards/);
+    expect(bad({ laterHole: [-1, 1, 1] })).toThrow(/must be whole numbers/);
+    expect(bad({ ...VARIANTS.TICTACTOE, laterHole: [1, 0, 0] })).toThrow(/aren't available with line hands/);
     expect(bad({ laterHole: [1, 1, 3] })).toThrow(EngineError);
-    expect(bad({ discard: true })).toThrow(EngineError);
-    expect(bad({ laterHole: [-1, 1, 1] })).toThrow(EngineError);
   });
 
   it("other variants deal as before", () => {

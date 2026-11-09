@@ -8,7 +8,7 @@ Positioning: *PokerNow-style tables, every game your group actually plays, no pa
 
 ## 1. Game model
 
-Variants are built from seven parameters. Every "mode" is a preset; a new variant should be a config row, not new code.
+Variants are built from eight parameters. Every "mode" is a preset; a new variant should be a config row, not new code.
 
 | Parameter | Values |
 | --- | --- |

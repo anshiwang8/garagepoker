@@ -1,6 +1,6 @@
 "use client";
 
-import { type BoardGrid, type Variant, VARIANTS } from "@garagepoker/engine";
+import { type BoardGrid, holeCardsOnStreet, type Variant, VARIANTS } from "@garagepoker/engine";
 import type { LastHandView, SeatView, TableView } from "@garagepoker/protocol";
 import { Eye } from "lucide-react";
 import { useLayoutEffect, useRef, useState } from "react";
@@ -107,7 +107,7 @@ function dealerFor(view: TableView, layout: FeltLayout): Dealer {
   const dealt = view.seats.flatMap((s) => (s?.inHand ? [s.seat] : [])).sort((a, b) => fromButton(a) - fromButton(b));
   const v = VARIANTS[view.settings.variant];
   // Cards dealt at once to start; any beyond these arrive later (Reverse Pineapple) and fly in alone.
-  const first = v.holeCards - ("laterHole" in v ? v.laterHole : [0, 0, 0]).reduce((a: number, b: number) => a + b, 0);
+  const first = holeCardsOnStreet(v, "preflop");
   // About a second for the whole deal, however many cards.
   const gap = Math.min(70, 1000 / Math.max(1, dealt.length * first));
   const { felt } = layout;

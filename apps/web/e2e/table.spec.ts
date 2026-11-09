@@ -116,6 +116,10 @@ test("Reverse Pineapple river preview: the hero holds 5 cards and the opponents 
   await page.goto("/dev/table-states?state=z");
   await expect(page.locator("[data-mode]")).toHaveCount(1);
   await expect(page.locator("[data-box=hero-cards] > div.relative > div")).toHaveCount(5);
+  // Opponents still in the hand show 5 backs each (the folded one shows none).
+  const opps = await page.locator("[data-box=cards]").evaluateAll((els) => els.map((e) => e.querySelectorAll(":scope > div.relative > div").length));
+  expect(opps.length).toBeGreaterThan(0);
+  expect(opps.every((n) => n === 5)).toBe(true);
   await page.goto("/dev/table-states?state=y");
   await expect(page.locator("[data-mode]")).toHaveCount(1);
   await expect(page.locator("[data-box=hero-cards] > div.relative > div")).toHaveCount(3);

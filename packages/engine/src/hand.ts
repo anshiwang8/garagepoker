@@ -72,7 +72,6 @@ export const VARIANTS = {
   PLOHL: { holeCards: 4, deckSize: 52, betting: "PL", handRule: "omaha", split: "hilo", discard: false, board: ROW_BOARD },
   PLO5HL: { holeCards: 5, deckSize: 52, betting: "PL", handRule: "omaha", split: "hilo", discard: false, board: ROW_BOARD },
   PINEAPPLE: { holeCards: 5, deckSize: 52, betting: "NL", handRule: "any", split: "high", discard: true, board: ROW_BOARD },
-  /** 36 cards, 6 to A; Triton rankings (flush > full house, trips > straight). */
   REVERSE_PINEAPPLE: {
     holeCards: 5,
     deckSize: 52,
@@ -83,6 +82,7 @@ export const VARIANTS = {
     board: ROW_BOARD,
     laterHole: [1, 1, 1],
   },
+  /** 36 cards, 6 to A; Triton rankings (flush > full house, trips > straight). */
   SHORT: { holeCards: 2, deckSize: 36, betting: "NL", handRule: "any", split: "high", discard: false, board: ROW_BOARD },
   /** A 3×3 grid: corners, middle row, then top- and bottom-middle. Both hole cards + one line. */
   TICTACTOE: {
@@ -540,6 +540,7 @@ function validateHandConfig(c: HandConfig): void {
     if (![a, b, d].every((x) => Number.isInteger(x) && x >= 0)) throw new EngineError("later hole cards must be whole numbers");
     if (a + b + d >= v.holeCards) throw new EngineError("later hole cards must leave some for the preflop");
     if (v.discard) throw new EngineError("discards aren't available with later hole cards");
+    if (v.handRule === "lines") throw new EngineError("later hole cards aren't available with line hands");
   }
   if (c.boards !== undefined && c.boards !== 1 && c.boards !== 2) {
     throw new EngineError(`boards must be 1 or 2, got ${c.boards}`);

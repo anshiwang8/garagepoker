@@ -1,7 +1,7 @@
 import { DEFAULT_SETTINGS, legalActions, sevenDeuceApplies, validateConfig } from "@garagepoker/engine";
 import { settingsSchema } from "@garagepoker/protocol";
 import { describe, expect, it } from "vitest";
-import { buildReplay } from "../src/replay.js";
+import { buildReplay, replayText } from "../src/replay.js";
 import { harness } from "./helpers.js";
 
 const settings = { variant: "REVERSE_PINEAPPLE" } as const;
@@ -68,6 +68,23 @@ describe("Reverse Pineapple", () => {
 		expect(sizes("river")).toEqual(new Set([5]));
 		// Your own cards are real strings in every frame.
 		expect(frames.at(-1)!.seats[0]!.cards.every((c) => typeof c === "string")).toBe(true);
+	});
+
+	it("export lists every hole card the viewer held, even after folding on the turn", () => {
+		const { h, owner } = table();
+		playTo(h, "turn");
+		// Seat 1 folds on the turn; everyone else checks or calls down.
+		while (h.data.hand) {
+			const hand = h.data.hand;
+			h.act(hand.street === "turn" && hand.toAct === 1 ? { type: "fold" } : legalActions(hand)!.canCheck ? { type: "check" } : { type: "call" });
+		}
+		const replay = buildReplay(h.data, owner)!;
+		const lastMine = replay.frames.at(-1)!.seats[0]!.cards;
+		expect(lastMine).toHaveLength(4);
+		const out = replayText(replay, { variant: "Reverse Pineapple", endedAt: 0, cents: false, viewerSeat: 1 });
+		const line = out.split("\n").find((l) => l.startsWith("Your cards:"))!;
+		expect(line).toBe(`Your cards: ${lastMine.join(" ")}`);
+		expect(line.split(" ").slice(2)).toHaveLength(4);
 	});
 
 	it("the 7-2 bounty doesn't apply", () => {
