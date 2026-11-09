@@ -19,6 +19,7 @@ Variants are built from seven parameters. Every "mode" is a preset; a new varian
 | Hand rule | Best 5 of all cards; exactly 2 hole + 3 board (Omaha); or exactly 2 hole + one full line of the grid (Tic-Tac-Toe) |
 | Pot split | High only; high/low 8-or-better |
 | Discards | None; 1 each preflop, flop, turn (Pineapple) |
+| Hole cards later | None; 1 each on the flop, turn and river (Reverse Pineapple) |
 
 Three **table modifiers** work with any variant (Red river only with a row board, so not Tic-Tac-Toe):
 
@@ -38,12 +39,14 @@ Three **table modifiers** work with any variant (Red river only with a row board
 | PLO Hi/Lo | 4 | 52 | Row | PL | 2 + 3, each half | Hi/Lo 8 | None |
 | PLO5 Hi/Lo | 5 | 52 | Row | PL | 2 + 3, each half | Hi/Lo 8 | None |
 | Pineapple (5-card) | 5 | 52 | Row | NL | Best 5 | Hi | Preflop, flop, turn |
+| Reverse Pineapple | 2 + 1 + 1 + 1 | 52 | Row | NL | Best 5 | Hi | None |
 | Short deck | 2 | 36 | Row | NL | Best 5 | Hi | None |
 | Tic-Tac-Toe Hold'em | 2 | 52 | Grid | NL | 2 + line | Hi | None |
 
 ### Variant rules
 
 - **Pineapple (5-card):** each player is dealt 5 and discards 1 preflop, 1 after the flop and 1 after the turn, so they hold 2 on the river. Showdown is best 5 of 7. Everyone discards face down at the same time, before betting on that street. If the timer expires, the engine discards the player's lowest card.
+- **Reverse Pineapple:** each player is dealt 2 and gets 1 more face down on the flop, 1 on the turn and 1 on the river, so they hold 5 at showdown. Showdown is best 5 of all 10 cards: use any number of hole cards, even none. On each of those streets the hole cards come first, one per player still in the hand starting left of the button, then the board cards. All-in players get their card; folded players don't, and their cards stay in the deck as spares. Bomb pots deal the 3rd card with the flop. Run it twice is offered only once every hole card is out. Rabbit hunt shows only board cards. Red river rounds deal board cards only. The 7-2 bounty doesn't apply.
 - **Short deck:** 36 cards (6 through A). Flush beats full house. Three of a kind beats a straight (Triton rules). A-6-7-8-9 is the lowest straight.
 - **Hi/Lo:** a low must be 8-or-better with 5 distinct ranks, ace plays low. In Omaha, both the high and the low use exactly 2 hole + 3 board, and can use different hole cards.
 - **Tic-Tac-Toe Hold'em:** the board is 9 cards in a 3×3 grid. The flop is the 4 corners, the turn is the middle row (left, centre, right) and the river is the top-middle and bottom-middle squares. A hand is both hole cards plus the 3 cards of one line: a row, a column or a diagonal (8 lines). No line is complete after the flop; after the turn the middle row, both outer columns and both diagonals are; the river completes the top row, bottom row and middle column. Before a line is complete, labels count the hole cards plus the line's dealt cards, as Omaha does preflop. High only.
@@ -77,6 +80,7 @@ Three **table modifiers** work with any variant (Red river only with a row board
    - Only offered when every remaining player is all-in (or all but one) and no more action is possible. Cards still to come include another red-river card when a board's last card is red.
    - Every player in the pot must accept; any decline or a 5-second timeout means it runs once.
    - Each run takes half of each pot.
+   - In Reverse Pineapple, run it twice is offered only once every hole card is out (the river or a red river round).
    - Disabled wherever the deck math fails (section 3). With red river it also needs at least one spare card per run for every board that currently ends red.
    - With red river, each run and each board carries on on its own: one run can end black on the river while the other draws extra cards. Cards are dealt in this order: run 1's remaining base streets, then run 2's, then extra cards round by round, one card to each board still ending red, in the order run 1 board 1, run 1 board 2, run 2 board 1, run 2 board 2.
 8. **Rabbit hunt.** When allowed, after a hand ends before the board was finished, any player can reveal the cards that would have come. Display only; no effect on the pot. It also applies to a fold during river betting or an extra round while a red card is showing. The cards shown are the rest of the base board, then extra cards while the last one is red.
@@ -106,6 +110,7 @@ Red river doesn't change this table: its extra cards are never reserved. They co
 | PLO | 52 | 37 | 42 |
 | PLO5 | 52 | 45 | 50 |
 | Pineapple | 52 | 45 | 50 |
+| Reverse Pineapple | 52 | 45 | 50 |
 | PLO, double board | 52 | 42 | 52 |
 | PLO5, double board | 52 | 50 | **60 (not allowed)** |
 | Short deck | 36 | 21 | 26 |
@@ -226,6 +231,7 @@ Phone portrait first (390×844; also 360×740 and 430×932), desktop second (≥
   - On narrow screens or full tables, opponent plates and cards shrink rather than overlap anything.
 - **Hero area:** no opponent plate, card, bet or button ever overlaps your cards, tags or plate.
 - **Hand-strength tag:** a small coloured, uppercase tag over the bottom edge of the cards, coloured by strength: grey-blue for high card and pair, teal for two pair and trips, purple for straight, flush and full house, red for quads and better. Hi/Lo shows both halves ("FLUSH · 8-6 LOW"); a double board shows two tags ("B1 PAIR", "B2 TWO PAIR"). Only the card's owner sees it, until showdown. Opponents' showdown tags use short names ("TRIPS", "QUADS").
+- **Reverse Pineapple hand:** your hand grows by one card on each of the flop, turn and river; each new card slides in like the deal.
 - **Dealer button:** a white "D" disc beside the dealer's plate, on the felt side.
 - **Bets:** each street's bet (blinds and antes included) is a bright chip-coloured pill on the felt between the player and the pot.
 - **Whose turn:** that player's plate turns white with a soft glow, and a thin timer bar along its bottom edge shrinks from green to yellow to red. In the time bank the bar turns purple, and an "EXTRA TIME" banner shows beside the plate for 2 s. No sound.
