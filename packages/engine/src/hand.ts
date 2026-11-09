@@ -45,8 +45,23 @@ export interface Variant {
    * time, before betting on the preflop, flop and turn, holding 2 on the river.
    */
   discard: boolean;
+  /**
+   * Reverse Pineapple: hole cards dealt to every live player on the flop, turn
+   * and river. The preflop deal is `holeCards` minus their sum.
+   */
+  laterHole?: readonly [number, number, number];
   /** How the board is dealt and laid out (SPEC §1): a row of 5, or a grid. */
   board: BoardLayout;
+}
+
+/** Hole cards dealt to each player on a street (0 for streets that deal none). */
+export function holeCardsOnStreet(variant: Variant, street: Street): number {
+  const later = variant.laterHole ?? [0, 0, 0];
+  if (street === "preflop") return variant.holeCards - later[0] - later[1] - later[2];
+  if (street === "flop") return later[0];
+  if (street === "turn") return later[1];
+  if (street === "river") return later[2];
+  return 0;
 }
 
 /** SPEC §1 presets. A new variant is a new row, not new code. */
@@ -58,6 +73,16 @@ export const VARIANTS = {
   PLO5HL: { holeCards: 5, deckSize: 52, betting: "PL", handRule: "omaha", split: "hilo", discard: false, board: ROW_BOARD },
   PINEAPPLE: { holeCards: 5, deckSize: 52, betting: "NL", handRule: "any", split: "high", discard: true, board: ROW_BOARD },
   /** 36 cards, 6 to A; Triton rankings (flush > full house, trips > straight). */
+  REVERSE_PINEAPPLE: {
+    holeCards: 5,
+    deckSize: 52,
+    betting: "NL",
+    handRule: "any",
+    split: "high",
+    discard: false,
+    board: ROW_BOARD,
+    laterHole: [1, 1, 1],
+  },
   SHORT: { holeCards: 2, deckSize: 36, betting: "NL", handRule: "any", split: "high", discard: false, board: ROW_BOARD },
   /** A 3×3 grid: corners, middle row, then top- and bottom-middle. Both hole cards + one line. */
   TICTACTOE: {
@@ -322,10 +347,11 @@ export function startHand(input: StartHandInput): HandState {
     facedBet: 0,
     discards: [],
   }));
+  const preflopCards = holeCardsOnStreet(config.variant, "preflop");
   let deckIndex = 0;
   for (let k = 1; k <= n; k++) {
-    players[at(k)]!.hole = input.deck.slice(deckIndex, deckIndex + holeCards);
-    deckIndex += holeCards;
+    players[at(k)]!.hole = input.deck.slice(deckIndex, deckIndex + preflopCards);
+    deckIndex += preflopCards;
   }
 
   const s: HandState = {
@@ -509,6 +535,12 @@ function validateHandConfig(c: HandConfig): void {
   if (v.split !== "high" && v.split !== "hilo") throw new EngineError(`invalid split ${v.split}`);
   if (v.split === "hilo" && v.deckSize === 36) throw new EngineError("Hi/Lo isn't available with short deck");
   if (v.discard && v.holeCards - 3 !== 2) throw new EngineError("Pineapple needs 5 hole cards (3 discards, 2 kept)");
+  if (v.laterHole) {
+    const [a, b, d] = v.laterHole;
+    if (![a, b, d].every((x) => Number.isInteger(x) && x >= 0)) throw new EngineError("later hole cards must be whole numbers");
+    if (a + b + d >= v.holeCards) throw new EngineError("later hole cards must leave some for the preflop");
+    if (v.discard) throw new EngineError("discards aren't available with later hole cards");
+  }
   if (c.boards !== undefined && c.boards !== 1 && c.boards !== 2) {
     throw new EngineError(`boards must be 1 or 2, got ${c.boards}`);
   }
@@ -762,10 +794,20 @@ function canRunTwice(s: HandState): boolean {
   // Pineapple: each run would need its own discards, so only once the turn
   // discard is done (the river and red river cards hold no discards).
   if (s.config.variant.discard && (s.street === "preflop" || s.street === "flop")) return false;
+  // Later hole cards: each run would need its own, so only once they're all out.
+  if (holeCardsStillToCome(s.config.variant, s.street)) return false;
   const layout = s.config.variant.board;
   const missing = s.boards.reduce((sum, b) => sum + missingBase(layout, b), 0);
   const red = s.boards.filter((b) => wantsRedRiverCard(s.config, b)).length;
   return (missing > 0 || red > 0) && s.deckIndex + 2 * missing + 2 * red <= s.deck.length;
+}
+
+/** Some street after this one deals hole cards. */
+function holeCardsStillToCome(variant: Variant, street: Street): boolean {
+  for (let st = NEXT_STREET[street]; st; st = NEXT_STREET[st]) {
+    if (holeCardsOnStreet(variant, st) > 0) return true;
+  }
+  return false;
 }
 
 /** Base cards this board still needs: 0 once the river is out. */
@@ -802,7 +844,8 @@ function runOutAndFinish(s: HandState, runs: 1 | 2): HandState {
   if (!baseDealt) while (s.street !== "river") dealNextStreet(s);
   if (runs === 2) {
     s.secondRun = shared;
-    if (!baseDealt) s.deckIndex = dealStreets(s.config.variant.board, s.deck, s.deckIndex, s.secondRun, from, "river");
+    // Run 2 deals board cards only: run it twice needs every hole card out first.
+    if (!baseDealt) s.deckIndex = dealStreets(s, s.deckIndex, s.secondRun, from, "river", false);
   }
   const allRuns = runs === 2 ? [s.boards, s.secondRun!] : [s.boards];
   while (dealExtraRound(s, allRuns));
@@ -814,19 +857,34 @@ const NEXT_STREET: Partial<Record<Street, Street>> = { preflop: "flop", flop: "t
 
 /**
  * Deals each street after `from` up to and including `until` onto `boards`:
- * board 1 then board 2 on each street, no burn cards. Returns the new deck index.
+ * first the street's hole cards to each live player (when `withHole`), then
+ * board 1 then board 2, no burn cards. Returns the new deck index.
  */
 function dealStreets(
-  layout: BoardLayout,
-  deck: readonly Card[],
+  s: HandState,
   index: number,
   boards: Card[][],
   from: Street,
   until: Street,
+  withHole: boolean,
 ): number {
+  const { deck } = s;
+  const layout = s.config.variant.board;
+  const n = s.players.length;
+  const btn = indexOfSeat(s, s.button);
   let street = from;
   while (street !== until) {
     street = NEXT_STREET[street]!;
+    const holes = withHole ? holeCardsOnStreet(s.config.variant, street) : 0;
+    if (holes > 0) {
+      // Live players only, starting left of the button, like the preflop deal.
+      for (let k = 1; k <= n; k++) {
+        const p = s.players[(btn + k) % n]!;
+        if (p.folded) continue;
+        p.hole = [...p.hole, ...deck.slice(index, index + holes)];
+        index += holes;
+      }
+    }
     const count = cardsOnStreet(layout, street);
     for (const board of boards) {
       board.push(...deck.slice(index, index + count));
@@ -853,7 +911,7 @@ export function rabbitCards(s: HandState): Card[][] {
   const layout = s.config.variant.board;
   const dealt = s.boards[0]!.length;
   if (dealt < boardSize(layout)) {
-    scratch.deckIndex = dealStreets(layout, s.deck, s.deckIndex, scratch.boards, streetWithDealt(layout, dealt), "river");
+    scratch.deckIndex = dealStreets(scratch, s.deckIndex, scratch.boards, streetWithDealt(layout, dealt), "river", true);
   }
   while (dealExtraRound(scratch, [scratch.boards]));
   return scratch.boards.map((b, i) => b.slice(s.boards[i]!.length));
@@ -899,7 +957,7 @@ function returnUncalled(s: HandState): void {
 function dealNextStreet(s: HandState): void {
   const from = s.street;
   s.street = NEXT_STREET[from]!;
-  s.deckIndex = dealStreets(s.config.variant.board, s.deck, s.deckIndex, s.boards, from, s.street);
+  s.deckIndex = dealStreets(s, s.deckIndex, s.boards, from, s.street, true);
   resetBets(s);
 }
 

@@ -26,6 +26,7 @@ export const VARIANT_LABELS: Record<VariantName, { name: string; detail: string 
   PLOHL: { name: "PLO Hi/Lo", detail: "4 cards, split 8-or-better" },
   PLO5HL: { name: "PLO5 Hi/Lo", detail: "5 cards, split 8-or-better" },
   PINEAPPLE: { name: "Pineapple (5-card)", detail: "Discard 1 preflop, flop, turn" },
+  REVERSE_PINEAPPLE: { name: "Reverse Pineapple", detail: "Start with 2; get 1 more each street" },
   SHORT: { name: "Short deck", detail: "36 cards; flush beats a full house" },
   TICTACTOE: { name: "Tic-Tac-Toe Hold'em", detail: "3×3 board; both cards + a line" },
 };

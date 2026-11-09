@@ -7,6 +7,7 @@ import {
   boardSize,
   type HandConfig,
   type HandState,
+  holeCardsOnStreet,
   isRed,
   legalActions,
   makeDeck,
@@ -14,6 +15,7 @@ import {
   replayHand,
   shuffle,
   startHand,
+  type Variant,
   VARIANTS,
 } from "../src/index.js";
 import { seededRandom } from "./helpers.js";
@@ -218,7 +220,14 @@ function playHand(params: HandParams): void {
   expect(new Set(dealt).size).toBe(dealt.length);
   expect(s.boards).toHaveLength(params.boards);
   for (const p of s.players) {
-    expect(p.hole.length + p.discards.length).toBe(variant.holeCards);
+    // Later hole cards (Reverse Pineapple) only reach players still live when each street came;
+    // a hand that played out to the end of the board gives every live player the full count.
+    const held = p.hole.length + p.discards.length;
+    const atEnd = !p.folded && s.boards.every((b) => b.length >= full);
+    if ((variant as Variant).laterHole && !atEnd) {
+      expect(held).toBeGreaterThanOrEqual(holeCardsOnStreet(variant, "preflop"));
+      expect(held).toBeLessThanOrEqual(variant.holeCards);
+    } else expect(held).toBe(variant.holeCards);
     if (!variant.discard) expect(p.discards).toEqual([]);
   }
   // Pineapple: anyone who reached showdown holds exactly 2, having discarded 3.

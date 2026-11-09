@@ -18,6 +18,7 @@ const VARIANT_RULES: Record<VariantName, string[]> = {
   ],
   PLO5HL: ["5-card Omaha with the high/low split: exactly 2 of yours and 3 from the board for each half."],
   PINEAPPLE: ["You get 5 cards and discard one face down before the betting on the preflop, flop and turn, so you hold 2 on the river.", "Best 5 cards from your 2 and the board."],
+  REVERSE_PINEAPPLE: ["You start with 2 cards and get 1 more face down on the flop, the turn and the river, so you hold 5 at showdown.", "Best 5 cards from all of yours and the board: use any number of your cards, even none."],
   SHORT: ["The deck has 36 cards (6 to ace).", "A flush beats a full house, three of a kind beats a straight, and A-6-7-8-9 is the lowest straight."],
   TICTACTOE: [
     "You get 2 cards; the board is a 3×3 grid. The flop is the 4 corners, the turn the middle row, the river the top and bottom middle.",
