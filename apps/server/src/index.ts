@@ -23,6 +23,7 @@ import {
 } from "./limits.js";
 import { buildReplay, canReview, replayText } from "./replay.js";
 import { HISTORY_KEEP, handKey, type StoredHand } from "./session.js";
+import { upgradeTableData } from "./upgrade.js";
 import { buildView } from "./view.js";
 
 export { RateLimiter } from "./rateLimit.js";
@@ -58,10 +59,11 @@ export class TableRoom extends DurableObject<Env> {
 		super(ctx, env);
 		ctx.blockConcurrencyWhile(async () => {
 			const stored = (await ctx.storage.get<TableData>("table")) ?? null;
-			// Tables saved before newer settings existed get their defaults.
+			// Saves from an older deploy get any newer fields filled in; written back on the next change.
 			if (stored) {
 				stored.settings = { ...DEFAULT_SETTINGS, ...stored.settings };
 				if (stored.pendingSettings) stored.pendingSettings = { ...DEFAULT_SETTINGS, ...stored.pendingSettings };
+				upgradeTableData(stored);
 			}
 			this.data = stored;
 		});
