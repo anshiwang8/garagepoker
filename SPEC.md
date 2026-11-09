@@ -20,10 +20,11 @@ Variants are built from seven parameters. Every "mode" is a preset; a new varian
 | Pot split | High only; high/low 8-or-better |
 | Discards | None; 1 each preflop, flop, turn (Pineapple) |
 
-Two **table modifiers** work with any variant:
+Three **table modifiers** work with any variant (Red river only with a row board, so not Tic-Tac-Toe):
 
 - **Boards:** 1 or 2
 - **Bomb pot:** off, every hand, or every N hands
+- **Red river:** off or on
 
 "Double board bomb pot PLO" is PLO + 2 boards + bomb pot, not a separate mode.
 
@@ -46,6 +47,12 @@ Two **table modifiers** work with any variant:
 - **Short deck:** 36 cards (6 through A). Flush beats full house. Three of a kind beats a straight (Triton rules). A-6-7-8-9 is the lowest straight.
 - **Hi/Lo:** a low must be 8-or-better with 5 distinct ranks, ace plays low. In Omaha, both the high and the low use exactly 2 hole + 3 board, and can use different hole cards.
 - **Tic-Tac-Toe Hold'em:** the board is 9 cards in a 3×3 grid. The flop is the 4 corners, the turn is the middle row (left, centre, right) and the river is the top-middle and bottom-middle squares. A hand is both hole cards plus the 3 cards of one line: a row, a column or a diagonal (8 lines). No line is complete after the flop; after the turn the middle row, both outer columns and both diagonals are; the river completes the top row, bottom row and middle column. Before a line is complete, labels count the hole cards plus the line's dealt cards, as Omaha does preflop. High only.
+- **Red river:** when the river is red (a heart or a diamond), another board card is dealt, with its own betting round, and this repeats until a black card (club or spade) lands. There is no cap; the deck has only 26 red cards (18 in short deck), so a streak always ends.
+  - After river betting closes, every board whose last card is red gets one more card. Boards whose last card is black get nothing. Extra rounds are numbered "Red river 1", "Red river 2" and so on. No burn cards.
+  - Each extra round is a full postflop betting round: first live player left of the button acts first, min-raise resets to the big blind, the usual pot-limit and short all-in rules. No Pineapple discards.
+  - Hands use the whole board, however long. Best 5 games take the best 5 of hole cards plus board; Omaha takes exactly 2 hole + exactly 3 board cards from the whole board, in the low too. Pots split as usual.
+  - An extra round is all or nothing when the deck runs short: if it can't spare one card for every board (and run) that still ends red, no board gets a card and red river stops, so the last card never goes to one board just because of dealing order. The log says "No cards left: red river stops." and the hand goes on to showdown.
+  - Tic-Tac-Toe has no single river card: the setting is greyed out for it, and in mixed games it is skipped for Tic-Tac-Toe hands.
 - **Bomb pots:** every player who isn't away antes (default 2 BB). There is no preflop betting; action starts on the flop. Away players are not included. UTG straddle is off during bomb pots.
 
 ---
@@ -67,11 +74,12 @@ Two **table modifiers** work with any variant:
    - Odd chips go to the high hand, then to the first seat left of the button.
 6. **Hand labels.** Show every player's current best hand at all times: "Pair", "Two pair", "Straight", "Flush", and so on. Every one-pair hand is just "Pair" (no top pair, overpair or pocket pair). In Omaha, the label must obey the exactly 2 + 3 rule; in Tic-Tac-Toe, the 2 + line rule. In Hi/Lo, show both halves, e.g. "Flush / 8-6 low".
 7. **Run it twice.**
-   - Only offered when every remaining player is all-in (or all but one) and no more action is possible.
+   - Only offered when every remaining player is all-in (or all but one) and no more action is possible. Cards still to come include another red-river card when a board's last card is red.
    - Every player in the pot must accept; any decline or a 5-second timeout means it runs once.
    - Each run takes half of each pot.
-   - Disabled wherever the deck math fails (section 3).
-8. **Rabbit hunt.** When allowed, after a hand ends before the river, any player can reveal the cards that would have come. Display only; no effect on the pot.
+   - Disabled wherever the deck math fails (section 3). With red river it also needs at least one spare card per run for every board that currently ends red.
+   - With red river, each run and each board carries on on its own: one run can end black on the river while the other draws extra cards. Cards are dealt in this order: run 1's remaining base streets, then run 2's, then extra cards round by round, one card to each board still ending red, in the order run 1 board 1, run 1 board 2, run 2 board 1, run 2 board 2.
+8. **Rabbit hunt.** When allowed, after a hand ends before the board was finished, any player can reveal the cards that would have come. Display only; no effect on the pot. It also applies to a fold during river betting or an extra round while a red card is showing. The cards shown are the rest of the base board, then extra cards while the last one is red.
 9. **Showdown.** When "reveal hands when no more action is possible" is on, all live hands are shown face up as soon as action is closed, before the remaining board is dealt.
 10. **Dealing.**
     - The deck is shuffled once per hand, server-side, before any card is dealt, using a CSPRNG with unbiased Fisher-Yates.
@@ -89,6 +97,8 @@ seats × hole cards + boards × board cards × runs ≤ deck size
 ```
 
 `board cards` is 5, or 9 for the Tic-Tac-Toe grid. `runs` = 2 when run it twice is enabled, otherwise 1. If a setting fails, grey out the offending option in the UI with the reason. Never fail mid-hand.
+
+Red river doesn't change this table: its extra cards are never reserved. They come from cards left over once every board and run has its base cards, and a board stops if none are left.
 
 | Config (8 seats, no burns) | Deck | Cards needed | With run it twice |
 | --- | --- | --- | --- |
@@ -130,7 +140,7 @@ seats × hole cards + boards × board cards × runs ≤ deck size
 **Creating a table** uses the same settings, laid out for speed:
 - **Quick starts:** Casual Hold'em, Competitive Hold'em and Omaha Night, plus presets you saved, plus Custom. Saved presets live in this browser only (localStorage), never on the server.
 - **Always shown:** game, blinds and ante, seats.
-- **Folded sections,** each with a one-line summary of its values: Table options (boards, bomb pots, run it twice, straddle, rabbit hunt), Timers (decision time, time bank, auto-start), Players and display (spectators, rebuys, cent mode). Custom opens them all; the owner menu shows them open.
+- **Folded sections,** each with a one-line summary of its values: Table options (boards, bomb pots, red river, run it twice, straddle, rabbit hunt), Timers (decision time, time bank, auto-start), Players and display (spectators, rebuys, cent mode). Custom opens them all; the owner menu shows them open.
 - **The Create button** stays at the bottom of the screen on phones.
 - **Inviting:** while no hand is running, the table shows Copy link, and Share (the phone's share sheet) where the browser has one.
 
@@ -145,6 +155,7 @@ The owner can change settings at any time, including during a hand. Changes appl
 | Bomb pot | Off | Off / every hand / every N hands; ante in BB (default 2 BB); away players skip it |
 | Cent mode | Off | Amounts are always stored as integers, never floats. Off: shown as whole numbers (1980); inputs take whole numbers. On: shown as amount / 100 with 2 decimals (1980 → 19.80) everywhere (stacks, pot, bets, blinds, antes, ledger, settle-up); inputs accept decimals and multiply by 100 (0.50 → 50) |
 | UTG straddle (2 BB) | No | Off automatically during bomb pots |
+| Red river | Off | On/off; deals another card, with betting, while the river is red. Greyed out for Tic-Tac-Toe ("Tic-Tac-Toe has no single river card.") |
 | Run it twice | No | No / ask players / always; disabled where deck math fails |
 | Rabbit hunt | No | |
 | Decision time | 20 s | Plus a 60 s time bank per player, refilled 10 s every 10 hands |
@@ -201,10 +212,10 @@ Phone portrait first (390×844; also 360×740 and 430×932), desktop second (≥
   - **Bottom action zone.** Holds exactly one thing at a time: the action row, the raise panel, the show-cards bar, a prompt (run it twice, Pineapple discard, waiting for approval) or a status pill. It grows when the raise panel opens, and the felt shrinks rather than being covered. On desktop it sits under the felt, beside the sidebar.
 - **Options sheet:** Ledger, Last hand, Log (this hand's actions), Rebuy (if allowed), Table settings and Players (owner), Copy table link. On phones, Chat and Log live here.
 - **Felt centre**, top to bottom:
-  - A bomb-pot badge on bomb-pot hands.
+  - A bomb-pot badge on bomb-pot hands. A RED RIVER badge, in the same style and beside it when both apply, while red river is on for the hand; during extra round N it reads RED RIVER N.
   - The pot pill, showing the collected pot, with a small "total X" tag (pot plus this street's bets) while bets are out.
   - After a hand, a one-line result ("B1 high: Ann 60 · B2 high: Bob 60") with a Details link to the full breakdown (winners, Verify, run twice).
-  - The board: up to 5 cards, as large as fit, with no placeholders for cards not yet dealt. A double board (or run twice) stacks rows labelled "B1"/"B2" (or "R1"/"R2").
+  - The board: 5 cards, or more with red river, as large as fit, with no placeholders for cards not yet dealt. A long board shrinks its cards first, then wraps onto more lines, split evenly. Rows are spaced further apart than the lines of a wrapped row, and the row label sits beside the row's first line. Rows can differ in length; all use the same card size. A double board (or run twice) stacks rows labelled "B1"/"B2" (or "R1"/"R2").
   - Tic-Tac-Toe: each board is a 3×3 grid of squares; undealt squares are faint outlines so the grid keeps its shape. Several boards or runs sit side by side, labelled the same way. At showdown, the line each winner used is highlighted.
   - Table info: "OWNER: NAME" and "NLH ~ 10 / 20".
   - When no hand is running (new, paused or waiting for players), the info shows that state ("Waiting for players", "Paused by owner") with a gold **Copy link** button that copies the table URL and briefly shows "Copied".
@@ -234,7 +245,7 @@ Phone portrait first (390×844; also 360×740 and 430×932), desktop second (≥
   - Presets below the min raise or above your stack are hidden; presets that land on the same amount are shown once.
 - **End of hand:** winners' plates glow gold, and every seat that won or lost chips shows its net for the hand beside its stack ("+120" in green, "−60" in red). Hands shown down turn face up at their seats, with tags.
 - **Show cards after a hand:** from the end of a hand until the next deal, anyone who was dealt in and whose hand wasn't shown down (they folded, or won uncontested) gets the show-cards bar: Show all cards, then one button per hole card (rank and suit, in suit colour). Tapping a card shows it to everyone at once. That button then reads "Shown", because showing is final. Shown cards appear face up at that seat for everyone, including spectators, until the next deal, and are recorded in the last-hand replay and the fairness proof. The server only accepts cards the player held at the end of the hand (never a Pineapple discard), and never sends unshown cards to anyone else.
-- **Rabbit hunt:** when it's on and a hand ended before the river, the missing board cards show as face-down GP backs with a "Reveal" strip across them. Any seated player can tap it to show everyone what would have come. It's display only and gone at the next deal.
+- **Rabbit hunt:** when it's on and a hand ended before the board was finished, the missing board cards show as face-down GP backs (the missing base cards, plus 1 if a red card is showing, so the colour of unseen cards isn't leaked) with a "Reveal" strip across them. Any seated player can tap it to show everyone what would have come. It's display only and gone at the next deal.
 - **Run it twice:** a prompt appears in the action zone when it's eligible and disappears after 5 s; no answer means it runs once.
 - **Pineapple:** a discard picker appears in the action zone on each discard street.
 - **Approval popup:** the owner's popup waits until they've acted.

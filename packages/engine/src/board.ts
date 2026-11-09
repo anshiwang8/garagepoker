@@ -67,19 +67,32 @@ export function cardsOnStreet(layout: BoardLayout, street: Street): number {
   return i < 0 ? 0 : layout.streets[i]!;
 }
 
-/** The street on which the board card at this position (0-based, dealing order) is dealt. */
+/**
+ * The street on which the board card at this position (0-based, dealing order)
+ * is dealt. Cards past the river come in red river extra rounds.
+ */
 export function streetOfPosition(layout: BoardLayout, position: number): Street {
   let dealt = 0;
   for (let i = 0; i < STREETS.length; i++) {
     dealt += layout.streets[i]!;
     if (position < dealt) return STREETS[i]!;
   }
-  throw new RangeError(`board position ${position} is past the river`);
+  return "extra";
+}
+
+/**
+ * The red river round (1, 2, …) in which the board card at this position was
+ * dealt, or 0 for a base card. A black card ends a board's extra cards, so a
+ * board's k-th extra card is always dealt in round k.
+ */
+export function extraRoundOfPosition(layout: BoardLayout, position: number): number {
+  return Math.max(0, position - boardSize(layout) + 1);
 }
 
 /** The last street dealt when the board holds `dealt` cards: "preflop" for none. */
 export function streetWithDealt(layout: BoardLayout, dealt: number): Street {
   if (dealt === 0) return "preflop";
+  if (dealt > boardSize(layout)) return "extra";
   let total = 0;
   for (let i = 0; i < STREETS.length; i++) {
     total += layout.streets[i]!;

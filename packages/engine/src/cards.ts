@@ -27,6 +27,12 @@ export function suitOf(card: Card): Suit {
   return (card & 3) as Suit;
 }
 
+/** Hearts and diamonds. */
+export function isRed(card: Card): boolean {
+  const s = suitOf(card);
+  return s === 1 || s === 2;
+}
+
 export function isCard(value: unknown): value is Card {
   return Number.isInteger(value) && (value as number) >= 0 && (value as number) < 52;
 }

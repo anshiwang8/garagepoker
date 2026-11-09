@@ -11,8 +11,10 @@ import {
 	rabbitCards,
 	validateConfig,
 } from "@garagepoker/engine";
-import { clientMessageSchema, STALE_ACTION } from "@garagepoker/protocol";
+import { clientMessageSchema, settingsSchema, STALE_ACTION } from "@garagepoker/protocol";
+import { env, evictDurableObject, runInDurableObject } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
+import type { TableRoom } from "../src/index.js";
 import { ALARM_CLAMP_MS, scheduleAlarm } from "../src/limits.js";
 import { buildReplay } from "../src/replay.js";
 import { noteShownCards, sessionView } from "../src/session.js";
@@ -25,7 +27,7 @@ import {
 	RIT_DECISION_MS,
 	SHOW_WINDOW_MS,
 } from "../src/table.js";
-import { harness, token } from "./helpers.js";
+import { Client, createTable, harness, isRedText, seededHand, token } from "./helpers.js";
 
 /** Owner in seat 1 and Bob in seat 2, game not started. */
 function headsUp(settings = {}) {
@@ -1268,5 +1270,186 @@ describe("house rules", () => {
 		const s = { ...DEFAULT_SETTINGS, seats: 9, boards: 2 as const, mixedGames: ["NLH", "PLO5"] as ("NLH" | "PLO5")[] };
 		expect(validateConfig(s).map((i) => i.field)).toContain("mixedGames");
 		expect(validateConfig({ ...s, mixedGames: ["NLH", "PLO"] })).toEqual([]);
+	});
+});
+
+describe("red river", () => {
+	const red = isRedText;
+	const black = (c: string) => !isRedText(c);
+	/** Heads-up red river hand; `rest[4]` is the river. Owner (seat 1) is the button, Bob (seat 2) acts first after the flop. */
+	function redRiver(want: (rest: string[]) => boolean, settings = {}) {
+		const { h, ids, seed } = seededHand({ redRiver: true, rabbitHunt: true, ...settings }, want);
+		const carol = h.join("carol"); // spectator
+		const rest = h.data.hand!.deck.slice(h.data.hand!.deckIndex).map(cardToString);
+		return { h, owner: ids[0]!, bob: ids[1]!, carol, rest, seed };
+	}
+	/** Preflop call and check, then check the flop, turn and river. */
+	function checkToRedRiver(h: ReturnType<typeof harness>) {
+		h.act({ type: "call" });
+		h.act({ type: "check" });
+		for (const street of ["flop", "turn", "river"]) {
+			expect(h.data.hand!.street).toBe(street);
+			h.act({ type: "check" });
+			h.act({ type: "check" });
+		}
+	}
+
+	it("plays a red river hand end to end", () => {
+		const { h, owner, bob, carol, rest } = redRiver((r) => red(r[4]!) && red(r[5]!) && black(r[6]!));
+		expect(h.view(owner).hand).toMatchObject({ street: "preflop", extraRound: 0, redRiver: true, redRiverStopped: false });
+		checkToRedRiver(h);
+		for (const id of [owner, bob, carol]) {
+			const hand = h.view(id).hand!;
+			expect(hand).toMatchObject({ street: "extra", extraRound: 1, redRiver: true, redRiverStopped: false, toAct: 2 });
+			expect(hand.boards[0]).toEqual(rest.slice(0, 6));
+		}
+		h.act({ type: "check" }); // Bob, red river 1
+		expect(h.view(owner).hand!.log.at(-1)).toEqual({ street: "extra", extraRound: 1, seat: 2, type: "check", amount: 0 });
+		h.act({ type: "check" }); // the owner: red river 2 starts
+		const hand = h.view(carol).hand!;
+		expect(hand).toMatchObject({ street: "extra", extraRound: 2, toAct: 2 });
+		expect(hand.boards[0]).toHaveLength(7);
+		h.act({ type: "check" }); // Bob, red river 2
+		// Last actions are this round's only: the owner's check was in red river 1.
+		const seats = h.view(carol).seats;
+		expect(seats[1]!.lastAction).toMatchObject({ type: "check" });
+		expect(seats[0]!.lastAction).toBeNull();
+		h.act({ type: "check" }); // black: showdown
+
+		const last = h.view(carol).lastHand!;
+		expect(last.boards[0]).toEqual(rest.slice(0, 7));
+		expect(last).toMatchObject({ redRiver: true, redRiverStopped: false, rabbitAvailable: false, rabbitBacks: [] });
+		expect(last.log.filter((e) => e.street === "extra").map((e) => e.extraRound)).toEqual([1, 1, 2, 2]);
+		expect(last.shown).toHaveLength(2);
+		balanced(h);
+	});
+
+	it("times out in red river 1", () => {
+		const { h, owner } = redRiver((r) => red(r[4]!) && black(r[5]!));
+		checkToRedRiver(h);
+		expect(h.data.hand).toMatchObject({ street: "extra", extraRound: 1, toAct: 2 });
+		// Bob lets the clock and his time bank run out: he checks.
+		h.advance((DEFAULT_SETTINGS.decisionTimeSec + DEFAULT_SETTINGS.timeBankSec) * 1000);
+		expect(h.view(owner).hand!.log.at(-1)).toMatchObject({ street: "extra", extraRound: 1, seat: 2, type: "check" });
+		expect(h.data.hand!.toAct).toBe(1);
+		h.act({ type: "raise", to: 4_000 });
+		// Facing a bet with no time bank left: he folds at the deadline.
+		h.advance(DEFAULT_SETTINGS.decisionTimeSec * 1000);
+		expect(h.data.hand).toBeNull();
+		expect(h.data.prevHand!.log.findLast((e) => e.type === "fold")).toMatchObject({ street: "extra", extraRound: 1, seat: 2 });
+		balanced(h);
+	});
+
+	it("drops a river action sent before red river 1", () => {
+		const { h, bob } = redRiver((r) => red(r[4]!) && black(r[5]!));
+		h.act({ type: "call" });
+		h.act({ type: "check" });
+		for (let i = 0; i < 4; i++) h.act({ type: "check" });
+		expect(h.data.hand).toMatchObject({ street: "river", toAct: 2 });
+		const seq = h.data.hand!.log.length;
+		h.send(bob, { type: "act", hand: 1, seq, action: { type: "check" } });
+		h.act({ type: "check" }); // the owner: red river 1 starts, Bob to act
+		const before = JSON.stringify(h.data.hand);
+		// Bob's river check arriving again: it was meant for the river, so it's dropped.
+		expect(() => h.send(bob, { type: "act", hand: 1, seq, action: { type: "check" } })).toThrow(STALE_ACTION);
+		expect(JSON.stringify(h.data.hand)).toBe(before);
+		expect(h.data.hand).toMatchObject({ street: "extra", extraRound: 1, toAct: 2 });
+	});
+
+	it("redRiver change applies next hand", () => {
+		const { h, owner } = headsUp();
+		h.send(owner, { type: "startGame" });
+		h.send(owner, { type: "updateSettings", settings: { ...h.data.settings, redRiver: true } });
+		expect(h.view(owner).hand!.redRiver).toBe(false);
+		expect(h.view(owner).pendingSettings!.redRiver).toBe(true);
+		h.act({ type: "fold" });
+		expect(h.view(owner).lastHand!.redRiver).toBe(false);
+		expect(h.view(owner).settings.redRiver).toBe(true);
+		h.send(owner, { type: "startGame" });
+		expect(h.view(owner).hand!.redRiver).toBe(true);
+		// Not on a Tic-Tac-Toe hand, which has no single river card.
+		const ttt = headsUp({ variant: "TICTACTOE", redRiver: true });
+		ttt.h.send(ttt.owner, { type: "startGame" });
+		expect(ttt.h.view(ttt.owner).hand!.redRiver).toBe(false);
+	});
+
+	it("stored settings without redRiver load as off", async () => {
+		const { redRiver: _, ...older } = DEFAULT_SETTINGS;
+		void _;
+		expect(settingsSchema.parse(older).redRiver).toBe(false);
+
+		const tableId = await createTable(token("alice"), { redRiver: false });
+		const stub = env.TABLE.getByName(tableId);
+		await runInDurableObject(stub, async (_room: TableRoom, state) => {
+			const stored = (await state.storage.get<{ settings: Record<string, unknown> }>("table"))!;
+			delete stored.settings.redRiver;
+			await state.storage.put("table", stored);
+		});
+		await evictDurableObject(stub);
+		const alice = await Client.connect(tableId, token("alice"));
+		expect(alice.view.settings.redRiver).toBe(false);
+		alice.close();
+	});
+
+	it("rabbitBacks don't reveal extra count", () => {
+		// The hunt after a fold in red river 1 would show 3 cards: red, red, then black.
+		const { h, owner, bob, carol, rest } = redRiver((r) => red(r[4]!) && red(r[5]!) && red(r[6]!) && red(r[7]!) && black(r[8]!));
+		checkToRedRiver(h);
+		h.act({ type: "raise", to: 4_000 }); // Bob bets red river 1
+		h.act({ type: "fold" });
+		const hunted = rest.slice(6, 9);
+		for (const id of [owner, bob, carol]) {
+			const view = h.view(id);
+			expect(view.lastHand).toMatchObject({ rabbitAvailable: true, rabbitBacks: [1], rabbit: null, redRiver: true });
+			const json = JSON.stringify(view);
+			for (const card of hunted) expect(json).not.toContain(`"${card}"`);
+		}
+		h.send(bob, { type: "rabbitHunt", hand: 1 });
+		for (const id of [owner, bob, carol]) {
+			expect(h.view(id).lastHand!.rabbit).toEqual({ boards: [hunted], by: "bob" });
+		}
+	});
+
+	it("rabbit hunts a fold on a red river, before red river 1", () => {
+		const { h, bob, rest } = redRiver((r) => red(r[4]!) && black(r[5]!));
+		h.act({ type: "call" });
+		h.act({ type: "check" });
+		for (let i = 0; i < 4; i++) h.act({ type: "check" });
+		h.act({ type: "raise", to: 4_000 }); // Bob bets the river
+		h.act({ type: "fold" });
+		expect(h.view(bob).lastHand).toMatchObject({ rabbitAvailable: true, rabbitBacks: [1] });
+		h.send(bob, { type: "rabbitHunt", hand: 1 });
+		expect(h.view(bob).lastHand!.rabbit!.boards).toEqual([[rest[5]]]);
+	});
+
+	it("runs it twice from red river 1: run 2 shares all 6 cards, then each run gets its own", () => {
+		const { h, owner, rest } = redRiver((r) => red(r[4]!) && red(r[5]!) && black(r[6]!) && black(r[7]!), { runItTwice: "always" });
+		checkToRedRiver(h);
+		h.act({ type: "raise", to: 98_000 }); // Bob, all in
+		h.act({ type: "call" });
+		const last = h.view(owner).lastHand!;
+		expect(last.boards).toEqual([[...rest.slice(0, 6), rest[6]]]);
+		expect(last.secondRun).toEqual([[...rest.slice(0, 6), rest[7]]]);
+		expect(last).toMatchObject({ rabbitAvailable: false, rabbitBacks: [] });
+		const replay = buildReplay(h.data, owner)!;
+		const run2 = replay.frames.flatMap((f) => f.events).filter((e) => e.kind === "deal" && e.run === 1);
+		expect(run2.map((e) => e.kind === "deal" && [e.street, e.extraRound, e.cards])).toEqual([
+			["flop", undefined, rest.slice(0, 3)],
+			["turn", undefined, [rest[3]]],
+			["river", undefined, [rest[4]]],
+			["extra", 1, [rest[5]]],
+			// Red river 1 was played before the all-in, so the run-out's card is round 2.
+			["extra", 2, [rest[7]]],
+		]);
+		expect(replay.frames.at(-1)!.secondRun).toEqual(last.secondRun);
+		balanced(h);
+	});
+
+	it("shows the base cards still to come as backs when red river is off", () => {
+		const { h, owner, bob } = headsUp({ rabbitHunt: true });
+		h.send(owner, { type: "startGame" });
+		h.act({ type: "raise", to: 6_000 });
+		h.act({ type: "fold" });
+		expect(h.view(bob).lastHand).toMatchObject({ rabbitAvailable: true, rabbitBacks: [5], redRiver: false, redRiverStopped: false });
 	});
 });

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { DEV_STATES } from "@/dev/tableStates";
-import { turnHint } from "./Learn";
+import { DEFAULT_SETTINGS } from "@garagepoker/engine";
+import { extraRules, turnHint } from "./Learn";
 import { resultSummary } from "./tableText";
 
 const state = (id: string) => DEV_STATES.find((s) => s.id === id)!.view;
@@ -22,5 +23,19 @@ describe("result summary", () => {
     expect(resultSummary(v, { ...v.lastHand!, bounty: { seat: 1, nickname: "anshi", amount: 40 } })).toBe(
       "anshi wins 8.40 · 7-2 bounty: anshi +0.40",
     );
+  });
+});
+
+describe("Learn mode rules text", () => {
+  it("explains red river when on", () => {
+    const on = extraRules({ ...DEFAULT_SETTINGS, redRiver: true });
+    expect(on.some((r) => r.includes("Red river") && r.includes("betting"))).toBe(true);
+    expect(on.some((r) => r.includes("Hands use the whole board, however long."))).toBe(true);
+  });
+  it("says nothing about red river when off", () => {
+    expect(extraRules({ ...DEFAULT_SETTINGS, redRiver: false }).some((r) => r.includes("Red river"))).toBe(false);
+  });
+  it("says nothing about red river for Tic-Tac-Toe", () => {
+    expect(extraRules({ ...DEFAULT_SETTINGS, variant: "TICTACTOE", redRiver: true }).some((r) => r.includes("Red river"))).toBe(false);
   });
 });

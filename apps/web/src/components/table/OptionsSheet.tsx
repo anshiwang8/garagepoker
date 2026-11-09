@@ -1,6 +1,6 @@
 "use client";
 
-import { shortHash, type LogEntryView, type TableView } from "@garagepoker/protocol";
+import { type LogEntryView, RED_RIVER_STOPS, shortHash, streetTitle, type TableView } from "@garagepoker/protocol";
 import { ChevronRight } from "lucide-react";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { copyText, Modal } from "../ui";
@@ -90,12 +90,13 @@ function Row({ onClick, note, children }: { onClick: () => void; note?: string; 
   );
 }
 
-const STREETS: Record<string, string> = { preflop: "Preflop", flop: "Flop", turn: "Turn", river: "River", complete: "" };
-
-/** This hand's actions (or the last hand's, until the next deal), one per line with a line per street. */
-export function handLog(view: TableView): { number: number; log: LogEntryView[] } | null {
-  if (view.hand) return { number: view.handNumber, log: view.hand.log ?? [] };
-  if (showingResult(view)) return { number: view.lastHand.number, log: view.lastHand.log ?? [] };
+/**
+ * This hand's actions (or the last hand's, until the next deal), one per line
+ * with a line per street, and whether red river stopped for want of cards.
+ */
+export function handLog(view: TableView): { number: number; log: LogEntryView[]; redRiverStopped: boolean } | null {
+  if (view.hand) return { number: view.handNumber, log: view.hand.log ?? [], redRiverStopped: view.hand.redRiverStopped };
+  if (showingResult(view)) return { number: view.lastHand.number, log: view.lastHand.log ?? [], redRiverStopped: !!view.lastHand.redRiverStopped };
   return null;
 }
 
@@ -110,15 +111,19 @@ export function LogLines({ view, compact = false }: { view: TableView; compact?:
   const dc = view.settings.displayCents;
   const name = (seat: number) => view.seats[seat - 1]?.nickname ?? `Seat ${seat}`;
   const items: ReactNode[] = [];
+  const heading = (key: string, text: string) => (
+    <li key={key} className={`font-semibold uppercase tracking-wide text-muted ${compact ? "text-[10px]" : "pt-2 text-xs"}`}>
+      {text}
+    </li>
+  );
+  // A heading per street, and per red river round ("Red river 1", "Red river 2", …).
   let street = "";
   current.log.forEach((e, i) => {
-    if (e.street !== street && STREETS[e.street]) {
-      street = e.street;
-      items.push(
-        <li key={`s${i}`} className={`font-semibold uppercase tracking-wide text-muted ${compact ? "text-[10px]" : "pt-2 text-xs"}`}>
-          {STREETS[e.street]}
-        </li>,
-      );
+    const key = `${e.street}:${e.extraRound ?? 0}`;
+    const title = streetTitle(e.street, e.extraRound);
+    if (key !== street && title) {
+      street = key;
+      items.push(heading(`s${i}`, title));
     }
     items.push(
       <li key={i} className="tabular">
@@ -127,6 +132,14 @@ export function LogLines({ view, compact = false }: { view: TableView; compact?:
       </li>,
     );
   });
+  // Red river ran out of cards after the last round's betting.
+  if (current.redRiverStopped) {
+    items.push(
+      <li key="stopped" className="italic text-muted">
+        {RED_RIVER_STOPS}
+      </li>,
+    );
+  }
   return (
     <ol className={compact ? "text-xs leading-snug" : "flex flex-col gap-0.5 text-sm"} aria-label={`Hand ${current.number} log`}>
       {items}

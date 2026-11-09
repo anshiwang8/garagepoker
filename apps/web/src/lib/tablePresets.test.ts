@@ -42,4 +42,12 @@ describe("table presets", () => {
     localStorage.setItem("gp.presets", "{not json");
     expect(loadSavedPresets()).toEqual([]);
   });
+
+  it("a saved preset without redRiver loads with it off", () => {
+    const { redRiver: _drop, ...old } = BUILT_IN_PRESETS[0]!.settings;
+    localStorage.setItem("gp.presets", JSON.stringify([{ id: "old", name: "Old", settings: old }]));
+    const saved = loadSavedPresets();
+    expect(saved).toHaveLength(1);
+    expect(saved[0]!.settings.redRiver).toBe(false);
+  });
 });

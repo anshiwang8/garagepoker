@@ -1,21 +1,19 @@
 "use client";
 
-import type { ReplayEvent, ReplayView } from "@garagepoker/protocol";
+import { RED_RIVER_STOPS, type ReplayEvent, type ReplayView, streetTitle } from "@garagepoker/protocol";
 import { useEffect, useState } from "react";
 import { formatChips } from "@/lib/chips";
 import { Button, Modal } from "../ui";
 import { PlayingCard } from "./PlayingCard";
 import { actionText } from "./Seat";
 
-const STREET_NAMES: Record<string, string> = { flop: "Flop", turn: "Turn", river: "River" };
-
-function eventText(e: ReplayEvent, name: (seat: number) => string, dc: boolean, boards: number, twoRuns: boolean): string {
+export function eventText(e: ReplayEvent, name: (seat: number) => string, dc: boolean, boards: number, twoRuns: boolean): string {
   switch (e.kind) {
     case "action":
       return `${name(e.seat)}: ${actionText({ type: e.type, amount: e.amount, to: e.to }, dc)}${e.allIn ? " (all in)" : ""}`;
     case "deal": {
       const where = [twoRuns && `Run ${e.run + 1}`, boards > 1 && `board ${e.board + 1}`].filter(Boolean).join(", ");
-      return `${STREET_NAMES[e.street] ?? e.street}${where ? ` (${where})` : ""}: ${e.cards.join(" ")}`;
+      return `${streetTitle(e.street, e.extraRound) || e.street}${where ? ` (${where})` : ""}: ${e.cards.join(" ")}`;
     }
     case "showdown":
       return `${name(e.seat)} shows ${e.cards.join(" ")} (${e.labels.join(" | ")})`;
@@ -24,6 +22,17 @@ function eventText(e: ReplayEvent, name: (seat: number) => string, dc: boolean, 
     case "show":
       return `${name(e.seat)} shows ${e.cards.join(" ")}`;
   }
+}
+
+/** Where the "No cards left" note goes: before the first showdown or win (or at the very end), if red river stopped. */
+export function stopPoint(replay: ReplayView): { frame: number; event: number } | null {
+  if (!replay.redRiverStopped) return null;
+  for (let f = 0; f < replay.frames.length; f++) {
+    const event = replay.frames[f]!.events.findIndex((e) => e.kind === "showdown" || e.kind === "win");
+    if (event >= 0) return { frame: f, event };
+  }
+  const end = replay.frames.length - 1;
+  return { frame: end, event: replay.frames[end]!.events.length };
 }
 
 /**
@@ -45,6 +54,11 @@ export function ReplayDialog({ replay, displayCents, onClose }: { replay: Replay
     run.map((cards, b) => ({ r, b, cards })),
   );
 
+  // Red river stopped once the last round's cards and betting were done: the note goes just before the result (as in the export).
+  const stop = stopPoint(replay);
+  const lines = frame.events.map((e, i) => <li key={i}>{eventText(e, name, dc, boardCount, twoRuns)}</li>);
+  if (stop && stop.frame === Math.min(step, last)) lines.splice(stop.event, 0, <li key="stopped" className="italic text-muted">{RED_RIVER_STOPS}</li>);
+
   const atEnd = step >= last;
   useEffect(() => {
     if (!playing || atEnd) return;
@@ -56,7 +70,7 @@ export function ReplayDialog({ replay, displayCents, onClose }: { replay: Replay
     <Modal title={`Last hand: #${replay.hand}`} onClose={onClose} wide>
       <div className="flex flex-col gap-3 text-sm">
         <div className="flex items-center justify-between text-xs text-muted">
-          <span className="capitalize">{frame.street === "complete" ? "Result" : frame.street}</span>
+          <span>{streetTitle(frame.street, frame.extraRound) || "Result"}</span>
           <span className="tabular">
             Step {step + 1} of {last + 1}
             {frame.pot > 0 && (
@@ -69,11 +83,7 @@ export function ReplayDialog({ replay, displayCents, onClose }: { replay: Replay
         </div>
 
         <ul className="min-h-12 rounded-lg border border-line bg-ink px-3 py-2" aria-live="polite">
-          {frame.events.length === 0 ? (
-            <li className="text-muted">Cards dealt.</li>
-          ) : (
-            frame.events.map((e, i) => <li key={i}>{eventText(e, name, dc, boardCount, twoRuns)}</li>)
-          )}
+          {lines.length === 0 ? <li className="text-muted">Cards dealt.</li> : lines}
         </ul>
 
         {replay.grid ? (
@@ -99,15 +109,18 @@ export function ReplayDialog({ replay, displayCents, onClose }: { replay: Replay
         ) : (
           <div className="flex flex-col items-center gap-1 rounded-lg bg-felt-dark/70 py-2">
             {rows.map(({ r, b, cards }) => (
-              <div key={`${r}-${b}`} className="flex items-center gap-1.5">
+              <div key={`${r}-${b}`} className="flex max-w-full items-center gap-1.5 px-2">
                 {(twoRuns || boardCount > 1) && (
-                  <span className="w-12 text-right text-[10px] text-muted">
+                  <span className="w-12 shrink-0 text-right text-[10px] text-muted">
                     {[twoRuns && `Run ${r + 1}`, boardCount > 1 && `B${b + 1}`].filter(Boolean).join(" · ")}
                   </span>
                 )}
-                {Array.from({ length: 5 }, (_, i) =>
-                  cards[i] ? <PlayingCard key={i} card={cards[i]!} w={24} h={34} /> : <div key={i} className="h-[34px] w-6 rounded border border-dashed border-white/15" />,
-                )}
+                {/* At least 5 slots; a red river board is longer, and wraps if it must. */}
+                <div className="flex min-w-0 flex-wrap gap-1.5">
+                  {Array.from({ length: Math.max(5, cards.length) }, (_, i) =>
+                    cards[i] ? <PlayingCard key={i} card={cards[i]!} w={24} h={34} /> : <div key={i} className="h-[34px] w-6 rounded border border-dashed border-white/15" />,
+                  )}
+                </div>
               </div>
             ))}
           </div>

@@ -7,6 +7,7 @@
 import {
 	type BoardLayout,
 	cardToString,
+	extraRoundOfPosition,
 	type HandState,
 	handLabel,
 	potTotal,
@@ -14,23 +15,31 @@ import {
 	type Street,
 	streetOfPosition,
 } from "@garagepoker/engine";
-import type { ReplayEvent, ReplayFrame, ReplayView } from "@garagepoker/protocol";
+import { RED_RIVER_STOPS, type ReplayEvent, type ReplayFrame, type ReplayView, streetTitle } from "@garagepoker/protocol";
 import type { StoredHand } from "./session.js";
 import { isBlocked, needsCode, type TableData } from "./table.js";
 
 const cards = (cs: readonly number[]) => cs.map(cardToString);
 
-/** Board cards added between two states, grouped by street, run and board. */
+/**
+ * Board cards added between two states, grouped by street (each red river
+ * round on its own), run and board.
+ */
 function dealEvents(layout: BoardLayout, before: Card2D | null, after: Card2D, run: number): ReplayEvent[] {
 	const events: ReplayEvent[] = [];
 	after.forEach((board, b) => {
 		const from = before?.[b]?.length ?? 0;
-		const byStreet = new Map<Street, number[]>();
+		const groups: { street: Street; extraRound: number; dealt: number[] }[] = [];
 		for (let i = from; i < board.length; i++) {
 			const street = streetOfPosition(layout, i);
-			byStreet.set(street, [...(byStreet.get(street) ?? []), board[i]!]);
+			const extraRound = extraRoundOfPosition(layout, i);
+			const group = groups.find((g) => g.street === street && g.extraRound === extraRound);
+			if (group) group.dealt.push(board[i]!);
+			else groups.push({ street, extraRound, dealt: [board[i]!] });
 		}
-		for (const [street, dealt] of byStreet) events.push({ kind: "deal", street, run, board: b, cards: cards(dealt) });
+		for (const { street, extraRound, dealt } of groups) {
+			events.push({ kind: "deal", street, ...(extraRound > 0 && { extraRound }), run, board: b, cards: cards(dealt) });
+		}
 	});
 	return events;
 }
@@ -92,6 +101,7 @@ export function buildReplay(data: TableData, viewerId: string, stored?: StoredHa
 		return {
 			events,
 			street: st.street,
+			...(st.street === "extra" && { extraRound: st.extraRound }),
 			boards: st.boards.map(cards),
 			secondRun: st.secondRun?.map(cards) ?? null,
 			pot: complete ? 0 : potTotal(st),
@@ -114,6 +124,7 @@ export function buildReplay(data: TableData, viewerId: string, stored?: StoredHa
 		hand: rec.hand,
 		grid: final.config.variant.board.grid ?? null,
 		frames,
+		redRiverStopped: final.redRiverStopped ?? false,
 		pots: (final.result?.pots ?? []).map((pot) => ({
 			amount: pot.amount,
 			slices: pot.slices.map((s) => ({
@@ -130,8 +141,6 @@ export function buildReplay(data: TableData, viewerId: string, stored?: StoredHa
 // ---------------------------------------------------------------------------
 // Text export: the viewer's permitted history, one block per hand.
 // ---------------------------------------------------------------------------
-
-const STREET_TITLES: Record<string, string> = { flop: "Flop", turn: "Turn", river: "River" };
 
 /** "1980" or, in cent mode, "19.80". */
 function chips(amount: number, cents: boolean): string {
@@ -169,11 +178,17 @@ export function replayText(replay: ReplayView, meta: { variant: string; endedAt:
 	lines.push(`Seats: ${first.seats.map((s) => `${s.seat} ${s.nickname} (${chips(s.stack + s.bet, meta.cents)})`).join(" · ")}`);
 	const mine = meta.viewerSeat !== null ? first.seats.find((s) => s.seat === meta.viewerSeat) : undefined;
 	if (mine && mine.cards.every(Boolean)) lines.push(`Your cards: ${mine.cards.join(" ")}`);
-	lines.push("Preflop:");
+	lines.push(`${streetTitle("preflop")}:`);
+	// Red river stopped once the last round's cards and betting were done, so the note goes before the result.
+	let stopNoted = !replay.redRiverStopped;
 	for (const f of replay.frames) {
 		for (const e of f.events) {
+			if (!stopNoted && (e.kind === "showdown" || e.kind === "win")) {
+				lines.push(RED_RIVER_STOPS);
+				stopNoted = true;
+			}
 			if (e.kind === "action") lines.push(`  ${name(e.seat)} ${actionLine(e.type, e.amount, e.to, meta.cents)}${e.allIn ? " (all in)" : ""}`);
-			else if (e.kind === "deal") lines.push(`${STREET_TITLES[e.street] ?? e.street}${e.run ? ` (run ${e.run + 1})` : ""}${e.board ? ` (board ${e.board + 1})` : ""}: ${e.cards.join(" ")}`);
+			else if (e.kind === "deal") lines.push(`${streetTitle(e.street, e.extraRound)}${e.run ? ` (run ${e.run + 1})` : ""}${e.board ? ` (board ${e.board + 1})` : ""}: ${e.cards.join(" ")}`);
 			else if (e.kind === "showdown") lines.push(`  ${name(e.seat)} shows ${e.cards.join(" ")} (${e.labels.join(" | ")})`);
 			else if (e.kind === "win") lines.push(`  ${name(e.seat)} wins ${chips(e.amount, meta.cents)}`);
 			else if (e.kind === "show") lines.push(`  ${name(e.seat)} shows ${e.cards.join(" ")}`);

@@ -1,6 +1,6 @@
 "use client";
 
-import { VARIANTS, type VariantName } from "@garagepoker/engine";
+import { redRiverApplies, type TableSettings, VARIANTS, type VariantName } from "@garagepoker/engine";
 import type { TableView } from "@garagepoker/protocol";
 import { formatChips } from "@/lib/chips";
 import { type Prefs, setPrefs, usePrefs } from "@/lib/prefs";
@@ -47,6 +47,19 @@ const ACTIONS: [string, string][] = [
   ["All in", "Put in all your chips. You can only win what you matched from each player; the rest goes to side pots."],
 ];
 
+/** Plain-language lines for the table options that are switched on. */
+export function extraRules(s: TableSettings): string[] {
+  return [
+    s.boards === 2 && "Two boards: each board takes half of every pot.",
+    s.bombPotMode !== "off" && "Bomb pots: everyone antes and there's no betting before the flop.",
+    s.runItTwice !== "no" && "Run it twice: when everyone left is all in, the rest of the board can be dealt twice, each run taking half the pot.",
+    s.straddle && "UTG straddle: the player after the big blind posts 2 big blinds before the cards are dealt.",
+    s.redRiver &&
+      redRiverApplies(s.variant) &&
+      "Red river: if the river card is red (hearts or diamonds), another card is dealt with a new betting round, and again while it stays red. Each board is dealt on its own. Hands use the whole board, however long.",
+  ].filter(Boolean) as string[];
+}
+
 /** "How to play": this table's game, hand rankings, actions and betting limits. Nothing about anyone's cards. */
 export function HowToPlayDialog({ view, onClose }: { view: TableView; onClose: () => void }) {
   const v = view.settings.variant;
@@ -54,12 +67,7 @@ export function HowToPlayDialog({ view, onClose }: { view: TableView; onClose: (
   const potLimit = variant.betting === "PL";
   const prefs = usePrefs();
   const s = view.settings;
-  const extras = [
-    s.boards === 2 && "Two boards: each board takes half of every pot.",
-    s.bombPotMode !== "off" && "Bomb pots: everyone antes and there's no betting before the flop.",
-    s.runItTwice !== "no" && "Run it twice: when everyone left is all in, the rest of the board can be dealt twice, each run taking half the pot.",
-    s.straddle && "UTG straddle: the player after the big blind posts 2 big blinds before the cards are dealt.",
-  ].filter(Boolean) as string[];
+  const extras = extraRules(s);
   return (
     <Modal title="How to play" onClose={onClose} wide>
       <div className="flex flex-col gap-5 text-sm">
