@@ -614,6 +614,59 @@ function redRiverStress(): TableView {
   return v;
 }
 
+const REVERSE_PINEAPPLE = { ...cents, variant: "REVERSE_PINEAPPLE" as const };
+
+/** y) Reverse Pineapple on the flop: hero holds 3 (2 + the flop card), opponents show 3 backs. */
+function reversePineappleFlop(): TableView {
+  const seats = [
+    seat(1, "anshi", 1840, { isOwner: true, inHand: true, cards: ["Qs", "Jh", "Td"], lastAction: null }),
+    seat(2, "Richard", 1960, { inHand: true, bet: 40, cards: [null, null, null], lastAction: { type: "bet", amount: 40, to: 40 } }),
+    seat(3, "Maya", 2100, { inHand: true, cards: [null, null, null], lastAction: { type: "check", amount: 0 } }),
+  ];
+  const v = table([...seats, null, null, null], {
+    settings: REVERSE_PINEAPPLE,
+    buttonSeat: 3,
+    hand: hand({ street: "flop", boards: [["9c", "8h", "2s"]], pot: 140, boardShares: [140], currentBet: 40, toAct: 1, ...turn(0.7) }),
+  });
+  return you(v, { labels: ["Straight"], legal: { seat: 1, canCheck: false, callAmount: 40, canRaise: true, minRaiseTo: 80, maxRaiseTo: 1840 } });
+}
+
+/** z) Reverse Pineapple on the river: hero holds 5, opponents show 5 backs (one folded with 3). */
+function reversePineappleRiver(): TableView {
+  const five = [null, null, null, null, null];
+  const seats = [
+    seat(1, "anshi", 1600, { isOwner: true, inHand: true, cards: ["Qs", "Jh", "Td", "4c", "Ah"], lastAction: null }),
+    seat(2, "Richard", 1700, { inHand: true, bet: 120, cards: five, lastAction: { type: "bet", amount: 120, to: 120 } }),
+    seat(3, "Maya", 2100, { inHand: true, folded: true, cards: [null, null, null], lastAction: { type: "fold", amount: 0 } }),
+    seat(4, "Theo", 1500, { inHand: true, cards: five, lastAction: { type: "check", amount: 0 } }),
+  ];
+  const v = table([...seats, null, null], {
+    settings: REVERSE_PINEAPPLE,
+    buttonSeat: 3,
+    hand: hand({ street: "river", boards: [["9c", "8h", "2s", "Kd", "7s"]], pot: 520, boardShares: [520], currentBet: 120, toAct: 1, ...turn(0.6) }),
+  });
+  return you(v, { labels: ["Straight"], legal: { seat: 1, canCheck: false, callAmount: 120, canRaise: true, minRaiseTo: 240, maxRaiseTo: 1600 } });
+}
+
+/** A) Reverse Pineapple showdown: both play the board alone (0 of 5 hole cards), so the pot splits. */
+function reversePineappleShowdown(): TableView {
+  const seats = [seat(1, "anshi", 2200, { isOwner: true }), seat(2, "Richard", 1800), seat(3, "Maya", 2000)];
+  const v = table([...seats, null, null, null], {
+    settings: REVERSE_PINEAPPLE,
+    buttonSeat: 2,
+    lastHand: last({
+      boards: [["Ah", "Kh", "Qh", "Jh", "Th"]],
+      pots: [{ amount: 400, slices: [{ run: null, board: 0, half: null, amount: 400, winners: [{ seat: 1, amount: 200 }, { seat: 2, amount: 200 }] }] }],
+      shown: [
+        { seat: 1, nickname: "anshi", cards: ["2c", "3d", "7s", "9c", "4h"], labels: ["Royal flush"], secondRunLabels: null, best: [["Ah", "Kh", "Qh", "Jh", "Th"]], secondRunBest: null },
+        { seat: 2, nickname: "Richard", cards: ["As", "Ad", "Ac", "Kc", "Ks"], labels: ["Royal flush"], secondRunLabels: null, best: [["Ah", "Kh", "Qh", "Jh", "Th"]], secondRunBest: null },
+      ],
+      nets: [{ seat: 1, net: 0 }, { seat: 2, net: 0 }, { seat: 3, net: 0 }],
+    }),
+  });
+  return v;
+}
+
 export interface DevState {
   id: string;
   title: string;
@@ -646,4 +699,7 @@ export const DEV_STATES: DevState[] = [
   { id: "v", title: "Red river, run twice (5 and 8 cards)", view: redRiverTwoRuns() },
   { id: "w", title: "Red river rabbit hunt: 1 back after a red river", view: redRiverRabbit() },
   { id: "x", title: "Red river stress: double board run twice, 12-card rows, deck ran dry", view: redRiverStress() },
+  { id: "y", title: "Reverse Pineapple, flop (hero holds 3)", view: reversePineappleFlop() },
+  { id: "z", title: "Reverse Pineapple, river (5 cards each)", view: reversePineappleRiver() },
+  { id: "A", title: "Reverse Pineapple showdown, the board plays (split, 0 hole cards)", view: reversePineappleShowdown() },
 ];

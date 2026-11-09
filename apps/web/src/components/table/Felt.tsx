@@ -105,13 +105,15 @@ function dealerFor(view: TableView, layout: FeltLayout): Dealer {
   const button = view.buttonSeat ?? 0;
   const fromButton = (s: number) => (s - button - 1 + n) % n;
   const dealt = view.seats.flatMap((s) => (s?.inHand ? [s.seat] : [])).sort((a, b) => fromButton(a) - fromButton(b));
-  const rounds = VARIANTS[view.settings.variant].holeCards;
+  const v = VARIANTS[view.settings.variant];
+  // Cards dealt at once to start; any beyond these arrive later (Reverse Pineapple) and fly in alone.
+  const first = v.holeCards - ("laterHole" in v ? v.laterHole : [0, 0, 0]).reduce((a: number, b: number) => a + b, 0);
   // About a second for the whole deal, however many cards.
-  const gap = Math.min(70, 1000 / Math.max(1, dealt.length * rounds));
+  const gap = Math.min(70, 1000 / Math.max(1, dealt.length * first));
   const { felt } = layout;
   const x = felt.x + felt.w / 2;
   const y = felt.y + felt.h / 2;
-  return (seat, fan) => ({ x: x - fan.x, y: y - fan.y, slot: Math.max(0, dealt.indexOf(seat)), players: dealt.length, gap });
+  return (seat, fan) => ({ x: x - fan.x, y: y - fan.y, slot: Math.max(0, dealt.indexOf(seat)), players: dealt.length, gap, first });
 }
 
 export function Felt({
